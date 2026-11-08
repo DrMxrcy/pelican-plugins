@@ -899,17 +899,20 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                                 throw new Exception('No downloadable file found');
                             }
 
-                            $this->performInstallOrUpdate($server, $record, $latestVersion, $primaryFile, $installedMod);
+                            // A new version can require dependencies the old one didn't.
+                            $dependencies = $this->installWithDependencies($server, $record, $latestVersion, $primaryFile, $installedMod);
 
                             $this->forgetInstalledState();
 
                             Notification::make()
                                 ->title(trans('modrinth-plus::strings.notifications.update_success'))
-                                ->body(trans('modrinth-plus::strings.notifications.update_success_body', [
+                                ->body($this->withInstalledDependencies(trans('modrinth-plus::strings.notifications.update_success_body', [
                                     'version' => $latestVersion['version_number'],
-                                ]))
+                                ]), $dependencies))
                                 ->success()
                                 ->send();
+
+                            $this->notifyDependencyProblems($dependencies);
                         } catch (Exception $exception) {
                             report($exception);
 

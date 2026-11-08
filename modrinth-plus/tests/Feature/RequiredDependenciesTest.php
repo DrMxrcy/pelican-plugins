@@ -306,6 +306,29 @@ class RequiredDependenciesTest extends TestCase
         $this->assertStringContainsString('custom-lib.jar', $notifications[1]['body']);
     }
 
+    public function test_update_installs_dependencies_the_new_version_added(): void
+    {
+        $this->account();
+        $this->installed = [self::metadata('xaeros-minimap', "Xaero's Minimap")];
+        $this->fakeModrinth();
+
+        $this->expectDownloads('xaeros-minimap-x2.jar', 'P7dR8mSH-fapi2.jar');
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()
+            ->with(Mockery::type(Server::class), Mockery::any(), 'xaeros-minimap', Mockery::any(), Mockery::any(), 'x2', 'x2', 'xaeros-minimap-x2.jar', Mockery::any())
+            ->andReturn(true);
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()
+            ->with(Mockery::type(Server::class), Mockery::any(), 'P7dR8mSH', 'fabric-api', 'Fabric API', 'fapi2', 'fapi2', 'P7dR8mSH-fapi2.jar', null, 'xaeros-minimap')
+            ->andReturn(true);
+        MinecraftModrinth::shouldReceive('deleteFile')->once()->with(Mockery::type(Server::class), 'mods', 'xaeros-minimap-old.jar');
+
+        $this->page()->callAction(TestAction::make('update')->table(self::XAERO_ROW));
+
+        $notifications = $this->notifications();
+        $this->assertCount(1, $notifications);
+        $this->assertSame('success', $notifications[0]['status']);
+        $this->assertStringContainsString('Fabric API', $notifications[0]['body']);
+    }
+
     public function test_main_install_failure_installs_no_dependencies(): void
     {
         $this->account();
