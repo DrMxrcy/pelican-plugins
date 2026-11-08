@@ -5,6 +5,7 @@ namespace DrMxrcy\ModrinthPlus\Services;
 use App\Models\Server;
 use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
+use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
 use DrMxrcy\ModrinthPlus\Support\SearchFacets;
 use Exception;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
@@ -163,9 +164,11 @@ class MinecraftModrinthService
      * refilled from the next one, so a page may show fewer than 20 rows.
      *
      * @param  bool  $includeClientOnly  also list client-only projects, overriding the hide_client_only config
+     * @param  ModrinthSearchIndex|null  $index  sort order; null picks relevance with a search term, else downloads
+     * @param  array<mixed>  $categories  Modrinth category names, any of which must match
      * @return array{hits: array<int, array<string, mixed>>, total_hits: int, versions: array<string, array<int, mixed>|null>}
      */
-    public function getProjects(Server $server, ModrinthProjectType $modrinthProjectType, int $page = 1, ?string $search = null, bool $includeClientOnly = false): array
+    public function getProjects(Server $server, ModrinthProjectType $modrinthProjectType, int $page = 1, ?string $search = null, bool $includeClientOnly = false, ?ModrinthSearchIndex $index = null, array $categories = []): array
     {
         $modrinthProjectType = $modrinthProjectType->value;
         $minecraftLoader = $this->getLoaderFromServer($server);
@@ -183,14 +186,22 @@ class MinecraftModrinthService
 
         $hideClientOnly = !$includeClientOnly && (bool) config('modrinth-plus.hide_client_only', true);
 
+        $index ??= ModrinthSearchIndex::defaultFor($search);
+        $categories = SearchFacets::normalizeCategories($categories);
+
         $data = [
             'offset' => ($page - 1) * 20,
             'limit' => 20,
-            'facets' => SearchFacets::build($minecraftLoader, $minecraftVersion, $hideClientOnly),
+            'index' => $index->value,
+            'facets' => SearchFacets::build($minecraftLoader, $minecraftVersion, $hideClientOnly, categories: $categories),
         ];
 
-        // The filter is part of the key so toggling it never serves the other variant's cached page.
-        $key = "modrinth_projects:{$modrinthProjectType}:$minecraftVersion:$minecraftLoader:".($hideClientOnly ? 'server' : 'all').":$page";
+        // Every filter is part of the key so changing one never serves another variant's cached page.
+        $key = "modrinth_projects:{$modrinthProjectType}:$minecraftVersion:$minecraftLoader:".($hideClientOnly ? 'server' : 'all').":$page:{$index->value}";
+
+        if ($categories !== []) {
+            $key .= ':cat:'.md5(implode(',', $categories));
+        }
 
         if ($search) {
             $data['query'] = $search;

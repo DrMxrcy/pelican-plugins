@@ -82,4 +82,46 @@ class SearchFacetsTest extends TestCase
             SearchFacets::build('fabric', null, false),
         );
     }
+
+    public function test_categories_form_their_own_or_group(): void
+    {
+        $this->assertSame(
+            [['categories:fabric'], ['versions:26.3'], self::PROJECT_TYPES, ['categories:optimization', 'categories:utility']],
+            $this->decode(SearchFacets::build('fabric', '26.3', false, categories: ['optimization', 'utility'])),
+        );
+    }
+
+    public function test_categories_keep_loader_version_and_server_side_groups(): void
+    {
+        $facets = $this->decode(SearchFacets::build('fabric', '26.3', true, categories: ['optimization']));
+
+        $this->assertContains(['categories:fabric'], $facets);
+        $this->assertContains(['versions:26.3'], $facets);
+        $this->assertContains(self::SERVER_SIDES, $facets);
+        $this->assertContains(['categories:optimization'], $facets);
+    }
+
+    public function test_categories_never_share_the_loader_group(): void
+    {
+        $facets = $this->decode(SearchFacets::build('fabric', null, false, categories: ['optimization']));
+
+        $this->assertSame(['categories:fabric'], $facets[0]);
+        foreach ($facets as $group) {
+            $this->assertFalse(in_array('categories:fabric', $group, true) && in_array('categories:optimization', $group, true));
+        }
+    }
+
+    public function test_no_categories_adds_no_group(): void
+    {
+        $this->assertSame(SearchFacets::build('fabric', '26.3', true), SearchFacets::build('fabric', '26.3', true, categories: []));
+    }
+
+    public function test_categories_are_normalized(): void
+    {
+        $this->assertSame(['optimization', 'utility'], SearchFacets::normalizeCategories(['utility', '', 'optimization', 'utility', 7, null]));
+        $this->assertSame(
+            SearchFacets::build('fabric', null, false, categories: ['optimization', 'utility']),
+            SearchFacets::build('fabric', null, false, categories: ['utility', 'optimization', 'utility', '']),
+        );
+    }
 }

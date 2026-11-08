@@ -26,8 +26,12 @@ final class SearchFacets
      * @param  string  $loader  Modrinth loader name, e.g. "fabric" or "paper".
      * @param  string|null  $minecraftVersion  null (or empty) for proxies, which are not tied to a version.
      * @param  bool  $hideClientOnly  Drop projects whose server_side is "unsupported".
+     * @param  array<mixed>  $categories  Modrinth category names; any of them matches (one OR group,
+     *                                    never mixed with the loader group, which must always match).
+     *
+     * New options go in as trailing named arguments, so callers pass them by name.
      */
-    public static function build(string $loader, ?string $minecraftVersion, bool $hideClientOnly): string
+    public static function build(string $loader, ?string $minecraftVersion, bool $hideClientOnly, array $categories = []): string
     {
         $facets = [['categories:'.$loader]];
 
@@ -41,6 +45,27 @@ final class SearchFacets
             $facets[] = array_map(fn (string $side) => 'server_side:'.$side, self::SERVER_SIDE_VALUES);
         }
 
+        $categories = self::normalizeCategories($categories);
+
+        if ($categories !== []) {
+            $facets[] = array_map(fn (string $category) => 'categories:'.$category, $categories);
+        }
+
         return json_encode($facets, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * Unique, non-empty, sorted category names, so the same selection always builds the same
+     * facets and cache key whatever order it was picked in.
+     *
+     * @param  array<mixed>  $categories
+     * @return array<int, string>
+     */
+    public static function normalizeCategories(array $categories): array
+    {
+        $categories = array_unique(array_filter($categories, fn ($category) => is_string($category) && $category !== ''));
+        sort($categories);
+
+        return $categories;
     }
 }

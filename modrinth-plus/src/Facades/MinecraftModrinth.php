@@ -4,6 +4,7 @@ namespace DrMxrcy\ModrinthPlus\Facades;
 
 use App\Models\Server;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
+use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
 use DrMxrcy\ModrinthPlus\Services\MinecraftModrinthService;
 use Illuminate\Support\Facades\Facade;
 
@@ -15,7 +16,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static ?string getLatestMinecraftVersion()
  * @method static array{icon: string, name: string, supported_project_types: string[], display_name: string}|null getLoaderFromServer(Server $server)
  * @method static array<int, array{icon: string, name: string, supported_project_types: string[]}> getLoaders()
- * @method static array{hits: array<int, array<string, mixed>>, total_hits: int, versions: array<string, array<int, ModrinthVersion>|null>} getProjects(Server $server, ModrinthProjectType $modrinthProjectType, int $page = 1, ?string $search = null, bool $includeClientOnly = false)
+ * @method static array{hits: array<int, array<string, mixed>>, total_hits: int, versions: array<string, array<int, ModrinthVersion>|null>} getProjects(Server $server, ModrinthProjectType $modrinthProjectType, int $page = 1, ?string $search = null, bool $includeClientOnly = false, ?ModrinthSearchIndex $index = null, array<mixed> $categories = [])
  * @method static array<int, array<string, mixed>> getInstalledModsFromModrinth(array<int, InstalledModMetadata> $installedMods, int $page = 1)
  * @method static array<int, ModrinthVersion> getProjectVersions(string $projectId, Server $server)
  * @method static array<string, array<int, ModrinthVersion>|null> getProjectVersionsBulk(array<int, string> $projectIds, Server $server)
