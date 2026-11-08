@@ -12,6 +12,7 @@ use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
 use DrMxrcy\ModrinthPlus\Support\Compatibility;
 use DrMxrcy\ModrinthPlus\Support\DependencyResolver;
 use DrMxrcy\ModrinthPlus\Support\Sides;
+use DrMxrcy\ModrinthPlus\Support\UnmatchedJars;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
@@ -87,6 +88,16 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     public static function canUninstall(): bool
     {
         return static::userCan(SubuserPermission::FileDelete);
+    }
+
+    /**
+     * "Scan folder" reads every untracked jar's contents to hash it (file.read-content) and
+     * writes the metadata file, which it may have to create (file.create + file.update). It
+     * never writes, renames or deletes a jar.
+     */
+    public static function canScan(): bool
+    {
+        return static::userCan(SubuserPermission::FileReadContent, SubuserPermission::FileCreate, SubuserPermission::FileUpdate);
     }
 
     /**
@@ -239,6 +250,59 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         if ($refresh) {
             $this->js('$wire.$refresh()');
         }
+    }
+
+    /**
+     * Jars on disk the metadata doesn't list and the last scan found no Modrinth match for.
+     * An unreachable daemon shows none rather than failing the whole Installed tab.
+     *
+     * @return list<array{name: string, size: int, modified: ?string}>
+     */
+    protected function notOnModrinthFiles(): array
+    {
+        /** @var Server $server */
+        $server = Filament::getTenant();
+
+        try {
+            $listing = MinecraftModrinth::listFolder($server, static::$modrinthProjectType->getFolder());
+        } catch (Exception $exception) {
+            report($exception);
+
+            return [];
+        }
+
+        return UnmatchedJars::notOnModrinth($server->id, static::$modrinthProjectType, UnmatchedJars::untracked($listing, $this->getInstalledModsMetadata()));
+    }
+
+    /**
+     * A read-only Installed-tab row for a jar that is not on Modrinth: no project, no versions,
+     * no link; only uninstall (deleting the file) is offered.
+     *
+     * @param  array{name: string, size: int, modified: ?string}  $file
+     * @return array<string, mixed>
+     */
+    protected function notOnModrinthRecord(array $file): array
+    {
+        return [
+            'project_id' => '',
+            'slug' => '',
+            'title' => $file['name'],
+            'description' => trans('modrinth-plus::strings.scan.row_description'),
+            'icon_url' => null,
+            'author' => '',
+            'downloads' => 0,
+            'date_modified' => $file['modified'],
+            'project_type' => '',
+            'unavailable' => true,
+            'not_on_modrinth' => true,
+            'filename' => $file['name'],
+        ];
+    }
+
+    /** @param  array<string, mixed>  $record */
+    protected function isNotOnModrinthRecord(array $record): bool
+    {
+        return !empty($record['not_on_modrinth']);
     }
 
     /**
@@ -688,7 +752,20 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                     $this->primeVersionsCache(array_column($projects, 'project_id'));
 
-                    return new LengthAwarePaginator($projects, count($installedMods), 20, $page);
+                    // "Not on Modrinth" jars come after every tracked project and fill up the page.
+                    $unmatched = $this->notOnModrinthFiles();
+
+                    if ($search) {
+                        $unmatched = array_values(array_filter($unmatched, fn (array $file) => str_contains(strtolower($file['name']), strtolower($search))));
+                    }
+
+                    $unmatchedOffset = max(0, ($page - 1) * 20 - count($installedMods));
+
+                    foreach (array_slice($unmatched, $unmatchedOffset, 20 - count($projects)) as $file) {
+                        $projects[] = $this->notOnModrinthRecord($file);
+                    }
+
+                    return new LengthAwarePaginator($projects, count($installedMods) + count($unmatched), 20, $page);
                 } else {
                     $response = MinecraftModrinth::getProjects(
                         $server,
@@ -749,7 +826,9 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->description(function (array $record) {
                         $description = (strlen($record['description']) > 120) ? substr($record['description'], 0, 120).'...' : $record['description'];
 
-                        if (Sides::playersNeedIt($record)) {
+                        if ($this->isNotOnModrinthRecord($record)) {
+                            $badge = $this->renderBadge('gray', 'tabler-file-unknown', 'scan.badge');
+                        } elseif (Sides::playersNeedIt($record)) {
                             $badge = $this->renderBadge('warning', 'tabler-users', 'sides.players_need_it');
                         } elseif ($this->activeTab === 'installed' && Sides::isClientOnly($record)) {
                             $badge = $this->renderBadge('danger', 'tabler-alert-triangle', 'client_only.badge');
@@ -860,6 +939,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->color('success')
                     ->tooltip(trans('modrinth-plus::strings.actions.install_latest'))
                     ->visible(function (array $record) {
+                        if ($this->isNotOnModrinthRecord($record)) {
+                            return false;
+                        }
+
                         $installedMod = $this->getInstalledMod($record['project_id']);
 
                         return is_null($installedMod);
@@ -1042,7 +1125,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->color('danger')
                     ->tooltip(trans('modrinth-plus::strings.actions.uninstall'))
                     ->visible(function (array $record) {
-                        return !is_null($this->getInstalledMod($record['project_id']));
+                        return $this->isNotOnModrinthRecord($record) || !is_null($this->getInstalledMod($record['project_id']));
                     })
                     ->authorize(fn () => static::canUninstall())
                     ->requiresConfirmation()
@@ -1050,6 +1133,12 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->modalDescription(fn (array $record) => trans('modrinth-plus::strings.modals.uninstall_description', ['name' => $record['title']]))
                     ->action(function (array $record) {
                         abort_unless(static::canUninstall(), 403);
+
+                        if ($this->isNotOnModrinthRecord($record)) {
+                            $this->uninstallNotOnModrinth($record);
+
+                            return;
+                        }
 
                         try {
                             /** @var Server $server */
@@ -1121,12 +1210,128 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $folder = static::$modrinthProjectType->getFolder();
 
         return [
+            $this->makeScanFolderAction(),
             $this->makeCheckCompatibilityAction(),
             Action::make('open_folder')
                 ->tooltip(fn () => trans('modrinth-plus::strings.page.open_folder', ['folder' => $folder]))
                 ->icon('tabler-folder-open')
                 ->url(fn () => ListFiles::getUrl(['path' => $folder]), true),
         ];
+    }
+
+    /**
+     * Imports jars dropped into the folder by hand: matches on Modrinth (by file hash) become
+     * normal installed projects, the rest show as "Not on Modrinth" rows. Only the metadata file
+     * is written; no jar is deleted, renamed or replaced.
+     */
+    protected function makeScanFolderAction(): Action
+    {
+        return Action::make('scan_folder')
+            ->label(trans('modrinth-plus::strings.scan.action'))
+            ->tooltip(trans('modrinth-plus::strings.scan.tooltip'))
+            ->icon('tabler-file-search')
+            ->color('gray')
+            ->authorize(fn () => static::canScan())
+            ->requiresConfirmation()
+            ->modalIcon('tabler-file-search')
+            ->modalHeading(trans('modrinth-plus::strings.scan.heading'))
+            ->modalDescription(fn () => trans('modrinth-plus::strings.scan.description', ['folder' => static::$modrinthProjectType->getFolder()]))
+            ->modalSubmitActionLabel(trans('modrinth-plus::strings.scan.submit'))
+            ->action(function () {
+                abort_unless(static::canScan(), 403);
+
+                /** @var Server $server */
+                $server = Filament::getTenant();
+
+                try {
+                    $result = MinecraftModrinth::scanAndImport($server, static::$modrinthProjectType);
+                } catch (Exception $exception) {
+                    report($exception);
+
+                    $this->forgetInstalledState();
+
+                    Notification::make()
+                        ->title(trans('modrinth-plus::strings.scan.failed'))
+                        ->body(trans('modrinth-plus::strings.scan.failed_body'))
+                        ->danger()
+                        ->send();
+
+                    return;
+                }
+
+                $this->forgetInstalledState();
+                $this->flushCachedTableRecords();
+
+                $lines = [];
+
+                if ($result['imported'] !== []) {
+                    $lines[] = trans('modrinth-plus::strings.scan.imported', ['count' => count($result['imported']), 'list' => implode(', ', $result['imported'])]);
+                }
+
+                foreach (['not_on_modrinth', 'duplicates', 'skipped'] as $kind) {
+                    if ($result[$kind] !== []) {
+                        $lines[] = trans("modrinth-plus::strings.scan.$kind", ['count' => count($result[$kind]), 'list' => implode(', ', $result[$kind])]);
+                    }
+                }
+
+                if ($result['error']) {
+                    $lines[] = trans('modrinth-plus::strings.scan.error');
+                }
+
+                $notification = Notification::make()
+                    ->title(trans($result['error'] ? 'modrinth-plus::strings.scan.finished_with_problems' : 'modrinth-plus::strings.scan.finished'))
+                    ->body($lines === [] ? trans('modrinth-plus::strings.scan.nothing_new') : implode(' ', $lines));
+
+                if ($result['error']) {
+                    $notification->warning()->persistent();
+                } else {
+                    $notification->success();
+                }
+
+                $notification->send();
+            });
+    }
+
+    /**
+     * Deletes a "Not on Modrinth" jar. The file name is checked against the folder again, so
+     * only a jar that is still untracked and still listed as not on Modrinth can be deleted here.
+     *
+     * @param  array<string, mixed>  $record
+     */
+    protected function uninstallNotOnModrinth(array $record): void
+    {
+        /** @var Server $server */
+        $server = Filament::getTenant();
+
+        try {
+            $filename = $this->validateFilename(is_string($record['filename'] ?? null) ? $record['filename'] : '');
+
+            if (!in_array($filename, array_column($this->notOnModrinthFiles(), 'name'), true)) {
+                throw new Exception("$filename is not an untracked jar that is not on Modrinth");
+            }
+
+            MinecraftModrinth::deleteFile($server, static::$modrinthProjectType->getFolder(), $filename);
+
+            UnmatchedJars::forget($server->id, static::$modrinthProjectType, $filename);
+
+            $this->forgetInstalledState();
+
+            Notification::make()
+                ->title(trans('modrinth-plus::strings.notifications.uninstall_success'))
+                ->body(trans('modrinth-plus::strings.notifications.uninstall_success_body', ['name' => $filename]))
+                ->success()
+                ->send();
+        } catch (Exception $exception) {
+            report($exception);
+
+            $this->forgetInstalledState();
+
+            Notification::make()
+                ->title(trans('modrinth-plus::strings.notifications.uninstall_failed'))
+                ->body(trans('modrinth-plus::strings.notifications.uninstall_failed_body'))
+                ->danger()
+                ->send();
+        }
     }
 
     /**

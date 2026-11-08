@@ -103,6 +103,27 @@ return [
         ],
     ],
 
+    'scan' => [
+        'action' => 'Ordner scannen',
+        'tooltip' => 'Von Hand hinzugefügte Jars finden und auf Modrinth nachschlagen',
+        'heading' => 'Ordner scannen',
+        'description' => 'Sucht in :folder nach Jars, die nicht in der Liste der installierten Projekte stehen, prüft jede anhand ihres Datei-Hashes auf Modrinth und fügt die Treffer hinzu, damit sie hier aktualisiert und deinstalliert werden können. Jars werden nur gelesen: nichts wird gelöscht, umbenannt oder ersetzt. Große Ordner können einen Moment dauern.',
+        'submit' => 'Scannen',
+        'finished' => 'Scan abgeschlossen',
+        'finished_with_problems' => 'Scan mit Problemen abgeschlossen',
+        'nothing_new' => 'Keine neuen Jars gefunden.',
+        'imported' => ':count importiert: :list.',
+        'not_on_modrinth' => 'Nicht auf Modrinth (:count): :list.',
+        'duplicates' => 'Unverändert gelassen, das Projekt ist bereits aus einer anderen Datei installiert (:count): :list.',
+        'skipped' => 'Übersprungen, zu groß oder nicht lesbar (:count): :list.',
+        'error' => 'Modrinth war nicht erreichbar oder die Liste der installierten Projekte konnte nicht gespeichert werden. Versuche es später erneut.',
+        'failed' => 'Scan fehlgeschlagen',
+        'failed_body' => 'Der Ordner konnte nicht gelesen werden. Bitte versuche es erneut oder wende dich an den Support, wenn das Problem weiterhin besteht.',
+        'badge' => 'Nicht auf Modrinth',
+        'badge_tooltip' => 'Diese Jar wurde von Hand hinzugefügt und ist Modrinth nicht bekannt, daher kann sie hier nicht aktualisiert werden.',
+        'row_description' => 'Von Hand hinzugefügt. Hier ist nur Deinstallieren möglich.',
+    ],
+
     'notifications' => [
         'install_success' => 'Installation abgeschlossen',
         'install_success_body' => ':name Version :version erfolgreich installiert',
