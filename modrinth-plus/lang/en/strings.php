@@ -21,6 +21,12 @@ return [
         'mod_unavailable' => 'This mod/plugin is no longer available on Modrinth',
     ],
 
+    'client_only' => [
+        'show' => 'Show client-only',
+        'hide' => 'Hide client-only',
+        'tooltip' => 'Client-only mods and plugins (like shaders or minimaps) do nothing on a server.',
+    ],
+
     'table' => [
         'columns' => [
             'title' => 'Title',

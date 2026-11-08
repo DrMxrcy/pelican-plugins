@@ -21,6 +21,12 @@ return [
         'mod_unavailable' => 'Dieser Mod/Plugin ist auf Modrinth nicht mehr verfügbar',
     ],
 
+    'client_only' => [
+        'show' => 'Client-only anzeigen',
+        'hide' => 'Client-only ausblenden',
+        'tooltip' => 'Reine Client-Mods und -Plugins (etwa Shader oder Minimaps) haben auf einem Server keine Wirkung.',
+    ],
+
     'table' => [
         'columns' => [
             'title' => 'Titel',
