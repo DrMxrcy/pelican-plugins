@@ -329,6 +329,59 @@ class RequiredDependenciesTest extends TestCase
         $this->assertStringContainsString('Fabric API', $notifications[0]['body']);
     }
 
+    public function test_an_installed_incompatible_project_asks_for_confirmation_but_does_not_block(): void
+    {
+        $this->account();
+        $this->installed = [self::metadata('optifabric', 'OptiFabric')];
+        $this->fakeModrinth(xaeroVersion: self::version('xaeros-minimap', 'x2', [self::dep('optifabric', 'incompatible')]));
+
+        $downloads = [];
+        MinecraftModrinth::shouldReceive('downloadFile')->andReturnUsing(function (Server $server, string $url, string $folder, string $filename) use (&$downloads) {
+            $downloads[] = $filename;
+        });
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()->andReturn(true);
+
+        $page = $this->page()
+            ->mountAction(TestAction::make('install_latest')->table(self::XAERO_ROW))
+            ->assertActionMounted(TestAction::make('install_latest')->table(self::XAERO_ROW))
+            ->assertMountedActionModalSee('OptiFabric');
+
+        $this->assertSame([], $downloads);
+
+        $page->callMountedAction();
+
+        $this->assertSame(['xaeros-minimap-x2.jar'], $downloads);
+        $this->assertSame('success', $this->notifications()[0]['status']);
+    }
+
+    public function test_no_confirmation_without_an_installed_incompatible_project(): void
+    {
+        $this->account();
+        $this->installed = [self::metadata('P7dR8mSH', 'Fabric API')];
+        $this->fakeModrinth(xaeroVersion: self::version('xaeros-minimap', 'x2', [self::dep('optifabric', 'incompatible'), self::dep('P7dR8mSH')]));
+
+        $this->expectDownloads('xaeros-minimap-x2.jar');
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()->andReturn(true);
+
+        // Without a modal, mounting runs the action straight away.
+        $this->page()
+            ->mountAction(TestAction::make('install_latest')->table(self::XAERO_ROW))
+            ->assertActionNotMounted(TestAction::make('install_latest')->table(self::XAERO_ROW));
+    }
+
+    public function test_update_modal_mentions_an_installed_incompatible_project(): void
+    {
+        $this->account();
+        $this->installed = [self::metadata('xaeros-minimap', "Xaero's Minimap"), self::metadata('optifabric', 'OptiFabric')];
+        $this->fakeModrinth(xaeroVersion: self::version('xaeros-minimap', 'x2', [self::dep('optifabric', 'incompatible')]));
+
+        MinecraftModrinth::shouldReceive('downloadFile')->never();
+
+        $this->page()
+            ->mountAction(TestAction::make('update')->table(self::XAERO_ROW))
+            ->assertMountedActionModalSee('OptiFabric');
+    }
+
     public function test_main_install_failure_installs_no_dependencies(): void
     {
         $this->account();

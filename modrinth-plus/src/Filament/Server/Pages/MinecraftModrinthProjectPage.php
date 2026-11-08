@@ -489,6 +489,30 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     }
 
     /**
+     * The warning shown before installing a version that declares an installed project as
+     * `incompatible`, or null when there is none. It only warns; installing stays possible.
+     *
+     * @param  array<string, mixed>|null  $versionData
+     */
+    protected function incompatibleWarning(?array $versionData): ?string
+    {
+        if ($versionData === null) {
+            return null;
+        }
+
+        $installed = array_column($this->getInstalledModsMetadata(), 'project_title', 'project_id');
+        $conflicts = DependencyResolver::incompatibleInstalled($versionData, array_map('strval', array_keys($installed)));
+
+        if ($conflicts === []) {
+            return null;
+        }
+
+        return trans('modrinth-plus::strings.dependencies.incompatible_description', [
+            'list' => implode(', ', array_map(fn (string $id) => $installed[$id], $conflicts)),
+        ]);
+    }
+
+    /**
      * The success body plus the dependencies that were pulled in.
      *
      * @param  array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, error: bool}  $report
@@ -547,6 +571,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             ->icon('tabler-download')
             ->visible($primaryFile !== null)
             ->authorize(fn () => $this->canInstallProject($record))
+            // Only opens a confirmation when the version is incompatible with something installed.
+            ->requiresConfirmation(fn () => $this->incompatibleWarning($versionData) !== null)
+            ->modalHeading(fn () => $this->incompatibleWarning($versionData) !== null ? trans('modrinth-plus::strings.dependencies.incompatible_heading') : null)
+            ->modalDescription(fn () => $this->incompatibleWarning($versionData))
             ->action(function () use ($record, $versionData, $primaryFile) {
                 abort_unless($this->canInstallProject($record), 403);
 
@@ -783,6 +811,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         return is_null($installedMod);
                     })
                     ->authorize(fn (array $record) => $this->canInstallProject($record))
+                    // Only opens a confirmation when the latest version is incompatible with something installed.
+                    ->requiresConfirmation(fn (array $record) => $this->incompatibleWarning($this->getCachedVersions($record['project_id'])[0] ?? null) !== null)
+                    ->modalHeading(fn (array $record) => $this->incompatibleWarning($this->getCachedVersions($record['project_id'])[0] ?? null) !== null ? trans('modrinth-plus::strings.dependencies.incompatible_heading') : null)
+                    ->modalDescription(fn (array $record) => $this->incompatibleWarning($this->getCachedVersions($record['project_id'])[0] ?? null))
                     ->action(function (array $record) {
                         abort_unless($this->canInstallProject($record), 403);
 
@@ -866,10 +898,14 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         $installedMod = $this->getInstalledMod($record['project_id']);
                         $versions = $this->getCachedVersions($record['project_id']);
 
-                        return trans('modrinth-plus::strings.modals.update_description', [
+                        $description = trans('modrinth-plus::strings.modals.update_description', [
                             'old_version' => $installedMod['version_number'] ?? 'unknown',
                             'new_version' => $versions[0]['version_number'] ?? 'unknown',
                         ]);
+
+                        $warning = $this->incompatibleWarning($versions[0] ?? null);
+
+                        return $warning === null ? $description : "$description $warning";
                     })
                     ->action(function (array $record) {
                         abort_unless(static::canUpdate(), 403);
