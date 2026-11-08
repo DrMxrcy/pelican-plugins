@@ -42,6 +42,9 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     /** @var array<string, array<int, mixed>> Cache for version data by project_id */
     protected array $versionsCache = [];
 
+    /** Per-visit override of the hide_client_only config; Livewire state only, never persisted. */
+    public bool $showClientOnly = false;
+
     protected static string|\BackedEnum|null $navigationIcon = 'tabler-packages';
 
     protected static ?string $slug = 'modrinth';
@@ -414,7 +417,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                     return new LengthAwarePaginator($projects, count($installedMods), 20, $page);
                 } else {
-                    $response = MinecraftModrinth::getProjects($server, static::$modrinthProjectType, $page, $search);
+                    $response = MinecraftModrinth::getProjects($server, static::$modrinthProjectType, $page, $search, $this->showClientOnly);
 
                     $installedIds = array_column($this->getInstalledModsMetadata(), 'project_id');
                     $this->primeVersionsCache(array_intersect(array_column($response['hits'], 'project_id'), $installedIds));
@@ -423,6 +426,21 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                 }
             })
             ->paginated([20])
+            ->headerActions([
+                Action::make('toggle_client_only')
+                    ->label(fn () => trans($this->showClientOnly ? 'modrinth-plus::strings.client_only.hide' : 'modrinth-plus::strings.client_only.show'))
+                    ->tooltip(trans('modrinth-plus::strings.client_only.tooltip'))
+                    ->icon(fn () => $this->showClientOnly ? 'tabler-eye-off' : 'tabler-eye')
+                    ->color(fn () => $this->showClientOnly ? 'warning' : 'gray')
+                    // Only meaningful on the "All" tab and while the config hides client-only projects.
+                    ->visible(fn () => $this->activeTab !== 'installed' && (bool) config('modrinth-plus.hide_client_only', true))
+                    ->action(function () {
+                        $this->showClientOnly = !$this->showClientOnly;
+
+                        $this->resetPage();
+                        $this->flushCachedTableRecords();
+                    }),
+            ])
             ->columns([
                 ImageColumn::make('icon_url')
                     ->label(''),

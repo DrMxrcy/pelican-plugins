@@ -61,6 +61,16 @@ class ClientOnlyFilterTest extends TestCase
         ]);
     }
 
+    public function test_toggle_strings_exist_in_every_locale(): void
+    {
+        foreach (['en', 'de'] as $locale) {
+            foreach (['show', 'hide', 'tooltip'] as $key) {
+                $line = "modrinth-plus::strings.client_only.$key";
+                $this->assertNotSame($line, trans($line, locale: $locale), "$locale: $key missing");
+            }
+        }
+    }
+
     public function test_config_defaults_to_hiding_client_only(): void
     {
         $this->assertTrue(config('modrinth-plus.hide_client_only'));
