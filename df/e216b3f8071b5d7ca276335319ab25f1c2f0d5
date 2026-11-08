@@ -1,0 +1,67 @@
+modrinth-plus/tests/Unit/ModrinthProjectTypeTest.php
+  s_501b43856c653e::t_9b299503a53353 15-26
+modrinth-plus/tests/Feature/DatapackPageTest.php
+  s_501b43856c653e::t_9b299503a53353 1-8,10-14,16,18-76,84-89,94-96,99-105,110-315,398-410,412-417
+  s_501b43856c653e::t_5a7288b7f71a6c 9,15,17,77-83,90-93,97-98,106-109,316-397,411
+modrinth-plus/src/Filament/Server/Pages/MinecraftModrinthProjectPage.php
+  s_501b43856c653e::t_1df5f859d0a40a 1034,1221
+  s_501b43856c653e::t_831791c79ebc62 848-851,1163-1165,1242-1244,1311-1313
+  s_501b43856c653e::t_9b299503a53353 146-161,167-169,217-228,303,331,452,632,644,1015,1035,1171,1224,1240,1306,1333,1689,1715-1716,1775-1776,1782-1783
+  s_501b43856c653e::t_61bf3427487570 11,162-166,170-216,356-359,364,550,683-684,1411-1413,1462-1465,1536-1538,1544,1546-1547,1563,1568,1572,1644
+  s_501b43856c653e::t_0b7e9bba2065b1 1166,1241,1314
+modrinth-plus/tests/Feature/DatapackFolderTest.php
+  s_501b43856c653e::t_b168ed135c0fc6 109
+  s_501b43856c653e::t_9b299503a53353 1-8,10-106,108,118-119,133-151
+  s_501b43856c653e::t_a0afe14d677ea8 9,107,110-117,120-132
+modrinth-plus/lang/de/strings.php
+  s_501b43856c653e::t_9b299503a53353 7,171-174
+  s_501b43856c653e::t_61bf3427487570 175-176
+  s_501b43856c653e::t_7081ec3742035d 177
+modrinth-plus/src/Enums/ModrinthProjectType.php
+  s_501b43856c653e::t_9b299503a53353 6,13,20,24-29,34,56-57
+  s_501b43856c653e::t_fe721b897e9829 58-59
+modrinth-plus/src/Support/ServerProperties.php
+  s_501b43856c653e::t_9b299503a53353 1-88
+modrinth-plus/lang/en/strings.php
+  s_501b43856c653e::t_9b299503a53353 7,171-174
+  s_501b43856c653e::t_61bf3427487570 175-176
+  s_501b43856c653e::t_fe67abe7d6db50 177
+modrinth-plus/tests/Feature/DatapackSearchTest.php
+  s_501b43856c653e::t_9b299503a53353 1-165
+modrinth-plus/tests/Unit/SearchFacetsTest.php
+  s_501b43856c653e::t_9b299503a53353 119-140
+modrinth-plus/src/Exceptions/ServerPropertiesUnreadableException.php
+  s_501b43856c653e::t_a40814b96f6914 1-11
+modrinth-plus/tests/Unit/ServerPropertiesTest.php
+  s_501b43856c653e::t_9b299503a53353 1-89
+modrinth-plus/src/Filament/Server/Pages/MinecraftModrinthDatapackPage.php
+  s_501b43856c653e::t_9b299503a53353 1-34,41-63
+  s_501b43856c653e::t_831791c79ebc62 35-40
+modrinth-plus/README.md
+  s_501b43856c653e::t_9b299503a53353 13,17
+  s_501b43856c653e::t_b2c0422f5edc75 14-16,33
+modrinth-plus/src/Services/MinecraftModrinthService.php
+  s_501b43856c653e::t_a40814b96f6914 9,688-689,700-706,714,797-801,806,814,816,824,843,850,853,855,859,934,956,992,1180
+  s_501b43856c653e::t_6d7395473b2a96 687,807-813
+  s_501b43856c653e::t_9b299503a53353 11,40-42,121-129,139-149,168-181,231-234,239,271-272,286-287,296-298,496,498,543,546,554,679-686,690,692-699,707-713,715-717,744
+modrinth-plus/src/Support/SearchFacets.php
+  s_501b43856c653e::t_9b299503a53353 31-33,37,45
+modrinth-plus/src/Facades/MinecraftModrinth.php
+  s_501b43856c653e::t_9b299503a53353 17,23-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dfe216b3f8071b5d7ca276335319ab25f1c2f0d5",
+  "prompts": {},
+  "sessions": {
+    "s_501b43856c653e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5ed0bea9-bde8-4bb4-b0ab-a0087e5c85b8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
