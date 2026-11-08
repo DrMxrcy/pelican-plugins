@@ -26,6 +26,7 @@ _Full work log — every item, including internal/dev work. The curated public c
 
 ### 🐛 Fixed
 - Enforce subuser file permissions on the Modrinth pages and actions
+- saveModMetadata/removeModMetadata overwrite metadata when reading it fails
 
 ### ⚡ Improved
 - Requests to Modrinth now identify the plugin, as Modrinth asks.
