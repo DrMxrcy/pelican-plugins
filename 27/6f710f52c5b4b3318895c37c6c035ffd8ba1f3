@@ -1,0 +1,27 @@
+modrinth-plus/tests/Feature/DatapackPageTest.php
+  s_501b43856c653e::t_b76153ff71aa28 259-261
+modrinth-plus/src/Filament/Server/Pages/MinecraftModrinthProjectPage.php
+  s_501b43856c653e::t_f44174489a5f17 464,473-474,481-485,488-489,532-539,558-576,580-595,597-598,602-631,633,728-731,734,755,760,856-869,885-892,898-899
+  s_501b43856c653e::t_d6b1e946e9bda0 577-579
+  s_501b43856c653e::t_1d07b96d1b7306 900
+  s_501b43856c653e::t_6c84317364b196 634-636
+  s_501b43856c653e::t_02819e361a8b96 632,901
+modrinth-plus/tests/Feature/FreshInstallUntrackedFileTest.php
+  s_501b43856c653e::t_d6b1e946e9bda0 195-200,334
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "276f710f52c5b4b3318895c37c6c035ffd8ba1f3",
+  "prompts": {},
+  "sessions": {
+    "s_501b43856c653e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5ed0bea9-bde8-4bb4-b0ab-a0087e5c85b8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
