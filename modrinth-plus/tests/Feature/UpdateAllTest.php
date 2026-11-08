@@ -51,6 +51,12 @@ class UpdateAllTest extends TestCase
     /** @var array<int, array<string, mixed>> the mods folder listing */
     private array $folder = [];
 
+    /** @var array<string, string> what the mods folder holds: file name => content ("old" / "new") */
+    private array $disk = [];
+
+    /** New versions keep the old file name (`alpha.jar` → `alpha.jar`), as many projects do. */
+    private bool $sameFilename = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -76,7 +82,7 @@ class UpdateAllTest extends TestCase
     }
 
     /** @return array<string, mixed> */
-    private static function metadata(string $id, string $title, string $versionId = 'old'): array
+    private static function metadata(string $id, string $title, string $versionId = 'old', bool $sameFilename = false): array
     {
         return [
             'project_id' => $id,
@@ -84,20 +90,22 @@ class UpdateAllTest extends TestCase
             'project_title' => $title,
             'version_id' => "$id-$versionId",
             'version_number' => "$versionId.0",
-            'filename' => "$id-$versionId.jar",
+            'filename' => $sameFilename ? "$id.jar" : "$id-$versionId.jar",
             'installed_at' => '2026-01-01T00:00:00+00:00',
         ];
     }
 
     /** @return array<string, mixed> */
-    private static function version(string $id): array
+    private static function version(string $id, bool $sameFilename = false): array
     {
+        $filename = $sameFilename ? "$id.jar" : "$id-new.jar";
+
         return [
             'id' => "$id-new",
             'project_id' => $id,
             'version_number' => 'new.0',
             'dependencies' => [],
-            'files' => [['primary' => true, 'filename' => "$id-new.jar", 'url' => "https://cdn.modrinth.com/$id-new.jar"]],
+            'files' => [['primary' => true, 'filename' => $filename, 'url' => "https://cdn.modrinth.com/$filename"]],
         ];
     }
 
@@ -126,19 +134,23 @@ class UpdateAllTest extends TestCase
      */
     private function fakeServer(bool $everythingCurrent = false): void
     {
+        $same = $this->sameFilename;
+
         $this->installed = [
-            self::metadata('alpha', 'Alpha'),
-            self::metadata('beta', 'Beta'),
-            self::metadata('sodium', 'Sodium'),
-            self::metadata('current', 'Current', 'new'),
-            self::metadata('gone', 'Gone'),
+            self::metadata('alpha', 'Alpha', sameFilename: $same),
+            self::metadata('beta', 'Beta', sameFilename: $same),
+            self::metadata('sodium', 'Sodium', sameFilename: $same),
+            self::metadata('current', 'Current', 'new', $same),
+            self::metadata('gone', 'Gone', sameFilename: $same),
         ];
 
         if ($everythingCurrent) {
-            $this->installed = [self::metadata('current', 'Current', 'new')];
+            $this->installed = [self::metadata('current', 'Current', 'new', $same)];
         }
 
-        $versionsOf = fn (string $id) => $id === 'gone' ? [] : [self::version($id)];
+        $this->disk = array_fill_keys(array_column($this->installed, 'filename'), 'old');
+
+        $versionsOf = fn (string $id) => $id === 'gone' ? [] : [self::version($id, $same)];
 
         MinecraftModrinth::shouldReceive('getMinecraftVersion')->andReturn('1.21.1');
         MinecraftModrinth::shouldReceive('getLoaderFromServer')->andReturn(null);
@@ -170,6 +182,7 @@ class UpdateAllTest extends TestCase
             }
 
             $this->downloads[] = $filename;
+            $this->disk[$filename] = 'new';
         });
         MinecraftModrinth::shouldReceive('saveModMetadata')->andReturnUsing(
             function (Server $server, ModrinthProjectType $type, string $id, string $slug, string $title, string $versionId, string $versionNumber, string $filename) {
@@ -188,6 +201,16 @@ class UpdateAllTest extends TestCase
         );
         MinecraftModrinth::shouldReceive('deleteFile')->andReturnUsing(function (Server $server, string $folder, string $filename) {
             $this->deleted[] = $filename;
+            unset($this->disk[$filename]);
+        });
+        // Like Wings: a rename never replaces an existing file.
+        MinecraftModrinth::shouldReceive('renameFile')->andReturnUsing(function (Server $server, string $folder, string $from, string $to) {
+            if (!isset($this->disk[$from]) || isset($this->disk[$to])) {
+                throw new Exception("Cannot rename $from to $to");
+            }
+
+            $this->disk[$to] = $this->disk[$from];
+            unset($this->disk[$from]);
         });
         MinecraftModrinth::shouldReceive('removeModMetadata')->never();
     }
@@ -343,6 +366,80 @@ class UpdateAllTest extends TestCase
         $this->assertSame('warning', $notifications[0]['status']);
         $this->assertStringContainsString(trans('modrinth-plus::strings.update_all.failed', ['list' => 'Alpha']), $notifications[0]['body']);
         $this->assertStringContainsString(trans('modrinth-plus::strings.update_all.updated', ['list' => 'Beta']), $notifications[0]['body']);
+    }
+
+    public function test_same_filename_update_with_a_refused_metadata_write_keeps_the_old_file(): void
+    {
+        $this->account();
+        $this->sameFilename = true;
+        $this->fakeServer();
+        $this->failingMetadataWrites = ['alpha'];
+
+        $this->page()->callAction(TestAction::make('update_all')->table());
+
+        // Fails if: the download overwrote alpha.jar and the refused metadata write left it there
+        // (or deleted it), or a moved-aside copy is left behind.
+        $this->assertSame('old', $this->disk['alpha.jar'] ?? null);
+        $this->assertSame('new', $this->disk['beta.jar'] ?? null);
+        $this->assertEqualsCanonicalizing(['alpha.jar', 'beta.jar', 'sodium.jar', 'current.jar', 'gone.jar'], array_keys($this->disk));
+        $this->assertSame('alpha-old', $this->installed[0]['version_id']);
+        $this->assertSame('alpha.jar', $this->installed[0]['filename']);
+        $this->assertSame('beta-new', $this->installed[1]['version_id']);
+
+        $notifications = $this->notifications();
+        $this->assertCount(1, $notifications);
+        $this->assertSame('warning', $notifications[0]['status']);
+        $this->assertStringContainsString(trans('modrinth-plus::strings.update_all.failed', ['list' => 'Alpha']), $notifications[0]['body']);
+        $this->assertStringContainsString(trans('modrinth-plus::strings.update_all.updated', ['list' => 'Beta']), $notifications[0]['body']);
+    }
+
+    public function test_same_filename_update_with_a_failing_download_keeps_the_old_file(): void
+    {
+        $this->account();
+        $this->sameFilename = true;
+        $this->fakeServer();
+        $this->failingDownloads = ['alpha.jar'];
+
+        $this->page()->callAction(TestAction::make('update_all')->table());
+
+        $this->assertSame('old', $this->disk['alpha.jar'] ?? null);
+        $this->assertSame('new', $this->disk['beta.jar'] ?? null);
+        $this->assertEqualsCanonicalizing(['alpha.jar', 'beta.jar', 'sodium.jar', 'current.jar', 'gone.jar'], array_keys($this->disk));
+        $this->assertSame('alpha-old', $this->installed[0]['version_id']);
+        $this->assertSame('warning', $this->notifications()[0]['status']);
+    }
+
+    public function test_same_filename_update_succeeds_and_leaves_only_the_new_file(): void
+    {
+        $this->account();
+        $this->sameFilename = true;
+        $this->fakeServer();
+
+        $this->page()->callAction(TestAction::make('update_all')->table());
+
+        $this->assertSame(['alpha.jar', 'beta.jar'], $this->downloads);
+        $this->assertSame('new', $this->disk['alpha.jar'] ?? null);
+        $this->assertSame('new', $this->disk['beta.jar'] ?? null);
+        // Fails if: the moved-aside old file is never cleaned up.
+        $this->assertEqualsCanonicalizing(['alpha.jar', 'beta.jar', 'sodium.jar', 'current.jar', 'gone.jar'], array_keys($this->disk));
+        $this->assertSame('alpha-new', $this->installed[0]['version_id']);
+        $this->assertSame('alpha.jar', $this->installed[0]['filename']);
+        $this->assertSame('success', $this->notifications()[0]['status']);
+    }
+
+    public function test_single_same_filename_update_with_a_refused_metadata_write_keeps_the_old_file(): void
+    {
+        $this->account();
+        $this->sameFilename = true;
+        $this->fakeServer();
+        $this->failingMetadataWrites = ['alpha'];
+
+        $this->page()->callAction(TestAction::make('update')->table('0'));
+
+        $this->assertSame('old', $this->disk['alpha.jar'] ?? null);
+        $this->assertEqualsCanonicalizing(['alpha.jar', 'beta.jar', 'sodium.jar', 'current.jar', 'gone.jar'], array_keys($this->disk));
+        $this->assertSame('alpha-old', $this->installed[0]['version_id']);
+        $this->assertSame('danger', $this->notifications()[0]['status']);
     }
 
     public function test_subuser_without_file_delete_cannot_run_it(): void

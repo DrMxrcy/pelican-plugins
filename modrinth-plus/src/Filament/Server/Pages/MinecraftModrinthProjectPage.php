@@ -451,7 +451,27 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
         $folder = $this->getProjectFolder();
 
-        MinecraftModrinth::downloadFile($server, $primaryFile['url'], $folder, $safeNewFilename);
+        // When the new version keeps the old file name, the download would overwrite the old file
+        // before the metadata write (which can still be refused) has happened. So the old file is
+        // moved aside first and only deleted once the update is recorded; any failure puts it
+        // back. The daemon never renames onto an existing file, hence the random suffix.
+        $movedAside = null;
+
+        if ($oldFilename === $safeNewFilename) {
+            $movedAside = '.' . $safeNewFilename . '.modrinth-backup-' . bin2hex(random_bytes(4));
+
+            MinecraftModrinth::renameFile($server, $folder, $oldFilename, $movedAside);
+        }
+
+        try {
+            MinecraftModrinth::downloadFile($server, $primaryFile['url'], $folder, $safeNewFilename);
+        } catch (Exception $exception) {
+            if ($movedAside !== null) {
+                $this->restoreMovedAside($server, $folder, $movedAside, $safeNewFilename);
+            }
+
+            throw $exception;
+        }
 
         $saved = MinecraftModrinth::saveModMetadata(
             $server,
@@ -466,7 +486,9 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         );
 
         if (!$saved) {
-            if (!$oldFilename || $oldFilename !== $safeNewFilename) {
+            if ($movedAside !== null) {
+                $this->restoreMovedAside($server, $folder, $movedAside, $safeNewFilename);
+            } else {
                 try {
                     MinecraftModrinth::deleteFile($server, $folder, $safeNewFilename);
                 } catch (Exception $rollbackException) {
@@ -475,6 +497,17 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             }
 
             throw new Exception('Failed to save mod metadata');
+        }
+
+        if ($movedAside !== null) {
+            // The update is recorded; a leftover copy is only clutter, so this never fails it.
+            try {
+                MinecraftModrinth::deleteFile($server, $folder, $movedAside);
+            } catch (Exception $cleanupException) {
+                report($cleanupException);
+            }
+
+            return;
         }
 
         if ($oldFilename && $oldFilename !== $safeNewFilename) {
@@ -503,6 +536,26 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                 throw $deleteException;
             }
+        }
+    }
+
+    /**
+     * Rollback of a same-name update: removes whatever the download left under $filename and
+     * renames the moved-aside old file back. If that fails the old file is still there under
+     * $movedAside, never deleted, and the failure is reported.
+     */
+    private function restoreMovedAside(Server $server, string $folder, string $movedAside, string $filename): void
+    {
+        try {
+            MinecraftModrinth::deleteFile($server, $folder, $filename);
+        } catch (Exception) {
+            // Usually nothing was downloaded; the rename below tells whether the name is free.
+        }
+
+        try {
+            MinecraftModrinth::renameFile($server, $folder, $movedAside, $filename);
+        } catch (Exception $restoreException) {
+            report(new Exception("Could not move $folder/$movedAside back to $filename; the old file is kept under that name", previous: $restoreException));
         }
     }
 

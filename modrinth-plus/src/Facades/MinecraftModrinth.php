@@ -30,6 +30,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static bool removeModMetadata(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId)
  * @method static void downloadFile(Server $server, string $url, string $folder, string $filename)
  * @method static void deleteFile(Server $server, string $folder, string $filename)
+ * @method static void renameFile(Server $server, string $folder, string $from, string $to)
  * @method static bool fileExists(Server $server, string $folder, string $filename)
  * @method static array<string, mixed> listFolder(Server $server, string $folder)
  * @method static InstalledModMetadata|null getInstalledMod(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId)

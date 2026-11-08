@@ -1255,6 +1255,20 @@ class MinecraftModrinthService
             ->throw();
     }
 
+    /**
+     * Renames $from to $to inside $folder. The daemon refuses when $to already exists, so this
+     * never replaces a file.
+     *
+     * @throws Exception
+     */
+    public function renameFile(Server $server, string $folder, string $from, string $to): void
+    {
+        app(DaemonFileRepository::class)
+            ->setServer($server)
+            ->renameFiles($folder, [['from' => $from, 'to' => $to]])
+            ->throw();
+    }
+
     public function fileExists(Server $server, string $folder, string $filename): bool
     {
         foreach ($this->listFolder($server, $folder) as $file) {
