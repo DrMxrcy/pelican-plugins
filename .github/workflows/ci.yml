@@ -58,6 +58,33 @@ jobs:
       - name: Run PHPStan
         run: cd pelican && vendor/bin/phpstan analyse --memory-limit=-1 --error-format=github
 
+  tests:
+    name: Plugin tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: 8.4
+          extensions: bcmath, curl, gd, intl, mbstring, openssl, pdo, pdo_sqlite, sqlite3, tokenizer, xml, zip
+          tools: composer:v2
+          coverage: none
+      - name: Clone Pelican Panel
+        run: git clone --depth=1 https://github.com/pelican-dev/panel pelican
+      - name: Install panel dependencies
+        run: cd pelican && composer install --no-interaction --no-progress --no-scripts
+      - name: Stage plugins into panel
+        run: |
+          cp pelican/.env.example pelican/.env
+          mkdir -p pelican/plugins
+          for manifest in */plugin.json; do
+            d="$(dirname "$manifest")"
+            [ "$d" = pelican ] && continue
+            rsync -a "$d/" "pelican/plugins/$d/"
+          done
+      - name: Run plugin tests
+        run: bash scripts/run-plugin-tests.sh pelican
+
   package:
     name: Package zips
     runs-on: ubuntu-latest
