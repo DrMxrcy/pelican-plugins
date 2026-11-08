@@ -223,11 +223,15 @@ class MinecraftModrinthService
             cache()->put('modrinth:categories', $tags, now()->addHour());
         }
 
+        // Modrinth has no datapack categories of its own: datapacks are tagged with the mod ones
+        // (its own datapack search offers those), so the datapack filter lists them too.
+        $tagProjectType = $modrinthProjectType === ModrinthProjectType::Datapack ? ModrinthProjectType::Mod->value : $modrinthProjectType->value;
+
         $names = [];
         foreach ($tags as $tag) {
             if (
                 is_array($tag)
-                && ($tag['project_type'] ?? null) === $modrinthProjectType->value
+                && ($tag['project_type'] ?? null) === $tagProjectType
                 && is_string($tag['name'] ?? null)
                 && $tag['name'] !== ''
                 && !in_array($tag['name'], self::HIDDEN_CATEGORIES, true)
@@ -259,8 +263,9 @@ class MinecraftModrinthService
      */
     public function getProjects(Server $server, ModrinthProjectType $modrinthProjectType, int $page = 1, ?string $search = null, bool $includeClientOnly = false, ?ModrinthSearchIndex $index = null, array $categories = []): array
     {
+        $isDatapack = $modrinthProjectType === ModrinthProjectType::Datapack;
+        $minecraftLoader = $this->getLoaderFromServer($server, $modrinthProjectType);
         $modrinthProjectType = $modrinthProjectType->value;
-        $minecraftLoader = $this->getLoaderFromServer($server);
 
         if (!$minecraftLoader) {
             return [
@@ -273,7 +278,8 @@ class MinecraftModrinthService
         $minecraftVersion = $this->getMinecraftVersion($server);
         $minecraftLoader = $minecraftLoader['name'];
 
-        $hideClientOnly = !$includeClientOnly && (bool) config('modrinth-plus.hide_client_only', true);
+        // Datapacks always run on the server, so the client-only filter never applies to them.
+        $hideClientOnly = !$isDatapack && !$includeClientOnly && (bool) config('modrinth-plus.hide_client_only', true);
 
         $index ??= ModrinthSearchIndex::defaultFor($search);
         $categories = SearchFacets::normalizeCategories($categories);
@@ -282,7 +288,9 @@ class MinecraftModrinthService
             'offset' => ($page - 1) * 20,
             'limit' => 20,
             'index' => $index->value,
-            'facets' => SearchFacets::build($minecraftLoader, $minecraftVersion, $hideClientOnly, categories: $categories),
+            'facets' => $isDatapack
+                ? SearchFacets::build($minecraftLoader, $minecraftVersion, false, categories: $categories, projectTypes: [ModrinthProjectType::Datapack->value])
+                : SearchFacets::build($minecraftLoader, $minecraftVersion, $hideClientOnly, categories: $categories),
         ];
 
         // Every filter is part of the key so changing one never serves another variant's cached page.
@@ -480,9 +488,9 @@ class MinecraftModrinthService
     }
 
     /** @return array<array{name: string, version_number: string, changelog: ?string, dependencies: array<mixed>, game_version: string[], version_type: string, loaders: string[], featured: bool, status: string, requested_status: ?string, id: string, project_id: string, author_id: string, date_published: string, downloads: int, changelog_url: ?string, files: array<mixed>}> */
-    public function getProjectVersions(string $projectId, Server $server): array
+    public function getProjectVersions(string $projectId, Server $server, ?ModrinthProjectType $modrinthProjectType = null): array
     {
-        $minecraftLoader = $this->getLoaderFromServer($server);
+        $minecraftLoader = $this->getLoaderFromServer($server, $modrinthProjectType);
 
         if (!$minecraftLoader) {
             return [];
@@ -527,9 +535,10 @@ class MinecraftModrinthService
      * must not mistake an outage for incompatibility.
      *
      * @param  array<int, string>  $projectIds
+     * @param  ModrinthProjectType|null  $modrinthProjectType  datapacks match the `datapack` loader (see getLoaderFromServer())
      * @return array<string, array<int, mixed>|null>
      */
-    public function getProjectVersionsBulk(array $projectIds, Server $server): array
+    public function getProjectVersionsBulk(array $projectIds, Server $server, ?ModrinthProjectType $modrinthProjectType = null): array
     {
         $projectIds = array_values(array_unique(array_filter($projectIds)));
 
@@ -537,7 +546,7 @@ class MinecraftModrinthService
             return [];
         }
 
-        $minecraftLoader = $this->getLoaderFromServer($server);
+        $minecraftLoader = $this->getLoaderFromServer($server, $modrinthProjectType);
 
         if (!$minecraftLoader) {
             return array_fill_keys($projectIds, []);
