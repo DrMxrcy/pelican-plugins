@@ -2,6 +2,7 @@
 
 namespace DrMxrcy\ModrinthPlus\Filament\Server\Pages;
 
+use App\Enums\SubuserPermission;
 use App\Filament\Server\Resources\Files\Pages\ListFiles;
 use App\Models\Server;
 use App\Traits\Filament\BlockAccessInConflict;
@@ -54,7 +55,60 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         /** @var Server $server */
         $server = Filament::getTenant();
 
-        return parent::canAccess() && static::$modrinthProjectType && in_array(static::$modrinthProjectType, ModrinthProjectType::fromServer($server));
+        return parent::canAccess()
+            && static::$modrinthProjectType
+            && in_array(static::$modrinthProjectType, ModrinthProjectType::fromServer($server))
+            && static::userCan(SubuserPermission::FileRead);
+    }
+
+    /** Installing a project that is not on the server yet writes a new jar. */
+    public static function canInstall(): bool
+    {
+        return static::userCan(SubuserPermission::FileCreate);
+    }
+
+    /** Updating writes the new jar and deletes the old one. */
+    public static function canUpdate(): bool
+    {
+        return static::userCan(SubuserPermission::FileCreate, SubuserPermission::FileDelete);
+    }
+
+    public static function canUninstall(): bool
+    {
+        return static::userCan(SubuserPermission::FileDelete);
+    }
+
+    /**
+     * Whether the current user holds every given permission on the current server. The
+     * daemon file calls run with the server's own credentials, so the panel side is the only
+     * place subuser file permissions are enforced. Owners and admins pass through User::can().
+     */
+    protected static function userCan(SubuserPermission ...$permissions): bool
+    {
+        $user = user();
+        $server = Filament::getTenant();
+
+        if (!$user || !$server instanceof Server) {
+            return false;
+        }
+
+        foreach ($permissions as $permission) {
+            if (!$user->can($permission, $server)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Installing a specific version replaces the jar when the project is already installed.
+     *
+     * @param  array<string, mixed>  $record
+     */
+    protected function canInstallVersion(array $record): bool
+    {
+        return is_null($this->getInstalledMod($record['project_id'])) ? static::canInstall() : static::canUpdate();
     }
 
     public static function getNavigationLabel(): string
@@ -79,7 +133,14 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
     public function mount(): void
     {
+        $this->authorizeAccess();
+
         $this->loadDefaultActiveTab();
+    }
+
+    protected function authorizeAccess(): void
+    {
+        abort_unless(static::canAccess(), 403);
     }
 
     /** @return array<string, Tab> */
@@ -393,7 +454,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                                     ->label(trans('modrinth-plus::strings.actions.install'))
                                     ->icon('tabler-download')
                                     ->visible($primaryFile !== null)
+                                    ->authorize(fn () => $this->canInstallVersion($record))
                                     ->action(function () use ($record, $versionData, $primaryFile) {
+                                        abort_unless($this->canInstallVersion($record), 403);
+
                                         try {
                                             /** @var Server $server */
                                             $server = Filament::getTenant();
@@ -457,7 +521,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                         return is_null($installedMod);
                     })
+                    ->authorize(fn () => static::canInstall())
                     ->action(function (array $record) {
+                        abort_unless(static::canInstall(), 403);
+
                         try {
                             /** @var Server $server */
                             $server = Filament::getTenant();
@@ -520,6 +587,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                         return $installedMod['version_id'] !== $versions[0]['id'];
                     })
+                    ->authorize(fn () => static::canUpdate())
                     ->requiresConfirmation()
                     ->modalHeading(trans('modrinth-plus::strings.modals.update_heading'))
                     ->modalDescription(function (array $record) {
@@ -532,6 +600,8 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         ]);
                     })
                     ->action(function (array $record) {
+                        abort_unless(static::canUpdate(), 403);
+
                         try {
                             /** @var Server $server */
                             $server = Filament::getTenant();
@@ -608,10 +678,13 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->visible(function (array $record) {
                         return !is_null($this->getInstalledMod($record['project_id']));
                     })
+                    ->authorize(fn () => static::canUninstall())
                     ->requiresConfirmation()
                     ->modalHeading(fn (array $record) => trans('modrinth-plus::strings.modals.uninstall_heading'))
                     ->modalDescription(fn (array $record) => trans('modrinth-plus::strings.modals.uninstall_description', ['name' => $record['title']]))
                     ->action(function (array $record) {
+                        abort_unless(static::canUninstall(), 403);
+
                         try {
                             /** @var Server $server */
                             $server = Filament::getTenant();
