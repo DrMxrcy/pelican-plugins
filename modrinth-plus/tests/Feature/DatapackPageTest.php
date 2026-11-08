@@ -234,6 +234,34 @@ class DatapackPageTest extends TestCase
         $this->assertSame([ModrinthProjectType::Datapack], array_values(array_unique($this->lookupTypes, SORT_REGULAR)));
     }
 
+    public function test_install_onto_an_untracked_zip_puts_it_back_when_the_metadata_is_refused(): void
+    {
+        $this->account(['modrinth_datapacks']);
+        $this->fakeModrinth();
+        $this->folderListing = [['name' => 'Terralith_v2.5.8.zip', 'size' => 1, 'file' => true, 'directory' => false, 'modified' => null]];
+
+        $movedAside = null;
+        MinecraftModrinth::shouldReceive('renameFile')->once()
+            ->withArgs(function (Server $server, string $folder, string $from, string $to) use (&$movedAside) {
+                if ($folder !== 'survival/datapacks' || $from !== 'Terralith_v2.5.8.zip' || preg_match('/^\.Terralith_v2\.5\.8\.zip\.modrinth-backup-[0-9a-f]{8}$/', $to) !== 1) {
+                    return false;
+                }
+
+                $movedAside = $to;
+
+                return true;
+            })
+            ->ordered();
+        MinecraftModrinth::shouldReceive('downloadFile')->once()->with(Mockery::type(Server::class), Mockery::any(), 'survival/datapacks', 'Terralith_v2.5.8.zip')->ordered();
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()->andReturn(false)->ordered();
+        MinecraftModrinth::shouldReceive('deleteFile')->once()->with(Mockery::type(Server::class), 'survival/datapacks', 'Terralith_v2.5.8.zip')->ordered();
+        MinecraftModrinth::shouldReceive('renameFile')->once()
+            ->withArgs(fn (Server $server, string $folder, string $from, string $to) => $folder === 'survival/datapacks' && $from === $movedAside && $to === 'Terralith_v2.5.8.zip')
+            ->ordered();
+
+        $this->page()->callAction(TestAction::make('install_latest')->table(self::NOT_INSTALLED_ROW));
+    }
+
     public function test_update_replaces_the_zip_in_the_world_folder(): void
     {
         $this->account(['modrinth_datapacks']);
