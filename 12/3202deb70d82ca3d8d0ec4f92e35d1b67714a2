@@ -1,0 +1,31 @@
+scripts/docker/Dockerfile
+  s_501b43856c653e::t_3552d5394f8af4 1-15
+scripts/run-plugin-tests.sh
+  s_501b43856c653e::t_f2b77d481e16ca 1-2
+.gitignore
+  s_501b43856c653e::t_f2b77d481e16ca 29
+pint.json
+  s_501b43856c653e::t_5debd9434b8edc 10-15
+CHANGELOG.internal.md
+  s_501b43856c653e::t_e23d115b43e02e 27-29
+phpstan.neon
+  s_501b43856c653e::t_5e864711a47dee 11-12
+scripts/check.sh
+  s_501b43856c653e::t_284eecc4144e54 1-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "123202deb70d82ca3d8d0ec4f92e35d1b67714a2",
+  "prompts": {},
+  "sessions": {
+    "s_501b43856c653e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5ed0bea9-bde8-4bb4-b0ab-a0087e5c85b8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
