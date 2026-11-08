@@ -393,7 +393,16 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             return $report;
         }
 
-        $installedIds = array_column(MinecraftModrinth::getInstalledModsMetadata($server, static::$modrinthProjectType), 'project_id');
+        // Unreadable metadata would make every dependency look missing and download it again.
+        $installedMods = MinecraftModrinth::readInstalledModsMetadata($server, static::$modrinthProjectType);
+
+        if ($installedMods === null) {
+            $report['error'] = true;
+
+            return $report;
+        }
+
+        $installedIds = array_column($installedMods, 'project_id');
 
         $plan = DependencyResolver::resolve($projectId, $versionData, function (string $dependencyId) use ($server) {
             $versions = MinecraftModrinth::getProjectVersionsBulk([$dependencyId], $server);

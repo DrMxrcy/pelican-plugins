@@ -7,7 +7,9 @@ use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
 use DrMxrcy\ModrinthPlus\Services\MinecraftModrinthService;
 use DrMxrcy\ModrinthPlus\Tests\TestCase;
+use Exception;
 use GuzzleHttp\Psr7\Response as Psr7Response;
+use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Illuminate\Http\Client\Response;
 use Mockery;
 
@@ -21,13 +23,16 @@ class DependencyMetadataTest extends TestCase
     /** Contents of the fake `.modrinth-metadata.json`. */
     private string $file = '';
 
+    /** Thrown by the fake daemon instead of returning the file. */
+    private ?Exception $readError = null;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $repository = Mockery::mock(DaemonFileRepository::class);
         $repository->shouldReceive('setServer')->andReturnSelf();
-        $repository->shouldReceive('getContent')->andReturnUsing(fn () => $this->file);
+        $repository->shouldReceive('getContent')->andReturnUsing(fn () => $this->readError ? throw $this->readError : $this->file);
         $repository->shouldReceive('putContent')->andReturnUsing(function (string $path, string $content) {
             $this->file = $content;
 
@@ -108,5 +113,19 @@ class DependencyMetadataTest extends TestCase
         app(MinecraftModrinthService::class)->removeModMetadata($this->server(), ModrinthProjectType::Mod, 'lithium');
 
         $this->assertSame([$fabric], $this->entries());
+    }
+
+    public function test_a_failed_read_is_told_apart_from_a_missing_file(): void
+    {
+        $service = app(MinecraftModrinthService::class);
+
+        $this->readError = new FileNotFoundException('no metadata yet');
+        $this->assertSame([], $service->readInstalledModsMetadata($this->server(), ModrinthProjectType::Mod));
+        $this->assertSame([], $service->getInstalledModsMetadata($this->server(), ModrinthProjectType::Mod));
+
+        $this->readError = new Exception('daemon unreachable');
+        $this->assertNull($service->readInstalledModsMetadata($this->server(), ModrinthProjectType::Mod));
+        // The existing contract is unchanged: callers that only list mods still get [].
+        $this->assertSame([], $service->getInstalledModsMetadata($this->server(), ModrinthProjectType::Mod));
     }
 }

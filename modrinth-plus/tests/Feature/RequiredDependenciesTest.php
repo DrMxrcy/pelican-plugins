@@ -39,6 +39,9 @@ class RequiredDependenciesTest extends TestCase
     /** @var array<int, array<string, mixed>> */
     private array $installed = [];
 
+    /** The metadata file can't be read (daemon unreachable). */
+    private bool $metadataDown = false;
+
     /** @var array<int, string> project ids whose versions were looked up as a dependency */
     private array $dependencyLookups = [];
 
@@ -139,6 +142,7 @@ class RequiredDependenciesTest extends TestCase
         MinecraftModrinth::shouldReceive('getLoaderFromServer')->andReturn(null);
         MinecraftModrinth::shouldReceive('listFolder')->andReturn([]);
         MinecraftModrinth::shouldReceive('getInstalledModsMetadata')->andReturnUsing(fn () => $this->installed);
+        MinecraftModrinth::shouldReceive('readInstalledModsMetadata')->andReturnUsing(fn () => $this->metadataDown ? null : $this->installed);
         MinecraftModrinth::shouldReceive('getInstalledModsFromModrinth')->andReturnUsing(
             fn (array $mods) => array_map(fn (array $mod) => self::project($mod['project_id'], $mod['project_title']), $mods),
         );
@@ -379,6 +383,27 @@ class RequiredDependenciesTest extends TestCase
         $this->assertStringContainsString('could not be checked', $notifications[1]['body']);
         $this->assertStringContainsString('sodium', $notifications[1]['body']);
         $this->assertStringNotContainsString('P7dR8mSH', $notifications[1]['body']);
+    }
+
+    public function test_dependencies_are_not_installed_when_the_metadata_cannot_be_read(): void
+    {
+        // Without the metadata every dependency would look missing and be downloaded again.
+        $this->account();
+        $this->fakeModrinth();
+        $this->metadataDown = true;
+
+        $this->expectDownloads('xaeros-minimap-x2.jar');
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()->andReturn(true);
+
+        $this->page()->callAction(TestAction::make('install_latest')->table(self::XAERO_ROW));
+
+        $notifications = $this->notifications();
+        $this->assertCount(2, $notifications);
+        $this->assertSame('success', $notifications[0]['status']);
+        $this->assertStringNotContainsString('Fabric API', $notifications[0]['body']);
+        $this->assertSame('warning', $notifications[1]['status']);
+        $this->assertStringContainsString('could not be checked', $notifications[1]['body']);
+        $this->assertSame([], $this->dependencyLookups);
     }
 
     public function test_update_installs_dependencies_the_new_version_added(): void

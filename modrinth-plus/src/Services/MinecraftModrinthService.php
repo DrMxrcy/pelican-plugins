@@ -632,8 +632,25 @@ class MinecraftModrinthService
         return join_paths($modrinthProjectType->getFolder(), '.modrinth-metadata.json');
     }
 
-    /** @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}> */
+    /**
+     * Installed mods from the metadata file; [] when there is none yet and also when it could not
+     * be read. Use readInstalledModsMetadata() to tell those two apart.
+     *
+     * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}>
+     */
     public function getInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType): array
+    {
+        return $this->readInstalledModsMetadata($server, $modrinthProjectType) ?? [];
+    }
+
+    /**
+     * Like getInstalledModsMetadata(), but null when the file exists yet could not be read (daemon
+     * unreachable, timeout), so callers that act on "not installed" can stop instead of guessing.
+     * A missing file is [] (nothing installed); an unparsable one is [] too, as it gets rewritten.
+     *
+     * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}>|null
+     */
+    public function readInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType): ?array
     {
         try {
             $fileRepository = app(DaemonFileRepository::class);
@@ -646,7 +663,7 @@ class MinecraftModrinthService
         } catch (Exception $exception) {
             report($exception);
 
-            return [];
+            return null;
         }
 
         if (!is_array($metadata) || !isset($metadata['installed_mods']) || !is_array($metadata['installed_mods'])) {

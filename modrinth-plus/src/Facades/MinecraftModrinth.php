@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static array<int, ModrinthVersion> getProjectVersions(string $projectId, Server $server)
  * @method static array<string, array<int, ModrinthVersion>|null> getProjectVersionsBulk(array<int, string> $projectIds, Server $server)
  * @method static array<int, InstalledModMetadata> getInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType)
+ * @method static array<int, InstalledModMetadata>|null readInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType)
  * @method static bool saveModMetadata(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId, string $projectSlug, string $projectTitle, string $versionId, string $versionNumber, string $filename, ?string $author = null, ?string $installedAsDependencyOf = null)
  * @method static bool removeModMetadata(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId)
  * @method static void downloadFile(Server $server, string $url, string $folder, string $filename)
