@@ -22,3 +22,7 @@ https://github.com/DrMxrcy/pelican-plugins/releases/download/modrinth-plus-lates
 ```
 
 Updates are detected automatically via `update_url`.
+
+## Credits
+
+The "Scan folder" import of hand-added jars (Modrinth lookup by file hash, "Not on Modrinth" rows) follows the idea of [YONN2222/pelican-minecraft-modrinth](https://github.com/YONN2222/pelican-minecraft-modrinth) (GPL-3.0).

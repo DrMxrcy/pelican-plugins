@@ -7,6 +7,7 @@ use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
 use DrMxrcy\ModrinthPlus\Support\SearchFacets;
+use DrMxrcy\ModrinthPlus\Support\UnmatchedJars;
 use Exception;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Illuminate\Http\Client\PendingRequest;
@@ -30,6 +31,9 @@ class MinecraftModrinthService
 
     /** Modrinth categories never offered as a filter (joke content, not useful on a server). */
     protected const HIDDEN_CATEGORIES = ['cursed'];
+
+    /** "Scan folder" skips jars larger than this (bytes) instead of pulling them through the panel. */
+    public const SCAN_MAX_FILE_BYTES = 50 * 1024 * 1024;
 
     protected static ?string $pluginVersion = null;
 
@@ -802,6 +806,214 @@ class MinecraftModrinthService
             report($exception);
 
             return false;
+        }
+    }
+
+    /**
+     * "Scan folder": finds jars in the project folder that the metadata file doesn't list,
+     * looks them up on Modrinth by SHA-1 in one `POST /version_files` request, and records the
+     * matches like an install would, plus `imported: true`. Jars without a match are remembered
+     * as "Not on Modrinth" (see UnmatchedJars). Only the metadata file is ever written: no jar is
+     * deleted, renamed, moved or rewritten.
+     *
+     * Hashing ruling: Wings has no checksum endpoint (its file API lists, reads, writes, copies,
+     * renames, deletes, compresses and pulls; the panel's DaemonFileRepository has no hash call
+     * either), and the listing carries only name/size/mode/mime/dates. So each untracked jar is
+     * read through `getContent()` and hashed on the panel. Jars over SCAN_MAX_FILE_BYTES (also
+     * enforced via `getContent()`'s size check), unreadable ones and names the page could not
+     * handle safely later are skipped and reported instead.
+     *
+     * `duplicates` are Modrinth jars of a project the metadata already tracks under another file;
+     * they are left alone. `error` is set when Modrinth or the metadata write failed: nothing is
+     * imported then and the previous "Not on Modrinth" result is kept when the lookup failed.
+     *
+     * @return array{imported: list<string>, not_on_modrinth: list<string>, skipped: list<string>, duplicates: list<string>, error: bool}
+     *
+     * @throws Exception when the folder can't be listed
+     */
+    public function scanAndImport(Server $server, ModrinthProjectType $modrinthProjectType): array
+    {
+        $result = ['imported' => [], 'not_on_modrinth' => [], 'skipped' => [], 'duplicates' => [], 'error' => false];
+
+        $folder = $modrinthProjectType->getFolder();
+
+        $untracked = UnmatchedJars::untracked(
+            $this->listFolder($server, $folder),
+            $this->getInstalledModsMetadata($server, $modrinthProjectType),
+        );
+
+        $fileRepository = app(DaemonFileRepository::class)->setServer($server);
+
+        /** @var array<string, string> $hashes filename => sha1 */
+        $hashes = [];
+        /** @var array<string, int> $sizes */
+        $sizes = [];
+
+        foreach ($untracked as $file) {
+            $name = $file['name'];
+
+            if (!UnmatchedJars::isSafeName($name) || $file['size'] > self::SCAN_MAX_FILE_BYTES) {
+                $result['skipped'][] = $name;
+
+                continue;
+            }
+
+            try {
+                $hashes[$name] = sha1($fileRepository->getContent(join_paths($folder, $name), self::SCAN_MAX_FILE_BYTES));
+                $sizes[$name] = $file['size'];
+            } catch (Exception $exception) {
+                report($exception);
+
+                $result['skipped'][] = $name;
+            }
+        }
+
+        if ($hashes === []) {
+            UnmatchedJars::remember($server->id, $modrinthProjectType, []);
+
+            return $result;
+        }
+
+        $versionsByHash = $this->getVersionsByHashes(array_values(array_unique($hashes)));
+
+        if ($versionsByHash === null) {
+            $result['error'] = true;
+
+            return $result;
+        }
+
+        /** @var array<string, array{id: string, project_id: string, version_number: string}> $matches */
+        $matches = [];
+        /** @var array<string, int> $notOnModrinth */
+        $notOnModrinth = [];
+
+        foreach ($hashes as $name => $hash) {
+            $version = $versionsByHash[$hash] ?? null;
+
+            if (is_array($version) && is_string($version['id'] ?? null) && is_string($version['project_id'] ?? null) && is_string($version['version_number'] ?? null)) {
+                $matches[$name] = $version;
+            } else {
+                $notOnModrinth[$name] = $sizes[$name];
+            }
+        }
+
+        $result['not_on_modrinth'] = array_map('strval', array_keys($notOnModrinth));
+
+        if ($matches !== []) {
+            $written = $this->importMatches($server, $modrinthProjectType, $matches);
+
+            if ($written === null) {
+                $result['error'] = true;
+            } else {
+                $result['imported'] = $written['imported'];
+                $result['duplicates'] = $written['duplicates'];
+            }
+        }
+
+        UnmatchedJars::remember($server->id, $modrinthProjectType, $notOnModrinth);
+
+        return $result;
+    }
+
+    /**
+     * Modrinth versions by SHA-1 (`POST /version_files`), keyed by hash; hashes Modrinth doesn't
+     * know are missing. Null when the request failed, so an outage never reads as "not on Modrinth".
+     *
+     * @param  list<string>  $hashes
+     * @return array<string, mixed>|null
+     */
+    protected function getVersionsByHashes(array $hashes): ?array
+    {
+        try {
+            $versions = $this->modrinth(15)
+                ->throw()
+                ->post('version_files', [
+                    'hashes' => $hashes,
+                    'algorithm' => 'sha1',
+                ])
+                ->json();
+        } catch (Exception $exception) {
+            report($exception);
+
+            return null;
+        }
+
+        return is_array($versions) ? $versions : null;
+    }
+
+    /**
+     * Appends one metadata entry per matched jar in a single write, under the metadata lock. The
+     * metadata is read again inside the lock, so a jar or project recorded meanwhile (an install,
+     * another scan) is not added twice. Null when the write failed.
+     *
+     * @param  array<string, array{id: string, project_id: string, version_number: string}>  $matches  filename => version
+     * @return array{imported: list<string>, duplicates: list<string>}|null
+     */
+    protected function importMatches(Server $server, ModrinthProjectType $modrinthProjectType, array $matches): ?array
+    {
+        $projects = $this->getProjectsByIds(array_values(array_unique(array_column($matches, 'project_id'))));
+
+        try {
+            return Cache::lock("modrinth_metadata:{$server->id}", 10)->block(5, function () use ($server, $modrinthProjectType, $matches, $projects) {
+                $installedMods = $this->getInstalledModsMetadata($server, $modrinthProjectType);
+
+                $trackedIds = array_fill_keys(array_column($installedMods, 'project_id'), true);
+                $trackedFiles = array_fill_keys(array_map('strtolower', array_column($installedMods, 'filename')), true);
+
+                $imported = [];
+                $duplicates = [];
+
+                foreach ($matches as $filename => $version) {
+                    $filename = (string) $filename;
+
+                    if (isset($trackedFiles[strtolower($filename)])) {
+                        continue;
+                    }
+
+                    $projectId = $version['project_id'];
+
+                    if (isset($trackedIds[$projectId])) {
+                        $duplicates[] = $filename;
+
+                        continue;
+                    }
+
+                    $project = $projects[$projectId] ?? [];
+                    $title = is_string($project['title'] ?? null) ? $project['title'] : (string) preg_replace('/\.jar$/i', '', $filename);
+
+                    $installedMods[] = [
+                        'project_id' => $projectId,
+                        'project_slug' => is_string($project['slug'] ?? null) ? $project['slug'] : $projectId,
+                        'project_title' => $title,
+                        'version_id' => $version['id'],
+                        'version_number' => $version['version_number'],
+                        'filename' => $filename,
+                        'installed_at' => now()->toIso8601String(),
+                        'imported' => true,
+                    ];
+
+                    $trackedIds[$projectId] = true;
+                    $trackedFiles[strtolower($filename)] = true;
+                    $imported[] = $title;
+                }
+
+                if ($imported !== []) {
+                    $response = app(DaemonFileRepository::class)->setServer($server)->putContent(
+                        $this->getMetadataFilePath($modrinthProjectType),
+                        json_encode(['installed_mods' => array_values($installedMods)], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+                    );
+
+                    if ($response->failed()) {
+                        return null;
+                    }
+                }
+
+                return ['imported' => $imported, 'duplicates' => $duplicates];
+            });
+        } catch (Exception $exception) {
+            report($exception);
+
+            return null;
         }
     }
 

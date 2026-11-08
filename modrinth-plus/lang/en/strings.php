@@ -103,6 +103,27 @@ return [
         ],
     ],
 
+    'scan' => [
+        'action' => 'Scan folder',
+        'tooltip' => 'Find jars added by hand and look them up on Modrinth',
+        'heading' => 'Scan folder',
+        'description' => 'Looks for jars in :folder that are not in the installed list, checks each one on Modrinth by its file hash and adds the matches, so they can be updated and uninstalled here. Jars are only read: nothing is deleted, renamed or replaced. Large folders can take a moment.',
+        'submit' => 'Scan',
+        'finished' => 'Scan finished',
+        'finished_with_problems' => 'Scan finished with problems',
+        'nothing_new' => 'No new jars found.',
+        'imported' => 'Imported :count: :list.',
+        'not_on_modrinth' => 'Not on Modrinth (:count): :list.',
+        'duplicates' => 'Left alone, the project is already installed from another file (:count): :list.',
+        'skipped' => 'Skipped, too large or unreadable (:count): :list.',
+        'error' => 'Modrinth could not be reached or the installed list could not be saved. Try again later.',
+        'failed' => 'Scan failed',
+        'failed_body' => 'The folder could not be read. Please try again or contact support if the issue persists.',
+        'badge' => 'Not on Modrinth',
+        'badge_tooltip' => 'This jar was added by hand and Modrinth does not know it, so it cannot be updated here.',
+        'row_description' => 'Added by hand. Only uninstalling is possible here.',
+    ],
+
     'notifications' => [
         'install_success' => 'Installation completed',
         'install_success_body' => 'Successfully installed :name version :version',
