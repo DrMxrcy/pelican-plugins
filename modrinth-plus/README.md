@@ -10,6 +10,11 @@ Upstream baseline: `pelican-dev/plugins@194c1a39b8158b55c92cb1638e75cff51bdd4236
 Add `modrinth_mods` and/or `modrinth_plugins` to the _features_ of your egg.
 The egg also needs the `minecraft` _tag_ and a tag matching a Modrinth loader name (e.g. `fabric`, `paper`, `neoforge`).
 
+For datapacks, add `modrinth_datapacks` to the _features_ (the egg needs the `minecraft` _tag_, no loader tag).
+They are installed into the main world's `datapacks/` folder, taken from `level-name` in `server.properties` (default `world` when the file or the key is missing).
+If `server.properties` exists but can't be read (daemon error), installs, updates and uninstalls of datapacks are refused instead of guessing the world.
+"Scan folder" and "Not on Modrinth" rows are not offered on the Datapacks page.
+
 This plugin uses the same page slugs and the same `.modrinth-metadata.json` file as the official plugin, so it is a drop-in replacement:
 **disable/uninstall the official `minecraft-modrinth` plugin first** — running both causes route collisions.
 
@@ -25,4 +30,4 @@ Updates are detected automatically via `update_url`.
 
 ## Credits
 
-"Update all" (bulk update) and the "Scan folder" import of hand-added jars (Modrinth lookup by file hash, "Not on Modrinth" rows) are based on [YONN2222/pelican-minecraft-modrinth](https://github.com/YONN2222/pelican-minecraft-modrinth) (GPL-3.0).
+"Update all" (bulk update), the Datapacks page and the "Scan folder" import of hand-added jars (Modrinth lookup by file hash, "Not on Modrinth" rows) are based on [YONN2222/pelican-minecraft-modrinth](https://github.com/YONN2222/pelican-minecraft-modrinth) (GPL-3.0).

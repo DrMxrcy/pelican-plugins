@@ -28,10 +28,13 @@ final class SearchFacets
      * @param  bool  $hideClientOnly  Drop projects whose server_side is "unsupported".
      * @param  array<mixed>  $categories  Modrinth category names; any of them matches (one OR group,
      *                                    never mixed with the loader group, which must always match).
+     * @param  array<int, string>  $projectTypes  Modrinth project types, any of which matches. Datapacks pass
+     *                                            ['datapack']: many are also mods, and the facet matches them
+     *                                            even when the hit's primary project_type says "mod".
      *
      * New options go in as trailing named arguments, so callers pass them by name.
      */
-    public static function build(string $loader, ?string $minecraftVersion, bool $hideClientOnly, array $categories = []): string
+    public static function build(string $loader, ?string $minecraftVersion, bool $hideClientOnly, array $categories = [], array $projectTypes = self::PROJECT_TYPES): string
     {
         $facets = [['categories:'.$loader]];
 
@@ -39,7 +42,7 @@ final class SearchFacets
             $facets[] = ['versions:'.$minecraftVersion];
         }
 
-        $facets[] = array_map(fn (string $type) => 'project_type:'.$type, self::PROJECT_TYPES);
+        $facets[] = array_map(fn (string $type) => 'project_type:'.$type, $projectTypes === [] ? self::PROJECT_TYPES : array_values($projectTypes));
 
         if ($hideClientOnly) {
             $facets[] = array_map(fn (string $side) => 'server_side:'.$side, self::SERVER_SIDE_VALUES);

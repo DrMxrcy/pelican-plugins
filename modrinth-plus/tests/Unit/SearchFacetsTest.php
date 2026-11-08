@@ -116,6 +116,28 @@ class SearchFacetsTest extends TestCase
         $this->assertSame(SearchFacets::build('fabric', '26.3', true), SearchFacets::build('fabric', '26.3', true, categories: []));
     }
 
+    public function test_datapack_search_uses_only_the_datapack_project_type(): void
+    {
+        $this->assertSame(
+            [['categories:datapack'], ['versions:26.3'], ['project_type:datapack']],
+            $this->decode(SearchFacets::build('datapack', '26.3', false, projectTypes: ['datapack'])),
+        );
+    }
+
+    public function test_datapack_search_keeps_the_category_group(): void
+    {
+        $this->assertSame(
+            [['categories:datapack'], ['versions:26.3'], ['project_type:datapack'], ['categories:worldgen']],
+            $this->decode(SearchFacets::build('datapack', '26.3', false, categories: ['worldgen'], projectTypes: ['datapack'])),
+        );
+    }
+
+    public function test_default_project_types_are_unchanged(): void
+    {
+        $this->assertSame(SearchFacets::build('fabric', '26.3', true), SearchFacets::build('fabric', '26.3', true, projectTypes: SearchFacets::PROJECT_TYPES));
+        $this->assertSame(SearchFacets::build('fabric', '26.3', true), SearchFacets::build('fabric', '26.3', true, projectTypes: []));
+    }
+
     public function test_categories_are_normalized(): void
     {
         $this->assertSame(['optimization', 'utility'], SearchFacets::normalizeCategories(['utility', '', 'optimization', 'utility', 7, null]));

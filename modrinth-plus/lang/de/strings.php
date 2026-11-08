@@ -4,6 +4,7 @@ return [
     'plugin_name' => 'Modrinth',
     'minecraft_mods' => 'Minecraft Mods',
     'minecraft_plugins' => 'Minecraft Plugins',
+    'minecraft_datapacks' => 'Minecraft-Datenpakete',
 
     'settings' => [
         'latest_minecraft_version' => 'Neueste Minecraft-Version',
@@ -166,5 +167,12 @@ return [
         'error' => 'Die benötigten Abhängigkeiten konnten nicht geprüft werden.',
         'incompatible_heading' => 'Inkompatible Mod installiert',
         'incompatible_description' => 'Diese Version ist als inkompatibel mit :list markiert, das auf diesem Server installiert ist. Trotzdem installieren?',
+    ],
+
+    'datapacks' => [
+        'update_heading' => 'Datenpaket aktualisieren',
+        'uninstall_heading' => 'Datenpaket deinstallieren',
+        'world_unknown' => 'Weltordner unbekannt',
+        'world_unknown_body' => 'server.properties konnte nicht gelesen werden, daher ist der Weltordner für Datenpakete unbekannt. Es wurde nichts geändert; versuche es erneut, sobald der Server erreichbar ist.',
     ],
 ];

@@ -4,6 +4,7 @@ return [
     'plugin_name' => 'Modrinth',
     'minecraft_mods' => 'Minecraft Mods',
     'minecraft_plugins' => 'Minecraft Plugins',
+    'minecraft_datapacks' => 'Minecraft Datapacks',
 
     'settings' => [
         'latest_minecraft_version' => 'Latest Minecraft Version',
@@ -166,5 +167,12 @@ return [
         'error' => 'The required dependencies could not be checked.',
         'incompatible_heading' => 'Incompatible mod installed',
         'incompatible_description' => 'This version is marked as incompatible with :list, which is installed on this server. Install it anyway?',
+    ],
+
+    'datapacks' => [
+        'update_heading' => 'Update Datapack',
+        'uninstall_heading' => 'Uninstall Datapack',
+        'world_unknown' => 'World folder unknown',
+        'world_unknown_body' => 'server.properties could not be read, so the world folder for datapacks is unknown. Nothing was changed; try again once the server is reachable.',
     ],
 ];
