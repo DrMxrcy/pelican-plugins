@@ -53,6 +53,7 @@ class PlayersNeedItBadgeTest extends TestCase
                 $this->hit('sodium', 'unsupported', 'required'),
             ],
             'total_hits' => 5,
+            'versions' => [],
         ]);
         // Same shape as MinecraftModrinthService::getInstalledModsFromModrinth(): /v2/projects
         // entries, plus a not-on-Modrinth row that has no client_side/server_side keys.

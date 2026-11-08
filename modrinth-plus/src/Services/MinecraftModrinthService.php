@@ -153,8 +153,17 @@ class MinecraftModrinthService
     }
 
     /**
+     * Search results are narrowed to projects with at least one build for both the server's loader
+     * and Minecraft version (loader only on proxies): search facets match per project, so a hit can
+     * satisfy them with two different builds. A hit whose version lookup failed is kept, so a
+     * Modrinth outage never empties the list. `versions` holds the lookup per kept hit (list, or
+     * null when it failed) so callers can reuse it instead of fetching again.
+     *
+     * Pagination ruling: `total_hits` is Modrinth's count and is not corrected, and a page is not
+     * refilled from the next one, so a page may show fewer than 20 rows.
+     *
      * @param  bool  $includeClientOnly  also list client-only projects, overriding the hide_client_only config
-     * @return array{hits: array<int, array<string, mixed>>, total_hits: int}
+     * @return array{hits: array<int, array<string, mixed>>, total_hits: int, versions: array<string, array<int, mixed>|null>}
      */
     public function getProjects(Server $server, ModrinthProjectType $modrinthProjectType, int $page = 1, ?string $search = null, bool $includeClientOnly = false): array
     {
@@ -165,6 +174,7 @@ class MinecraftModrinthService
             return [
                 'hits' => [],
                 'total_hits' => 0,
+                'versions' => [],
             ];
         }
 
@@ -188,29 +198,56 @@ class MinecraftModrinthService
             $key .= ':'.md5($search);
         }
 
-        $cached = cache()->get($key);
-        if (is_array($cached)) {
-            return $cached;
+        // The raw search page is cached; the compatibility filter runs on every call against the
+        // (separately cached) version lists, so a failed lookup is retried on the next render.
+        $response = cache()->get($key);
+
+        if (!is_array($response)) {
+            try {
+                $response = $this->modrinth(5)
+                    ->throw()
+                    ->get('search', $data)
+                    ->json();
+            } catch (Exception $exception) {
+                report($exception);
+
+                // not caching on purpose since caching a failure would keep the page empty for 30 minutes
+                return [
+                    'hits' => [],
+                    'total_hits' => 0,
+                    'versions' => [],
+                ];
+            }
+
+            cache()->put($key, $response, now()->addMinutes(30));
         }
 
-        try {
-            $response = $this->modrinth(5)
-                ->throw()
-                ->get('search', $data)
-                ->json();
-        } catch (Exception $exception) {
-            report($exception);
+        return $this->onlyCompatibleHits($response, $minecraftVersion, $minecraftLoader);
+    }
 
-            // not caching on purpose since caching a failure would keep the page empty for 30 minutes
-            return [
-                'hits' => [],
-                'total_hits' => 0,
-            ];
-        }
+    /**
+     * @param  array<mixed>  $response  raw Modrinth search response
+     * @return array{hits: array<int, array<string, mixed>>, total_hits: int, versions: array<string, array<int, mixed>|null>}
+     */
+    protected function onlyCompatibleHits(array $response, ?string $minecraftVersion, string $minecraftLoader): array
+    {
+        /** @var array<int, array<string, mixed>> $hits */
+        $hits = is_array($response['hits'] ?? null) ? $response['hits'] : [];
 
-        cache()->put($key, $response, now()->addMinutes(30));
+        $projectIds = array_values(array_filter(array_map(fn (array $hit) => is_string($hit['project_id'] ?? null) ? $hit['project_id'] : null, $hits)));
 
-        return $response;
+        $versions = $this->fetchProjectVersions($projectIds, $minecraftVersion, $minecraftLoader);
+
+        // Only Modrinth positively saying "no build" ([]) hides a hit; failures (null) and hits we
+        // can't look up stay visible.
+        $hits = array_values(array_filter($hits, fn (array $hit) => !is_string($hit['project_id'] ?? null) || ($versions[$hit['project_id']] ?? null) !== []));
+
+        return [
+            'hits' => $hits,
+            'total_hits' => (int) ($response['total_hits'] ?? 0),
+            // kept hits only, so the page can reuse them without another round trip
+            'versions' => array_filter($versions, fn (?array $list) => $list !== []),
+        ];
     }
 
     /**
@@ -384,8 +421,13 @@ class MinecraftModrinthService
      * fetch compatible versions of several projects at once, a full installed
      * tab used to cost up to 20 sequential Modrinth round trips whilst this fetches in bulk.
      *
+     * A project maps to its compatible versions (newest first), to `[]` when Modrinth says it has
+     * none for this loader/version, or to `null` when the request failed (error status, timeout,
+     * connection error). Failures are never cached, so callers can treat `null` as "unknown" and
+     * must not mistake an outage for incompatibility.
+     *
      * @param  array<int, string>  $projectIds
-     * @return array<string, array<int, mixed>>
+     * @return array<string, array<int, mixed>|null>
      */
     public function getProjectVersionsBulk(array $projectIds, Server $server): array
     {
@@ -401,8 +443,20 @@ class MinecraftModrinthService
             return array_fill_keys($projectIds, []);
         }
 
-        $minecraftVersion = $this->getMinecraftVersion($server);
-        $minecraftLoader = $minecraftLoader['name'];
+        return $this->fetchProjectVersions($projectIds, $this->getMinecraftVersion($server), $minecraftLoader['name']);
+    }
+
+    /**
+     * @param  array<int, string>  $projectIds
+     * @return array<string, array<int, mixed>|null> see getProjectVersionsBulk()
+     */
+    protected function fetchProjectVersions(array $projectIds, ?string $minecraftVersion, string $minecraftLoader): array
+    {
+        $projectIds = array_values(array_unique(array_filter($projectIds)));
+
+        if (empty($projectIds)) {
+            return [];
+        }
 
         $results = [];
         $missing = [];
@@ -451,7 +505,8 @@ class MinecraftModrinthService
                 report($response);
             }
 
-            $results[$projectId] = [];
+            // not cached on purpose: a failure must stay distinguishable from "no compatible version".
+            $results[$projectId] = null;
         }
 
         return $results;

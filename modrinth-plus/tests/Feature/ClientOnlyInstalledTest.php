@@ -77,6 +77,7 @@ class ClientOnlyInstalledTest extends TestCase
         MinecraftModrinth::shouldReceive('getProjects')->andReturn([
             'hits' => [$this->project('sodium', 'unsupported', 'required')],
             'total_hits' => 1,
+            'versions' => [],
         ]);
 
         // Fails if: anything is deleted or metadata changed without the user uninstalling.
