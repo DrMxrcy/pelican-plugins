@@ -116,7 +116,7 @@ return [
         'not_on_modrinth' => 'Not on Modrinth (:count): :list.',
         'duplicates' => 'Left alone, the project is already installed from another file (:count): :list.',
         'skipped' => 'Skipped, too large or unreadable (:count): :list.',
-        'error' => 'Modrinth could not be reached or the installed list could not be saved. Try again later.',
+        'error' => 'Modrinth could not be reached or the installed list could not be read or saved. Try again later.',
         'failed' => 'Scan failed',
         'failed_body' => 'The folder could not be read. Please try again or contact support if the issue persists.',
         'badge' => 'Not on Modrinth',

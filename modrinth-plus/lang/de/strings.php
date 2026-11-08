@@ -116,7 +116,7 @@ return [
         'not_on_modrinth' => 'Nicht auf Modrinth (:count): :list.',
         'duplicates' => 'Unverändert gelassen, das Projekt ist bereits aus einer anderen Datei installiert (:count): :list.',
         'skipped' => 'Übersprungen, zu groß oder nicht lesbar (:count): :list.',
-        'error' => 'Modrinth war nicht erreichbar oder die Liste der installierten Projekte konnte nicht gespeichert werden. Versuche es später erneut.',
+        'error' => 'Modrinth war nicht erreichbar oder die Liste der installierten Projekte konnte nicht gelesen oder gespeichert werden. Versuche es später erneut.',
         'failed' => 'Scan fehlgeschlagen',
         'failed_body' => 'Der Ordner konnte nicht gelesen werden. Bitte versuche es erneut oder wende dich an den Support, wenn das Problem weiterhin besteht.',
         'badge' => 'Nicht auf Modrinth',

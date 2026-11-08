@@ -650,7 +650,8 @@ class MinecraftModrinthService
     /**
      * Like getInstalledModsMetadata(), but null when the file exists yet could not be read (daemon
      * unreachable, timeout), so callers that act on "not installed" can stop instead of guessing.
-     * A missing file is [] (nothing installed); an unparsable one is [] too, as it gets rewritten.
+     * A missing file is [] (nothing installed); an unparsable one is [] too, but writers refuse to
+     * overwrite it (see readMetadataForWrite()).
      *
      * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}>|null
      */
@@ -705,6 +706,69 @@ class MinecraftModrinthService
         return array_values($validInstalledMods);
     }
 
+    /**
+     * The metadata file as writers must see it: read inside the metadata lock, every entry kept
+     * as it is (including ones getInstalledModsMetadata() skips) and every top-level key kept.
+     * Null means "do not write": the file could not be read (daemon error, timeout) or holds
+     * something that is not a metadata document, and rewriting it would drop what it lists. A
+     * missing or empty file is an empty document, so the first install creates it.
+     *
+     * @return array{document: array<string, mixed>, mods: list<mixed>}|null
+     */
+    protected function readMetadataForWrite(Server $server, ModrinthProjectType $modrinthProjectType): ?array
+    {
+        try {
+            $content = app(DaemonFileRepository::class)->setServer($server)->getContent($this->getMetadataFilePath($modrinthProjectType));
+        } catch (FileNotFoundException) {
+            return ['document' => [], 'mods' => []];
+        } catch (Exception $exception) {
+            report($exception);
+
+            return null;
+        }
+
+        if (trim($content) === '') {
+            return ['document' => [], 'mods' => []];
+        }
+
+        $document = json_decode($content, true);
+
+        if (!is_array($document) || ($document !== [] && array_is_list($document))) {
+            report(new Exception('The mod metadata file is not valid JSON; refusing to overwrite it'));
+
+            return null;
+        }
+
+        $mods = $document['installed_mods'] ?? [];
+
+        if (!is_array($mods)) {
+            report(new Exception('The mod metadata file has no valid installed_mods list; refusing to overwrite it'));
+
+            return null;
+        }
+
+        return ['document' => $document, 'mods' => array_values($mods)];
+    }
+
+    /**
+     * Writes the document back with $mods as `installed_mods`, keeping its other keys and the
+     * format the official plugin reads (pretty printed, unescaped slashes).
+     *
+     * @param  array<string, mixed>  $document  from readMetadataForWrite()
+     * @param  list<mixed>  $mods
+     */
+    protected function writeMetadata(Server $server, ModrinthProjectType $modrinthProjectType, array $document, array $mods): bool
+    {
+        $document['installed_mods'] = array_values($mods);
+
+        $response = app(DaemonFileRepository::class)->setServer($server)->putContent(
+            $this->getMetadataFilePath($modrinthProjectType),
+            json_encode($document, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
+
+        return !$response->failed();
+    }
+
     public function saveModMetadata(
         Server $server,
         ModrinthProjectType $modrinthProjectType,
@@ -719,13 +783,18 @@ class MinecraftModrinthService
     ): bool {
         try {
             return Cache::lock("modrinth_metadata:{$server->id}", 10)->block(5, function () use ($server, $modrinthProjectType, $projectId, $projectSlug, $projectTitle, $versionId, $versionNumber, $filename, $author, $installedAsDependencyOf) {
-                $fileRepository = app(DaemonFileRepository::class);
+                // Read again under the lock; a failed read must never be written back as "empty".
+                $metadata = $this->readMetadataForWrite($server, $modrinthProjectType);
 
-                $installedMods = $this->getInstalledModsMetadata($server, $modrinthProjectType);
+                if ($metadata === null) {
+                    return false;
+                }
+
+                $installedMods = $metadata['mods'];
 
                 $existingIndex = null;
                 foreach ($installedMods as $index => $mod) {
-                    if ($mod['project_id'] === $projectId) {
+                    if (is_array($mod) && ($mod['project_id'] ?? null) === $projectId) {
                         $existingIndex = $index;
 
                         break;
@@ -739,7 +808,7 @@ class MinecraftModrinthService
                     'version_id' => $versionId,
                     'version_number' => $versionNumber,
                     'filename' => $filename,
-                    'installed_at' => $existingIndex !== null
+                    'installed_at' => $existingIndex !== null && is_string($installedMods[$existingIndex]['installed_at'] ?? null)
                         ? $installedMods[$existingIndex]['installed_at']
                         : now()->toIso8601String(),
                 ];
@@ -768,13 +837,7 @@ class MinecraftModrinthService
                     $installedMods[] = $modEntry;
                 }
 
-                $metadataPath = $this->getMetadataFilePath($modrinthProjectType);
-                $response = $fileRepository->setServer($server)->putContent(
-                    $metadataPath,
-                    json_encode(['installed_mods' => array_values($installedMods)], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-                );
-
-                return !$response->failed();
+                return $this->writeMetadata($server, $modrinthProjectType, $metadata['document'], $installedMods);
             }) === true;
         } catch (Exception $exception) {
             report($exception);
@@ -787,20 +850,16 @@ class MinecraftModrinthService
     {
         try {
             return Cache::lock("modrinth_metadata:{$server->id}", 10)->block(5, function () use ($server, $modrinthProjectType, $projectId) {
-                $fileRepository = app(DaemonFileRepository::class);
+                // Read again under the lock; a failed read must never be written back as "empty".
+                $metadata = $this->readMetadataForWrite($server, $modrinthProjectType);
 
-                $installedMods = collect($this->getInstalledModsMetadata($server, $modrinthProjectType))
-                    ->filter(fn ($mod) => $mod['project_id'] !== $projectId)
-                    ->values()
-                    ->toArray();
+                if ($metadata === null) {
+                    return false;
+                }
 
-                $metadataPath = $this->getMetadataFilePath($modrinthProjectType);
-                $response = $fileRepository->setServer($server)->putContent(
-                    $metadataPath,
-                    json_encode(['installed_mods' => $installedMods], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-                );
+                $installedMods = array_filter($metadata['mods'], fn ($mod) => !is_array($mod) || ($mod['project_id'] ?? null) !== $projectId);
 
-                return !$response->failed();
+                return $this->writeMetadata($server, $modrinthProjectType, $metadata['document'], array_values($installedMods));
             }) === true;
         } catch (Exception $exception) {
             report($exception);
@@ -824,8 +883,9 @@ class MinecraftModrinthService
      * handle safely later are skipped and reported instead.
      *
      * `duplicates` are Modrinth jars of a project the metadata already tracks under another file;
-     * they are left alone. `error` is set when Modrinth or the metadata write failed: nothing is
-     * imported then and the previous "Not on Modrinth" result is kept when the lookup failed.
+     * they are left alone. `error` is set when Modrinth failed or the metadata could not be read or written: nothing
+     * is imported then, and the previous "Not on Modrinth" result is kept when the lookup or the
+     * metadata read failed.
      *
      * @return array{imported: list<string>, not_on_modrinth: list<string>, skipped: list<string>, duplicates: list<string>, error: bool}
      *
@@ -837,10 +897,18 @@ class MinecraftModrinthService
 
         $folder = $modrinthProjectType->getFolder();
 
-        $untracked = UnmatchedJars::untracked(
-            $this->listFolder($server, $folder),
-            $this->getInstalledModsMetadata($server, $modrinthProjectType),
-        );
+        $listing = $this->listFolder($server, $folder);
+
+        // Unreadable metadata would make every tracked jar look untracked: stop before hashing.
+        $installedMods = $this->readInstalledModsMetadata($server, $modrinthProjectType);
+
+        if ($installedMods === null) {
+            $result['error'] = true;
+
+            return $result;
+        }
+
+        $untracked = UnmatchedJars::untracked($listing, $installedMods);
 
         $fileRepository = app(DaemonFileRepository::class)->setServer($server);
 
@@ -944,7 +1012,7 @@ class MinecraftModrinthService
     /**
      * Appends one metadata entry per matched jar in a single write, under the metadata lock. The
      * metadata is read again inside the lock, so a jar or project recorded meanwhile (an install,
-     * another scan) is not added twice. Null when the write failed.
+     * another scan) is not added twice. Null when the metadata could not be read or written.
      *
      * @param  array<string, array{id: string, project_id: string, version_number: string}>  $matches  filename => version
      * @return array{imported: list<string>, duplicates: list<string>}|null
@@ -955,10 +1023,18 @@ class MinecraftModrinthService
 
         try {
             return Cache::lock("modrinth_metadata:{$server->id}", 10)->block(5, function () use ($server, $modrinthProjectType, $matches, $projects) {
-                $installedMods = $this->getInstalledModsMetadata($server, $modrinthProjectType);
+                // Read again under the lock; a failed read must never be written back as "empty".
+                $metadata = $this->readMetadataForWrite($server, $modrinthProjectType);
 
-                $trackedIds = array_fill_keys(array_column($installedMods, 'project_id'), true);
-                $trackedFiles = array_fill_keys(array_map('strtolower', array_column($installedMods, 'filename')), true);
+                if ($metadata === null) {
+                    return null;
+                }
+
+                $installedMods = $metadata['mods'];
+                $entries = array_filter($installedMods, 'is_array');
+
+                $trackedIds = array_fill_keys(array_filter(array_column($entries, 'project_id'), 'is_string'), true);
+                $trackedFiles = array_fill_keys(array_map('strtolower', array_filter(array_column($entries, 'filename'), 'is_string')), true);
 
                 $imported = [];
                 $duplicates = [];
@@ -997,15 +1073,8 @@ class MinecraftModrinthService
                     $imported[] = $title;
                 }
 
-                if ($imported !== []) {
-                    $response = app(DaemonFileRepository::class)->setServer($server)->putContent(
-                        $this->getMetadataFilePath($modrinthProjectType),
-                        json_encode(['installed_mods' => array_values($installedMods)], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-                    );
-
-                    if ($response->failed()) {
-                        return null;
-                    }
+                if ($imported !== [] && !$this->writeMetadata($server, $modrinthProjectType, $metadata['document'], $installedMods)) {
+                    return null;
                 }
 
                 return ['imported' => $imported, 'duplicates' => $duplicates];
