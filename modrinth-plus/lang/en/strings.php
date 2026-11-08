@@ -65,6 +65,11 @@ return [
         'players_need_it_tooltip' => 'Players must install this mod too',
     ],
 
+    'client_only' => [
+        'badge' => 'Client-only — does nothing on a server, safe to remove',
+        'badge_tooltip' => 'The server never loads this mod; only players use it on their own game',
+    ],
+
     'notifications' => [
         'install_success' => 'Installation completed',
         'install_success_body' => 'Successfully installed :name version :version',
