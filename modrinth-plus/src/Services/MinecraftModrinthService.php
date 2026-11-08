@@ -7,6 +7,7 @@ use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
 use Exception;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
@@ -22,6 +23,47 @@ class MinecraftModrinthService
     protected const VERSIONS_CACHE_MINUTES = 30;
 
     protected const EMPTY_VERSIONS_CACHE_MINUTES = 5;
+
+    protected const MODRINTH_API_URL = 'https://api.modrinth.com/v2';
+
+    protected static ?string $pluginVersion = null;
+
+    /**
+     * Base request for every Modrinth API call: base URL, the unique User-Agent
+     * Modrinth asks API clients to send, JSON and timeouts.
+     */
+    protected function modrinth(int $timeout = 5): PendingRequest
+    {
+        return $this->configureModrinthRequest(Http::createPendingRequest(), $timeout);
+    }
+
+    /** Applies the shared Modrinth settings to an existing request (e.g. one inside Http::pool). */
+    protected function configureModrinthRequest(PendingRequest $request, int $timeout = 5): PendingRequest
+    {
+        return $request
+            ->baseUrl(self::MODRINTH_API_URL)
+            ->withUserAgent($this->modrinthUserAgent())
+            ->asJson()
+            ->timeout($timeout)
+            ->connectTimeout(5);
+    }
+
+    protected function modrinthUserAgent(): string
+    {
+        return 'DrMxrcy/pelican-plugins-modrinth-plus/'.self::pluginVersion().' (github.com/DrMxrcy/pelican-plugins)';
+    }
+
+    protected static function pluginVersion(): string
+    {
+        if (self::$pluginVersion === null) {
+            $manifest = dirname(__DIR__, 2).'/plugin.json';
+            $data = is_file($manifest) ? json_decode((string) file_get_contents($manifest), true) : null;
+
+            self::$pluginVersion = is_array($data) && is_string($data['version'] ?? null) ? $data['version'] : 'unknown';
+        }
+
+        return self::$pluginVersion;
+    }
 
     public function getMinecraftVersion(Server $server): ?string
     {
@@ -48,11 +90,9 @@ class MinecraftModrinthService
         return cache()->remember('modrinth:latest_minecraft_version', now()->addHour(), function () {
             try {
                 /** @var array<int, mixed> $versions */
-                $versions = Http::asJson()
-                    ->timeout(5)
-                    ->connectTimeout(5)
+                $versions = $this->modrinth(5)
                     ->throw()
-                    ->get('https://api.modrinth.com/v2/tag/game_version')
+                    ->get('tag/game_version')
                     ->json();
 
                 return collect($versions)->filter(fn ($version) => $version['version_type'] === 'release')->first()['version'] ?? null;
@@ -99,11 +139,9 @@ class MinecraftModrinthService
     {
         return cache()->remember('modrinth:loaders', now()->addHour(), function () {
             try {
-                return Http::asJson()
-                    ->timeout(5)
-                    ->connectTimeout(5)
+                return $this->modrinth(5)
                     ->throw()
-                    ->get('https://api.modrinth.com/v2/tag/loader')
+                    ->get('tag/loader')
                     ->json();
             } catch (Exception $exception) {
                 report($exception);
@@ -157,11 +195,9 @@ class MinecraftModrinthService
         }
 
         try {
-            $response = Http::asJson()
-                ->timeout(5)
-                ->connectTimeout(5)
+            $response = $this->modrinth(5)
                 ->throw()
-                ->get('https://api.modrinth.com/v2/search', $data)
+                ->get('search', $data)
                 ->json();
         } catch (Exception $exception) {
             report($exception);
@@ -212,11 +248,9 @@ class MinecraftModrinthService
 
         if (!is_array($modrinthProjects)) {
             try {
-                $modrinthProjects = Http::asJson()
-                    ->timeout(10)
-                    ->connectTimeout(5)
+                $modrinthProjects = $this->modrinth(10)
                     ->throw()
-                    ->get('https://api.modrinth.com/v2/projects', [
+                    ->get('projects', [
                         'ids' => $idsParam,
                     ])
                     ->json();
@@ -329,11 +363,9 @@ class MinecraftModrinthService
         }
 
         try {
-            $versions = Http::asJson()
-                ->timeout(5)
-                ->connectTimeout(5)
+            $versions = $this->modrinth(5)
                 ->throw()
-                ->get("https://api.modrinth.com/v2/project/$projectId/version", $this->getVersionsQuery($minecraftVersion, $minecraftLoader))
+                ->get("project/$projectId/version", $this->getVersionsQuery($minecraftVersion, $minecraftLoader))
                 ->json();
         } catch (Exception $exception) {
             report($exception);
@@ -392,11 +424,8 @@ class MinecraftModrinthService
 
         try {
             $responses = Http::pool(fn (Pool $pool) => array_map(
-                fn (string $projectId) => $pool->as($projectId)
-                    ->asJson()
-                    ->timeout(10)
-                    ->connectTimeout(5)
-                    ->get("https://api.modrinth.com/v2/project/$projectId/version", $this->getVersionsQuery($minecraftVersion, $minecraftLoader)),
+                fn (string $projectId) => $this->configureModrinthRequest($pool->as($projectId), 10)
+                    ->get("project/$projectId/version", $this->getVersionsQuery($minecraftVersion, $minecraftLoader)),
                 $missing
             ));
         } catch (Exception $exception) {
