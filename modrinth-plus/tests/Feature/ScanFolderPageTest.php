@@ -13,6 +13,7 @@ use DrMxrcy\ModrinthPlus\Tests\TestCase;
 use Exception;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -174,7 +175,12 @@ class ScanFolderPageTest extends TestCase
         // A tracked jar and one never scanned must not be deletable through a "Not on Modrinth" record.
         foreach (['sodium-0.6.0.jar', 'unscanned.jar', '../server.properties'] as $filename) {
             $action->record(['project_id' => '', 'title' => $filename, 'filename' => $filename, 'not_on_modrinth' => true])->call();
+
+            // The handler ran and refused (not just an action that was never reached).
+            Notification::assertNotified(trans('modrinth-plus::strings.notifications.uninstall_failed'));
         }
+
+        $this->assertSame(['homemade.jar' => 14], UnmatchedJars::remembered($this->server->id, ModrinthProjectType::Mod));
     }
 
     public function test_scan_runs_the_service_and_reports_the_result(): void
