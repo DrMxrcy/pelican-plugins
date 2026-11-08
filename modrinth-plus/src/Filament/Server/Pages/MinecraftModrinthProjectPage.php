@@ -217,7 +217,9 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         /** @var Server $server */
         $server = Filament::getTenant();
 
-        $this->versionsCache += MinecraftModrinth::getProjectVersionsBulk($projectIds, $server);
+        // A failed request (null) is cached as "no versions" for this render only, like before,
+        // so an outage doesn't fall back to one slow request per row.
+        $this->versionsCache += array_map(fn (?array $versions) => $versions ?? [], MinecraftModrinth::getProjectVersionsBulk($projectIds, $server));
     }
 
     /**

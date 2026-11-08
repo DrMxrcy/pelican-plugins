@@ -384,8 +384,13 @@ class MinecraftModrinthService
      * fetch compatible versions of several projects at once, a full installed
      * tab used to cost up to 20 sequential Modrinth round trips whilst this fetches in bulk.
      *
+     * A project maps to its compatible versions (newest first), to `[]` when Modrinth says it has
+     * none for this loader/version, or to `null` when the request failed (error status, timeout,
+     * connection error). Failures are never cached, so callers can treat `null` as "unknown" and
+     * must not mistake an outage for incompatibility.
+     *
      * @param  array<int, string>  $projectIds
-     * @return array<string, array<int, mixed>>
+     * @return array<string, array<int, mixed>|null>
      */
     public function getProjectVersionsBulk(array $projectIds, Server $server): array
     {
@@ -451,7 +456,8 @@ class MinecraftModrinthService
                 report($response);
             }
 
-            $results[$projectId] = [];
+            // not cached on purpose: a failure must stay distinguishable from "no compatible version".
+            $results[$projectId] = null;
         }
 
         return $results;

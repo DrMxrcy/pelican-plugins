@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static array{hits: array<int, array<string, mixed>>, total_hits: int} getProjects(Server $server, ModrinthProjectType $modrinthProjectType, int $page = 1, ?string $search = null, bool $includeClientOnly = false)
  * @method static array<int, array<string, mixed>> getInstalledModsFromModrinth(array<int, InstalledModMetadata> $installedMods, int $page = 1)
  * @method static array<int, ModrinthVersion> getProjectVersions(string $projectId, Server $server)
- * @method static array<string, array<int, ModrinthVersion>> getProjectVersionsBulk(array<int, string> $projectIds, Server $server)
+ * @method static array<string, array<int, ModrinthVersion>|null> getProjectVersionsBulk(array<int, string> $projectIds, Server $server)
  * @method static array<int, InstalledModMetadata> getInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType)
  * @method static bool saveModMetadata(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId, string $projectSlug, string $projectTitle, string $versionId, string $versionNumber, string $filename, ?string $author = null)
  * @method static bool removeModMetadata(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId)
