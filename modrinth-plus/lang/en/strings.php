@@ -24,7 +24,9 @@ return [
     'client_only' => [
         'show' => 'Show client-only',
         'hide' => 'Hide client-only',
-        'tooltip' => 'Client-only mods and plugins (like shaders or minimaps) do nothing on a server.',
+        'tooltip' => 'Client-only mods and plugins (like Sodium or Iris) do nothing on a server.',
+        'badge' => 'Client-only — does nothing on a server, safe to remove',
+        'badge_tooltip' => 'The server never loads this mod; only players use it on their own game',
     ],
 
     'table' => [
@@ -63,11 +65,6 @@ return [
     'sides' => [
         'players_need_it' => 'Players need it too',
         'players_need_it_tooltip' => 'Players must install this mod too',
-    ],
-
-    'client_only' => [
-        'badge' => 'Client-only — does nothing on a server, safe to remove',
-        'badge_tooltip' => 'The server never loads this mod; only players use it on their own game',
     ],
 
     'notifications' => [

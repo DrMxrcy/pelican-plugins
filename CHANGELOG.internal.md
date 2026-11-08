@@ -25,10 +25,10 @@ _Full work log — every item, including internal/dev work. The curated public c
 - (pending) The mod list only offers projects that have a download for your exact Minecraft version and loader.
 
 ### 🐛 Fixed
-- (pending) Enforce subuser file permissions on the Modrinth pages and actions
+- Enforce subuser file permissions on the Modrinth pages and actions
 
 ### ⚡ Improved
-- (pending) Requests to Modrinth now identify the plugin, as Modrinth asks.
+- Requests to Modrinth now identify the plugin, as Modrinth asks.
 
 ## v0.1.0 — (in progress)
 
