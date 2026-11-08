@@ -126,6 +126,7 @@ return [
         'failed' => 'Konnte nicht installiert werden: :list.',
         'manual' => 'Nicht auf Modrinth, bitte manuell installieren: :list.',
         'skipped' => 'Übersprungen, da nur für den Client: :list.',
+        'unchecked' => 'Nicht installiert, da die Serverunterstützung nicht geprüft werden konnte, bei Bedarf manuell installieren: :list.',
         'error' => 'Die benötigten Abhängigkeiten konnten nicht geprüft werden.',
         'incompatible_heading' => 'Inkompatible Mod installiert',
         'incompatible_description' => 'Diese Version ist als inkompatibel mit :list markiert, das auf diesem Server installiert ist. Trotzdem installieren?',

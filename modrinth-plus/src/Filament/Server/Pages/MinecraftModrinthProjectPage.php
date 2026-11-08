@@ -351,7 +351,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
      * @param  array<string, mixed>  $versionData
      * @param  array<string, mixed>  $primaryFile
      * @param  array<string, mixed>|null  $installedMod
-     * @return array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, error: bool}
+     * @return array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, unchecked: list<string>, error: bool}
      *
      * @throws Exception when the project itself could not be installed
      */
@@ -364,7 +364,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         } catch (Exception $exception) {
             report($exception);
 
-            return ['installed' => [], 'failed' => [], 'manual' => [], 'skipped' => [], 'error' => true];
+            return ['installed' => [], 'failed' => [], 'manual' => [], 'skipped' => [], 'unchecked' => [], 'error' => true];
         }
     }
 
@@ -374,19 +374,20 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
      * file.create permission is checked again before every one.
      *
      * Client-only dependencies (server_side = unsupported) are skipped: they do nothing on a
-     * server and can keep it from starting. A dependency is not installed when every project that
+     * server and can keep it from starting. So are dependencies whose project record could not be
+     * fetched, since their sides are unknown. A dependency is not installed when every project that
      * requires it was skipped or failed, since nothing on the server needs it then; one still
      * required by an installed (or not yet handled) project is. `installed_as_dependency_of` is
      * the first of its parents that got installed.
      *
      * @param  array<string, mixed>  $versionData
-     * @return array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, error: bool}
+     * @return array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, unchecked: list<string>, error: bool}
      *
      * @throws Exception
      */
     private function installRequiredDependencies(Server $server, string $projectId, array $versionData): array
     {
-        $report = ['installed' => [], 'failed' => [], 'manual' => [], 'skipped' => [], 'error' => false];
+        $report = ['installed' => [], 'failed' => [], 'manual' => [], 'skipped' => [], 'unchecked' => [], 'error' => false];
 
         if (!DependencyResolver::hasRequiredDependencies($versionData)) {
             return $report;
@@ -437,7 +438,16 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             $installedParents = array_values(array_filter($parents, fn (string $parent) => isset($installed[$parent])));
             $parent = $installedParents[0] ?? $parents[0];
 
-            if ($project !== null && Sides::isClientOnly($project)) {
+            // Fail closed: without the project record (Modrinth outage) a client-only dependency
+            // can't be told apart, and installing one can keep the server from starting.
+            if ($project === null) {
+                $report['unchecked'][] = $title($dependencyId);
+                $notInstalled[$dependencyId] = true;
+
+                continue;
+            }
+
+            if (Sides::isClientOnly($project)) {
                 $report['skipped'][] = $title($dependencyId);
                 $notInstalled[$dependencyId] = true;
 
@@ -538,7 +548,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     /**
      * The success body plus the dependencies that were pulled in.
      *
-     * @param  array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, error: bool}  $report
+     * @param  array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, unchecked: list<string>, error: bool}  $report
      */
     private function withInstalledDependencies(string $body, array $report): string
     {
@@ -552,13 +562,13 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     /**
      * A separate warning for required dependencies that are not on the server now.
      *
-     * @param  array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, error: bool}  $report
+     * @param  array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, unchecked: list<string>, error: bool}  $report
      */
     private function notifyDependencyProblems(array $report): void
     {
         $lines = [];
 
-        foreach (['failed', 'manual', 'skipped'] as $kind) {
+        foreach (['failed', 'manual', 'skipped', 'unchecked'] as $kind) {
             if ($report[$kind] !== []) {
                 $lines[] = trans("modrinth-plus::strings.dependencies.$kind", ['list' => implode(', ', $report[$kind])]);
             }

@@ -125,8 +125,9 @@ class RequiredDependenciesTest extends TestCase
      *
      * @param  array<string, array<int, array<string, mixed>>|null>  $catalogue  compatible versions per dependency
      * @param  array<string, mixed>|null  $xaeroVersion
+     * @param  bool  $projectsDown  `/v2/projects` fails, so no dependency's sides are known
      */
-    private function fakeModrinth(array $catalogue = [], ?array $xaeroVersion = null): void
+    private function fakeModrinth(array $catalogue = [], ?array $xaeroVersion = null, bool $projectsDown = false): void
     {
         $xaeroVersion ??= self::version('xaeros-minimap', 'x2', [self::dep('P7dR8mSH'), self::dep('modmenu', 'optional')]);
         $catalogue += [
@@ -153,7 +154,7 @@ class RequiredDependenciesTest extends TestCase
 
             return array_combine($ids, array_map(fn (string $id) => array_key_exists($id, $catalogue) ? $catalogue[$id] : [], $ids));
         });
-        MinecraftModrinth::shouldReceive('getProjectsByIds')->andReturnUsing(fn (array $ids) => array_intersect_key([
+        MinecraftModrinth::shouldReceive('getProjectsByIds')->andReturnUsing(fn (array $ids) => $projectsDown ? [] : array_intersect_key([
             'P7dR8mSH' => self::project('P7dR8mSH', 'Fabric API'),
             'modmenu' => self::project('modmenu', 'Mod Menu'),
             'cloth' => self::project('cloth', 'Cloth Config'),
@@ -357,6 +358,27 @@ class RequiredDependenciesTest extends TestCase
         $this->assertCount(2, $notifications);
         $this->assertStringNotContainsString('Fabric API', $notifications[0]['body']);
         $this->assertStringNotContainsString('Fabric API', $notifications[1]['body']);
+    }
+
+    public function test_dependencies_whose_sides_cannot_be_checked_are_not_installed(): void
+    {
+        // Modrinth's /v2/projects is down: Sodium could be client-only, so it is reported, not
+        // installed, and neither is what it pulls in.
+        $this->account();
+        $this->fakeModrinth(['sodium' => [self::version('sodium', 's1', [self::dep('P7dR8mSH')])]], self::version('xaeros-minimap', 'x2', [self::dep('sodium')]), projectsDown: true);
+
+        $this->expectDownloads('xaeros-minimap-x2.jar');
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()->andReturn(true);
+
+        $this->page()->callAction(TestAction::make('install_latest')->table(self::XAERO_ROW));
+
+        $notifications = $this->notifications();
+        $this->assertCount(2, $notifications);
+        $this->assertSame('success', $notifications[0]['status']);
+        $this->assertSame('warning', $notifications[1]['status']);
+        $this->assertStringContainsString('could not be checked', $notifications[1]['body']);
+        $this->assertStringContainsString('sodium', $notifications[1]['body']);
+        $this->assertStringNotContainsString('P7dR8mSH', $notifications[1]['body']);
     }
 
     public function test_update_installs_dependencies_the_new_version_added(): void
