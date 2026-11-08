@@ -9,6 +9,9 @@ _Full work log — every item, including internal/dev work. The curated public c
 - (pending) Mods you added by hand are recognized and can be updated from the panel.
 - (pending) Browse, install, and update datapacks from the panel.
 
+### 🐛 Fixed
+- Fresh install overwrites an untracked file with the same name
+
 ## v0.3.0 — (in progress)
 
 ### ✨ New
