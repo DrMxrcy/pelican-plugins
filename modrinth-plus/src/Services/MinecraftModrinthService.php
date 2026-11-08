@@ -7,6 +7,7 @@ use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
 use DrMxrcy\ModrinthPlus\Support\SearchFacets;
+use DrMxrcy\ModrinthPlus\Support\ServerProperties;
 use Exception;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Illuminate\Http\Client\PendingRequest;
@@ -30,6 +31,9 @@ class MinecraftModrinthService
 
     /** Modrinth categories never offered as a filter (joke content, not useful on a server). */
     protected const HIDDEN_CATEGORIES = ['cursed'];
+
+    /** Modrinth's loader for datapack builds; used for every datapack search and version lookup. */
+    public const DATAPACK_LOADER = 'datapack';
 
     protected static ?string $pluginVersion = null;
 
@@ -109,8 +113,15 @@ class MinecraftModrinthService
         });
     }
 
-    /** @return array{icon: string, name: string, supported_project_types: string[], display_name: string}|null */
-    public function getLoaderFromServer(Server $server): ?array
+    /**
+     * The Modrinth loader that versions and search hits are matched against. Mods and plugins use
+     * the egg's loader tag (fabric, paper, ...); datapacks always use Modrinth's `datapack` loader,
+     * whatever runs the server, as long as the egg is a Minecraft egg with the datapack feature.
+     *
+     * @param  ModrinthProjectType|null  $modrinthProjectType  null (or mod/plugin) keeps the egg-tag lookup
+     * @return array{icon: string, name: string, supported_project_types: string[], display_name: string}|null
+     */
+    public function getLoaderFromServer(Server $server, ?ModrinthProjectType $modrinthProjectType = null): ?array
     {
         $server->loadMissing('egg');
 
@@ -120,7 +131,17 @@ class MinecraftModrinthService
             return null;
         }
 
-        $projectTypes = array_map(fn (ModrinthProjectType $projectType) => $projectType->value, ModrinthProjectType::fromServer($server));
+        $serverProjectTypes = ModrinthProjectType::fromServer($server);
+
+        if ($modrinthProjectType === ModrinthProjectType::Datapack) {
+            return in_array(ModrinthProjectType::Datapack, $serverProjectTypes, true) ? $this->getDatapackLoader() : null;
+        }
+
+        // Datapacks never decide the egg's loader, so mods/plugins resolve exactly as before.
+        $projectTypes = array_map(
+            fn (ModrinthProjectType $projectType) => $projectType->value,
+            array_filter($serverProjectTypes, fn (ModrinthProjectType $projectType) => $projectType !== ModrinthProjectType::Datapack),
+        );
         if (empty($projectTypes)) {
             return null;
         }
@@ -137,6 +158,20 @@ class MinecraftModrinthService
         }
 
         return null;
+    }
+
+    /** @return array{icon: string, name: string, supported_project_types: string[], display_name: string} */
+    protected function getDatapackLoader(): array
+    {
+        // Modrinth's loader tag list carries the icon; without it (outage) the badge just has none.
+        $icon = collect($this->getLoaders())->firstWhere('name', self::DATAPACK_LOADER)['icon'] ?? '';
+
+        return [
+            'icon' => $icon,
+            'name' => self::DATAPACK_LOADER,
+            'supported_project_types' => [ModrinthProjectType::Datapack->value],
+            'display_name' => 'Datapack',
+        ];
     }
 
     /** @return array<int, array{icon: string, name: string, supported_project_types: string[]}> */
@@ -627,9 +662,41 @@ class MinecraftModrinthService
     /**
      * @throws Exception
      */
-    protected function getMetadataFilePath(ModrinthProjectType $modrinthProjectType): string
+    protected function getMetadataFilePath(Server $server, ModrinthProjectType $modrinthProjectType): string
     {
-        return join_paths($modrinthProjectType->getFolder(), '.modrinth-metadata.json');
+        return join_paths($this->getProjectFolder($server, $modrinthProjectType), '.modrinth-metadata.json');
+    }
+
+    /**
+     * Folder the project type's files live in on this server. Mods and plugins have a fixed
+     * folder and never touch the daemon; datapacks go to `<level-name>/datapacks`.
+     */
+    public function getProjectFolder(Server $server, ModrinthProjectType $modrinthProjectType): string
+    {
+        if ($modrinthProjectType !== ModrinthProjectType::Datapack) {
+            return $modrinthProjectType->getFolder();
+        }
+
+        return $modrinthProjectType->getFolder($this->getLevelName($server));
+    }
+
+    /**
+     * The world folder from server.properties' `level-name`. A missing or unreadable file (e.g.
+     * a server that never started) falls back to Minecraft's default, "world".
+     */
+    public function getLevelName(Server $server): string
+    {
+        try {
+            $content = app(DaemonFileRepository::class)->setServer($server)->getContent('server.properties');
+        } catch (FileNotFoundException) {
+            $content = null;
+        } catch (Exception $exception) {
+            report($exception);
+
+            $content = null;
+        }
+
+        return ServerProperties::levelName($content);
     }
 
     /** @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}> */
@@ -638,7 +705,7 @@ class MinecraftModrinthService
         try {
             $fileRepository = app(DaemonFileRepository::class);
 
-            $metadataPath = $this->getMetadataFilePath($modrinthProjectType);
+            $metadataPath = $this->getMetadataFilePath($server, $modrinthProjectType);
             $content = $fileRepository->setServer($server)->getContent($metadataPath);
             $metadata = json_decode($content, true);
         } catch (FileNotFoundException) {
@@ -747,7 +814,7 @@ class MinecraftModrinthService
                     $installedMods[] = $modEntry;
                 }
 
-                $metadataPath = $this->getMetadataFilePath($modrinthProjectType);
+                $metadataPath = $this->getMetadataFilePath($server, $modrinthProjectType);
                 $response = $fileRepository->setServer($server)->putContent(
                     $metadataPath,
                     json_encode(['installed_mods' => array_values($installedMods)], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
@@ -773,7 +840,7 @@ class MinecraftModrinthService
                     ->values()
                     ->toArray();
 
-                $metadataPath = $this->getMetadataFilePath($modrinthProjectType);
+                $metadataPath = $this->getMetadataFilePath($server, $modrinthProjectType);
                 $response = $fileRepository->setServer($server)->putContent(
                     $metadataPath,
                     json_encode(['installed_mods' => $installedMods], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)

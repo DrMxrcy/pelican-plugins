@@ -12,4 +12,16 @@ class ModrinthProjectTypeTest extends TestCase
         $this->assertSame('mods', ModrinthProjectType::Mod->getFolder());
         $this->assertSame('plugins', ModrinthProjectType::Plugin->getFolder());
     }
+
+    public function test_mod_and_plugin_folders_ignore_the_level_name(): void
+    {
+        $this->assertSame('mods', ModrinthProjectType::Mod->getFolder('survival'));
+        $this->assertSame('plugins', ModrinthProjectType::Plugin->getFolder('survival'));
+    }
+
+    public function test_datapack_folder_is_inside_the_world(): void
+    {
+        $this->assertSame('world/datapacks', ModrinthProjectType::Datapack->getFolder());
+        $this->assertSame('survival/datapacks', ModrinthProjectType::Datapack->getFolder('survival'));
+    }
 }

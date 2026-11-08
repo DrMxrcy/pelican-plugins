@@ -4,6 +4,7 @@ return [
     'plugin_name' => 'Modrinth',
     'minecraft_mods' => 'Minecraft Mods',
     'minecraft_plugins' => 'Minecraft Plugins',
+    'minecraft_datapacks' => 'Minecraft-Datenpakete',
 
     'settings' => [
         'latest_minecraft_version' => 'Neueste Minecraft-Version',
