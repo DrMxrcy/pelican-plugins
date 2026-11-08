@@ -3,10 +3,13 @@
 namespace DrMxrcy\ModrinthPlus\Tests\Feature;
 
 use App\Enums\SubuserPermission;
+use ArrayObject;
 use App\Models\Server;
+use App\Repositories\Daemon\DaemonFileRepository;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
 use DrMxrcy\ModrinthPlus\Filament\Server\Pages\MinecraftModrinthModPage;
+use DrMxrcy\ModrinthPlus\Services\MinecraftModrinthService;
 use DrMxrcy\ModrinthPlus\Tests\TestCase;
 use Exception;
 use Filament\Actions\Action;
@@ -16,7 +19,9 @@ use Filament\Notifications\Collection;
 use Filament\Notifications\Livewire\Notifications;
 use Filament\Notifications\Notification;
 use Filament\Notifications\NotificationMailbox;
+use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Response;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Mockery;
@@ -521,5 +526,113 @@ class RequiredDependenciesTest extends TestCase
         }
 
         $this->assertSame([], $this->dependencyLookups);
+    }
+
+    /**
+     * Routes saveModMetadata()/removeModMetadata() to the real service on a daemon whose metadata
+     * read fails (plan 14), so the page sees what the service really returns.
+     *
+     * @return ArrayObject<int, string> metadata writes the daemon received
+     */
+    private function realMetadataWritesWithFailingRead(): ArrayObject
+    {
+        $writes = new ArrayObject();
+
+        $repository = Mockery::mock(DaemonFileRepository::class);
+        $repository->shouldReceive('setServer')->andReturnSelf();
+        $repository->shouldReceive('getContent')->andThrow(new Exception('cURL error 28: connection timed out'));
+        $repository->shouldReceive('putContent')->andReturnUsing(function (string $path, string $content) use ($writes) {
+            $writes[] = $content;
+
+            return new Response(new Psr7Response(204));
+        });
+        $this->app->instance(DaemonFileRepository::class, $repository);
+
+        $service = new MinecraftModrinthService();
+        MinecraftModrinth::shouldReceive('saveModMetadata')->andReturnUsing(fn (...$arguments) => $service->saveModMetadata(...$arguments));
+        MinecraftModrinth::shouldReceive('removeModMetadata')->andReturnUsing(fn (...$arguments) => $service->removeModMetadata(...$arguments));
+
+        return $writes;
+    }
+
+    public function test_install_reports_a_failure_when_the_metadata_cannot_be_read(): void
+    {
+        $this->account();
+        $this->fakeModrinth();
+        $writes = $this->realMetadataWritesWithFailingRead();
+
+        $this->expectDownloads('xaeros-minimap-x2.jar');
+        // The new jar is rolled back, since nothing records it.
+        MinecraftModrinth::shouldReceive('deleteFile')->once()->with(Mockery::type(Server::class), 'mods', 'xaeros-minimap-x2.jar');
+
+        $this->page()->callAction(TestAction::make('install_latest')->table(self::XAERO_ROW));
+
+        $this->assertSame([], $writes->getArrayCopy());
+        $notifications = $this->notifications();
+        $this->assertCount(1, $notifications);
+        $this->assertSame('danger', $notifications[0]['status']);
+        $this->assertSame(trans('modrinth-plus::strings.notifications.install_failed'), $notifications[0]['title']);
+        $this->assertSame([], $this->dependencyLookups);
+    }
+
+    public function test_update_reports_a_failure_when_the_metadata_cannot_be_read(): void
+    {
+        $this->account();
+        $this->installed = [self::metadata('xaeros-minimap', "Xaero's Minimap")];
+        $this->fakeModrinth();
+        $writes = $this->realMetadataWritesWithFailingRead();
+
+        $this->expectDownloads('xaeros-minimap-x2.jar');
+        // Only the new jar is removed again; the installed one stays.
+        MinecraftModrinth::shouldReceive('deleteFile')->once()->with(Mockery::type(Server::class), 'mods', 'xaeros-minimap-x2.jar');
+
+        $this->page()->callAction(TestAction::make('update')->table(self::XAERO_ROW));
+
+        $this->assertSame([], $writes->getArrayCopy());
+        $notifications = $this->notifications();
+        $this->assertCount(1, $notifications);
+        $this->assertSame('danger', $notifications[0]['status']);
+    }
+
+    public function test_uninstall_does_not_report_success_when_the_metadata_cannot_be_read(): void
+    {
+        $this->account();
+        $this->installed = [self::metadata('xaeros-minimap', "Xaero's Minimap")];
+        $this->fakeModrinth();
+        $writes = $this->realMetadataWritesWithFailingRead();
+
+        MinecraftModrinth::shouldReceive('deleteFile')->once()->with(Mockery::type(Server::class), 'mods', 'xaeros-minimap-old.jar');
+
+        $this->page()->callAction(TestAction::make('uninstall')->table(self::XAERO_ROW));
+
+        $this->assertSame([], $writes->getArrayCopy());
+        $notifications = $this->notifications();
+        $this->assertCount(1, $notifications);
+        $this->assertSame('warning', $notifications[0]['status']);
+        $this->assertSame(trans('modrinth-plus::strings.notifications.uninstall_partial'), $notifications[0]['title']);
+    }
+
+    public function test_a_dependency_whose_metadata_cannot_be_saved_is_rolled_back_and_reported(): void
+    {
+        $this->account();
+        $this->fakeModrinth();
+
+        $this->expectDownloads('xaeros-minimap-x2.jar', 'P7dR8mSH-fapi2.jar');
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()
+            ->with(Mockery::type(Server::class), Mockery::any(), 'xaeros-minimap', Mockery::any(), Mockery::any(), 'x2', 'x2', 'xaeros-minimap-x2.jar', Mockery::any())
+            ->andReturn(true);
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()
+            ->with(Mockery::type(Server::class), Mockery::any(), 'P7dR8mSH', 'fabric-api', 'Fabric API', 'fapi2', 'fapi2', 'P7dR8mSH-fapi2.jar', null, 'xaeros-minimap')
+            ->andReturn(false);
+        MinecraftModrinth::shouldReceive('deleteFile')->once()->with(Mockery::type(Server::class), 'mods', 'P7dR8mSH-fapi2.jar');
+
+        $this->page()->callAction(TestAction::make('install_latest')->table(self::XAERO_ROW));
+
+        $notifications = $this->notifications();
+        $this->assertCount(2, $notifications);
+        $this->assertSame('success', $notifications[0]['status']);
+        $this->assertStringNotContainsString('Fabric API', $notifications[0]['body']);
+        $this->assertSame('warning', $notifications[1]['status']);
+        $this->assertStringContainsString('Fabric API', $notifications[1]['body']);
     }
 }
