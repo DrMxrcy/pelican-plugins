@@ -28,6 +28,9 @@ class MinecraftModrinthService
 
     protected const MODRINTH_API_URL = 'https://api.modrinth.com/v2';
 
+    /** Modrinth categories never offered as a filter (joke content, not useful on a server). */
+    protected const HIDDEN_CATEGORIES = ['cursed'];
+
     protected static ?string $pluginVersion = null;
 
     /**
@@ -151,6 +154,57 @@ class MinecraftModrinthService
                 return [];
             }
         });
+    }
+
+    /**
+     * Category names Modrinth offers for this project type, sorted. Modrinth's whole tag list is
+     * cached for an hour and shared by every page; a failed fetch is not cached (and yields none),
+     * so the filter comes back on the next render once Modrinth answers again.
+     *
+     * Ruling: "cursed" is left out of the filter on purpose.
+     *
+     * @return array<int, string>
+     */
+    public function getCategories(ModrinthProjectType $modrinthProjectType): array
+    {
+        $tags = cache()->get('modrinth:categories');
+
+        if (!is_array($tags)) {
+            try {
+                $tags = $this->modrinth(5)
+                    ->throw()
+                    ->get('tag/category')
+                    ->json();
+            } catch (Exception $exception) {
+                report($exception);
+
+                return [];
+            }
+
+            if (!is_array($tags)) {
+                return [];
+            }
+
+            cache()->put('modrinth:categories', $tags, now()->addHour());
+        }
+
+        $names = [];
+        foreach ($tags as $tag) {
+            if (
+                is_array($tag)
+                && ($tag['project_type'] ?? null) === $modrinthProjectType->value
+                && is_string($tag['name'] ?? null)
+                && $tag['name'] !== ''
+                && !in_array($tag['name'], self::HIDDEN_CATEGORIES, true)
+            ) {
+                $names[] = $tag['name'];
+            }
+        }
+
+        $names = array_values(array_unique($names));
+        sort($names);
+
+        return $names;
     }
 
     /**
