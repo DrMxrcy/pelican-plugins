@@ -26,6 +26,6 @@ fi
 cd "$panel"
 for id in "${suites[@]}"; do
     echo "--> $id"
-    vendor/bin/pest --configuration phpunit.plugins.xml --testsuite "$id" \
+    php -d memory_limit=-1 vendor/bin/pest --configuration phpunit.plugins.xml --testsuite "$id" \
         --test-directory "plugins/$id/tests" --do-not-fail-on-phpunit-warning
 done
