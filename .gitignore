@@ -6,3 +6,23 @@
 /vendor/
 composer.json
 composer.lock
+
+# AI / agent files (local only)
+HANDOFF.md
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+GEMINI.md
+.claude/
+.codex/
+.grok/
+.agents/
+.cursor/
+.cursorrules
+.windsurf/
+.aider*
+.codegraph/
+docs/superpowers/
+ROADMAP.md
+.roadmap/
+CHANGELOG-roadmap*.md

@@ -1,0 +1,79 @@
+name: Release
+
+# Release one plugin by pushing a tag "<plugin-id>-v<version>", e.g.:
+#   git tag modrinth-plus-v0.2.0 && git push origin modrinth-plus-v0.2.0
+#
+# Produces:
+#   1. versioned release  <id>-v<version>   with <id>.zip
+#   2. rolling release    <id>-latest       with <id>.zip + update.json (sha256 pinned)
+#
+# Stable install URL:  .../releases/download/<id>-latest/<id>.zip
+# plugin.json update_url: .../releases/download/<id>-latest/update.json
+
+on:
+  push:
+    tags:
+      - '*-v[0-9]+.[0-9]+.[0-9]+*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Parse tag
+        id: tag
+        run: |
+          id="${TAG%-v*}"
+          version="${TAG##*-v}"
+          [ -f "$id/plugin.json" ] || { echo "::error::no plugin folder '$id' for tag $TAG"; exit 1; }
+          manifest_version="$(jq -r .version "$id/plugin.json")"
+          [ "$manifest_version" = "$version" ] || { echo "::error::tag version $version != $id/plugin.json version $manifest_version"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: 8.4
+          coverage: none
+
+      - run: php scripts/validate-plugins.php
+
+      - name: Package
+        run: |
+          id="${{ steps.tag.outputs.id }}"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${id}.zip"
+          bash scripts/package.sh "$id" "$url"
+          cp "dist/$id.update.json" dist/update.json
+
+      - name: Versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id="${{ steps.tag.outputs.id }}"
+          gh release create "$TAG" "dist/$id.zip" \
+            --title "$id v${{ steps.tag.outputs.version }}" \
+            --generate-notes \
+            --latest=false
+
+      - name: Rolling latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id="${{ steps.tag.outputs.id }}"
+          rolling="$id-latest"
+          if ! gh release view "$rolling" >/dev/null 2>&1; then
+            gh release create "$rolling" --title "$id (latest)" \
+              --notes "Always points at the newest $id release. Install URL: https://github.com/${GITHUB_REPOSITORY}/releases/download/$rolling/$id.zip" \
+              --latest=false --target "$GITHUB_SHA"
+          fi
+          gh release upload "$rolling" "dist/$id.zip" dist/update.json --clobber

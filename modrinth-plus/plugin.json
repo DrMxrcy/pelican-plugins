@@ -1,0 +1,18 @@
+{
+    "id": "modrinth-plus",
+    "name": "Minecraft Modrinth Plus",
+    "author": "Boy132 & H1ghSyst3m, fork by DrMxrcy",
+    "version": "0.1.0",
+    "description": "Download, update, and manage server-compatible Minecraft mods & plugins from Modrinth",
+    "category": "plugin",
+    "url": "https://github.com/DrMxrcy/pelican-plugins/tree/main/modrinth-plus",
+    "update_url": "https://github.com/DrMxrcy/pelican-plugins/releases/download/modrinth-plus-latest/update.json",
+    "namespace": "DrMxrcy\\ModrinthPlus",
+    "class": "MinecraftModrinthPlugin",
+    "panels": [
+        "server"
+    ],
+    "panel_version": null,
+    "api_version": 1,
+    "composer_packages": null
+}

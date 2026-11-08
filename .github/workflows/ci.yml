@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate plugin.json
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: 8.4
+          coverage: none
+      - run: php scripts/validate-plugins.php
+
+  pint:
+    name: Pint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: 8.4
+          tools: composer:v2
+          coverage: none
+      - run: composer init --no-interaction && composer require --dev "laravel/pint:^1.29"
+      - run: vendor/bin/pint --test
+
+  phpstan:
+    name: PHPStan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: 8.4
+          tools: composer:v2
+          coverage: none
+      - name: Clone Pelican Panel
+        run: git clone --depth=1 https://github.com/pelican-dev/panel pelican
+      - name: Install panel dependencies
+        run: cd pelican && composer install --no-interaction --no-progress --no-scripts
+      - name: Stage plugins into panel
+        run: |
+          cp pelican/.env.example pelican/.env
+          mkdir -p pelican/plugins
+          for manifest in */plugin.json; do
+            d="$(dirname "$manifest")"
+            [ "$d" = pelican ] && continue
+            rsync -a "$d/" "pelican/plugins/$d/"
+          done
+          cp phpstan.neon pelican/phpstan.neon
+      - name: Run PHPStan
+        run: cd pelican && vendor/bin/phpstan analyse --memory-limit=-1 --error-format=github
+
+  package:
+    name: Package zips
+    runs-on: ubuntu-latest
+    needs: [validate]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build every plugin
+        run: |
+          for manifest in */plugin.json; do
+            bash scripts/package.sh "$(dirname "$manifest")"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: plugin-zips
+          path: dist/*.zip
+          retention-days: 14
