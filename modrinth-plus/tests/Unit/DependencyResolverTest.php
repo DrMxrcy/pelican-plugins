@@ -133,6 +133,30 @@ class DependencyResolverTest extends TestCase
         $this->assertSame(['a@a1<root', 'b@b1<root'], self::installedPairs($result));
     }
 
+    public function test_a_shared_dependency_records_every_parent_that_requires_it(): void
+    {
+        // Diamond: root needs a and c, both need b. b is installed once but both parents are kept,
+        // so the page can still install b when a turns out to be unusable.
+        $root = self::version('r1', 'root', [self::dep('a'), self::dep('c')]);
+
+        $result = DependencyResolver::resolve('root', $root, self::lookup([
+            'a' => [self::version('a1', 'a', [self::dep('b')])],
+            'c' => [self::version('c1', 'c', [self::dep('b'), self::dep(null, fileName: 'lib.jar'), self::dep('down')])],
+            'b' => [self::version('b1', 'b', [self::dep(null, fileName: 'lib.jar'), self::dep('down')])],
+            'down' => null,
+        ]), []);
+
+        $this->assertSame(['a@a1<root', 'c@c1<root', 'b@b1<a'], self::installedPairs($result));
+        $this->assertSame(
+            ['a' => ['root'], 'c' => ['root'], 'b' => ['a', 'c']],
+            array_column($result['install'], 'required_by_all', 'project_id'),
+        );
+        $this->assertSame(
+            [['lib.jar', ['c', 'b']], ['down', ['c', 'b']]],
+            array_map(fn (array $entry) => [$entry['file_name'] ?? $entry['project_id'], $entry['required_by_all']], $result['unresolved']),
+        );
+    }
+
     public function test_already_installed_dependencies_are_skipped_without_a_lookup(): void
     {
         $calls = [];
@@ -182,8 +206,8 @@ class DependencyResolverTest extends TestCase
 
         $this->assertSame([], $result['install']);
         $this->assertSame([
-            ['project_id' => null, 'version_id' => null, 'file_name' => 'some-lib.jar', 'reason' => DependencyResolver::REASON_MANUAL, 'required_by' => 'root'],
-            ['project_id' => null, 'version_id' => 'v-only', 'file_name' => null, 'reason' => DependencyResolver::REASON_MANUAL, 'required_by' => 'root'],
+            ['project_id' => null, 'version_id' => null, 'file_name' => 'some-lib.jar', 'reason' => DependencyResolver::REASON_MANUAL, 'required_by' => 'root', 'required_by_all' => ['root']],
+            ['project_id' => null, 'version_id' => 'v-only', 'file_name' => null, 'reason' => DependencyResolver::REASON_MANUAL, 'required_by' => 'root', 'required_by_all' => ['root']],
         ], $result['unresolved']);
         $this->assertSame([], $calls);
     }

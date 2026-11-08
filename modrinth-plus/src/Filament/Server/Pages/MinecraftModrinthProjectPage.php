@@ -374,8 +374,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
      * file.create permission is checked again before every one.
      *
      * Client-only dependencies (server_side = unsupported) are skipped: they do nothing on a
-     * server and can keep it from starting. Dependencies of a skipped or failed one are not
-     * installed either, since nothing on the server needs them then.
+     * server and can keep it from starting. A dependency is not installed when every project that
+     * requires it was skipped or failed, since nothing on the server needs it then; one still
+     * required by an installed (or not yet handled) project is. `installed_as_dependency_of` is
+     * the first of its parents that got installed.
      *
      * @param  array<string, mixed>  $versionData
      * @return array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, error: bool}
@@ -410,15 +412,30 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         /** @var array<string, true> $notInstalled */
         $notInstalled = [];
 
+        /** @var array<string, true> $installed the project itself plus every dependency installed so far */
+        $installed = [$projectId => true];
+
+        // Parents of an entry that are not known to be missing.
+        $neededBy = function (array $entry) use (&$notInstalled): array {
+            /** @var array{required_by_all: list<string>} $entry */
+            return array_values(array_filter($entry['required_by_all'], fn (string $parent) => !isset($notInstalled[$parent])));
+        };
+
         foreach ($plan['install'] as $entry) {
             $dependencyId = $entry['project_id'];
             $project = $projects[$dependencyId] ?? null;
 
-            if (isset($notInstalled[$entry['required_by']])) {
+            $parents = $neededBy($entry);
+
+            if ($parents === []) {
                 $notInstalled[$dependencyId] = true;
 
                 continue;
             }
+
+            // A parent not handled yet (it comes later in the list) counts as needing it.
+            $installedParents = array_values(array_filter($parents, fn (string $parent) => isset($installed[$parent])));
+            $parent = $installedParents[0] ?? $parents[0];
 
             if ($project !== null && Sides::isClientOnly($project)) {
                 $report['skipped'][] = $title($dependencyId);
@@ -456,7 +473,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     (string) ($version['version_number'] ?? ''),
                     $filename,
                     null,
-                    $entry['required_by'],
+                    $parent,
                 );
 
                 if (!$saved) {
@@ -469,6 +486,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     throw new Exception("Failed to save metadata for dependency $dependencyId");
                 }
 
+                $installed[$dependencyId] = true;
                 $report['installed'][] = $title($dependencyId);
             } catch (Exception $exception) {
                 report($exception);
@@ -479,7 +497,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         }
 
         foreach ($plan['unresolved'] as $entry) {
-            if (isset($notInstalled[$entry['required_by']])) {
+            if ($neededBy($entry) === []) {
                 continue;
             }
 

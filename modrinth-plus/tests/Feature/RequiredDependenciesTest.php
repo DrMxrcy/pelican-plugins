@@ -307,6 +307,58 @@ class RequiredDependenciesTest extends TestCase
         $this->assertStringContainsString('custom-lib.jar', $notifications[1]['body']);
     }
 
+    public function test_a_shared_dependency_is_installed_when_one_of_its_parents_is_not(): void
+    {
+        // Diamond: Xaero needs Sodium (client-only, skipped) and Cloth Config; both need Fabric API.
+        // Fabric API is still installed for Cloth Config and recorded as its dependency.
+        $this->account();
+        $this->fakeModrinth([
+            'sodium' => [self::version('sodium', 's1', [self::dep('P7dR8mSH')])],
+            'cloth' => [self::version('cloth', 'c1', [self::dep('P7dR8mSH')])],
+        ], self::version('xaeros-minimap', 'x2', [self::dep('sodium'), self::dep('cloth')]));
+
+        $this->expectDownloads('xaeros-minimap-x2.jar', 'cloth-c1.jar', 'P7dR8mSH-fapi2.jar');
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()
+            ->with(Mockery::type(Server::class), Mockery::any(), 'xaeros-minimap', Mockery::any(), Mockery::any(), 'x2', 'x2', 'xaeros-minimap-x2.jar', Mockery::any())
+            ->andReturn(true);
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()
+            ->with(Mockery::type(Server::class), Mockery::any(), 'cloth', 'cloth-config', 'Cloth Config', 'c1', 'c1', 'cloth-c1.jar', null, 'xaeros-minimap')
+            ->andReturn(true);
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()
+            ->with(Mockery::type(Server::class), Mockery::any(), 'P7dR8mSH', 'fabric-api', 'Fabric API', 'fapi2', 'fapi2', 'P7dR8mSH-fapi2.jar', null, 'cloth')
+            ->andReturn(true);
+
+        $this->page()->callAction(TestAction::make('install_latest')->table(self::XAERO_ROW));
+
+        $notifications = $this->notifications();
+        $this->assertCount(2, $notifications);
+        $this->assertStringContainsString('Cloth Config', $notifications[0]['body']);
+        $this->assertStringContainsString('Fabric API', $notifications[0]['body']);
+        $this->assertStringContainsString('Sodium', $notifications[1]['body']);
+    }
+
+    public function test_a_shared_dependency_is_skipped_when_every_parent_is_not_installed(): void
+    {
+        $this->account();
+        $this->fakeModrinth([
+            'sodium' => [self::version('sodium', 's1', [self::dep('P7dR8mSH')])],
+            'cloth' => [self::version('cloth', 'c1', [self::dep('P7dR8mSH')])],
+        ], self::version('xaeros-minimap', 'x2', [self::dep('sodium'), self::dep('cloth')]));
+
+        $this->expectDownloads('xaeros-minimap-x2.jar');
+        MinecraftModrinth::shouldReceive('downloadFile')->once()
+            ->with(Mockery::type(Server::class), Mockery::any(), 'mods', 'cloth-c1.jar')
+            ->andThrow(new Exception('daemon said no'));
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()->andReturn(true);
+
+        $this->page()->callAction(TestAction::make('install_latest')->table(self::XAERO_ROW));
+
+        $notifications = $this->notifications();
+        $this->assertCount(2, $notifications);
+        $this->assertStringNotContainsString('Fabric API', $notifications[0]['body']);
+        $this->assertStringNotContainsString('Fabric API', $notifications[1]['body']);
+    }
+
     public function test_update_installs_dependencies_the_new_version_added(): void
     {
         $this->account();

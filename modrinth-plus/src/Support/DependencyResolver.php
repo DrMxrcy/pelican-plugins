@@ -32,15 +32,19 @@ final class DependencyResolver
     public const REASON_LIMIT = 'limit';
 
     /**
-     * Breadth first, so a dependency always comes after the project that requires it.
+     * Breadth first, so a dependency always comes after the first project that requires it.
+     *
+     * `required_by` is the first project found to require an entry; `required_by_all` lists every
+     * one (in discovery order, `required_by` first), so a dependency shared by two parents can still
+     * be installed when one of them is not. A later parent may come after the entry in `install`.
      *
      * @param  string  $rootProjectId  the project being installed; never part of the result
      * @param  array<string, mixed>  $version  the version being installed
      * @param  callable(string): (array<int, array<string, mixed>>|null)  $versionsFor  compatible versions of a project, newest first; null when the lookup failed
      * @param  array<int, string>  $installedProjectIds
      * @return array{
-     *     install: list<array{project_id: string, version: array<string, mixed>, required_by: string}>,
-     *     unresolved: list<array{project_id: ?string, version_id: ?string, file_name: ?string, reason: string, required_by: string}>
+     *     install: list<array{project_id: string, version: array<string, mixed>, required_by: string, required_by_all: list<string>}>,
+     *     unresolved: list<array{project_id: ?string, version_id: ?string, file_name: ?string, reason: string, required_by: string, required_by_all: list<string>}>
      * }
      */
     public static function resolve(string $rootProjectId, array $version, callable $versionsFor, array $installedProjectIds, int $limit = self::MAX_DEPENDENCIES): array
@@ -51,6 +55,25 @@ final class DependencyResolver
         /** @var array<string, true> $visited project ids and manual entries already handled */
         $visited = array_fill_keys(array_map('strval', $installedProjectIds), true);
         $visited[$rootProjectId] = true;
+
+        /** @var array<string, array{string, int}> $recorded where each entry key landed: ['install'|'unresolved', index] */
+        $recorded = [];
+
+        $addParent = function (string $key, string $requiredBy) use (&$recorded, &$install, &$unresolved): void {
+            if (!isset($recorded[$key]) || $key === $requiredBy) {
+                return;
+            }
+
+            [$list, $index] = $recorded[$key];
+
+            if ($list === 'install') {
+                if (!in_array($requiredBy, $install[$index]['required_by_all'], true)) {
+                    $install[$index]['required_by_all'][] = $requiredBy;
+                }
+            } elseif (!in_array($requiredBy, $unresolved[$index]['required_by_all'], true)) {
+                $unresolved[$index]['required_by_all'][] = $requiredBy;
+            }
+        };
 
         /** @var list<array{array<string, mixed>, string}> $queue */
         $queue = [[$version, $rootProjectId]];
@@ -66,17 +89,23 @@ final class DependencyResolver
 
                     if (!isset($visited[$key])) {
                         $visited[$key] = true;
+                        $recorded[$key] = ['unresolved', count($unresolved)];
                         $unresolved[] = self::unresolved(null, $versionId, $fileName, self::REASON_MANUAL, $requiredBy);
+                    } else {
+                        $addParent($key, $requiredBy);
                     }
 
                     continue;
                 }
 
                 if (isset($visited[$projectId])) {
+                    $addParent($projectId, $requiredBy);
+
                     continue;
                 }
 
                 $visited[$projectId] = true;
+                $recorded[$projectId] = ['unresolved', count($unresolved)];
 
                 if (count($install) >= $limit) {
                     $unresolved[] = self::unresolved($projectId, $versionId, $fileName, self::REASON_LIMIT, $requiredBy);
@@ -100,7 +129,8 @@ final class DependencyResolver
                     continue;
                 }
 
-                $install[] = ['project_id' => $projectId, 'version' => $chosen, 'required_by' => $requiredBy];
+                $recorded[$projectId] = ['install', count($install)];
+                $install[] = ['project_id' => $projectId, 'version' => $chosen, 'required_by' => $requiredBy, 'required_by_all' => [$requiredBy]];
                 $queue[] = [$chosen, $projectId];
             }
         }
@@ -197,9 +227,9 @@ final class DependencyResolver
         return is_string($value) && $value !== '' ? $value : null;
     }
 
-    /** @return array{project_id: ?string, version_id: ?string, file_name: ?string, reason: string, required_by: string} */
+    /** @return array{project_id: ?string, version_id: ?string, file_name: ?string, reason: string, required_by: string, required_by_all: list<string>} */
     private static function unresolved(?string $projectId, ?string $versionId, ?string $fileName, string $reason, string $requiredBy): array
     {
-        return ['project_id' => $projectId, 'version_id' => $versionId, 'file_name' => $fileName, 'reason' => $reason, 'required_by' => $requiredBy];
+        return ['project_id' => $projectId, 'version_id' => $versionId, 'file_name' => $fileName, 'reason' => $reason, 'required_by' => $requiredBy, 'required_by_all' => [$requiredBy]];
     }
 }
