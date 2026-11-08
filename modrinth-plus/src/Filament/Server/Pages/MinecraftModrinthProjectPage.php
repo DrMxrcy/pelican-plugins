@@ -9,6 +9,7 @@ use App\Traits\Filament\BlockAccessInConflict;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
+use DrMxrcy\ModrinthPlus\Support\Compatibility;
 use DrMxrcy\ModrinthPlus\Support\Sides;
 use Exception;
 use Filament\Actions\Action;
@@ -881,11 +882,106 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $folder = static::$modrinthProjectType->getFolder();
 
         return [
+            $this->makeCheckCompatibilityAction(),
             Action::make('open_folder')
                 ->tooltip(fn () => trans('modrinth-plus::strings.page.open_folder', ['folder' => $folder]))
                 ->icon('tabler-folder-open')
                 ->url(fn () => ListFiles::getUrl(['path' => $folder]), true),
         ];
+    }
+
+    /**
+     * Read-only: lists the installed projects that have no build for the server's current
+     * Minecraft version + loader. Never downloads, deletes or rewrites metadata; the update
+     * row action stays the way to act on the result.
+     */
+    protected function makeCheckCompatibilityAction(): Action
+    {
+        return Action::make('check_compatibility')
+            ->label(trans('modrinth-plus::strings.compatibility.action'))
+            ->tooltip(trans('modrinth-plus::strings.compatibility.tooltip'))
+            ->icon('tabler-plug-connected')
+            ->color('gray')
+            ->authorize(fn () => static::userCan(SubuserPermission::FileRead))
+            ->modalHeading(trans('modrinth-plus::strings.compatibility.heading'))
+            ->modalDescription(function () {
+                /** @var Server $server */
+                $server = Filament::getTenant();
+                $unknown = trans('modrinth-plus::strings.page.unknown');
+
+                return trans('modrinth-plus::strings.compatibility.description', [
+                    'version' => MinecraftModrinth::getMinecraftVersion($server) ?? $unknown,
+                    'loader' => MinecraftModrinth::getLoaderFromServer($server)['display_name'] ?? $unknown,
+                ]);
+            })
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel(trans('modrinth-plus::strings.compatibility.close'))
+            ->schema(fn () => $this->compatibilitySchema());
+    }
+
+    /** @return array<int, TextEntry> */
+    protected function compatibilitySchema(): array
+    {
+        /** @var Server $server */
+        $server = Filament::getTenant();
+
+        $installedMods = $this->getInstalledModsMetadata();
+
+        if ($installedMods === []) {
+            return [
+                TextEntry::make('compatibility_none_installed')
+                    ->hiddenLabel()
+                    ->state(trans('modrinth-plus::strings.compatibility.none_installed')),
+            ];
+        }
+
+        // Asks Modrinth directly: the page's versionsCache turns a failed lookup into "no
+        // versions", which would report an outage as incompatible.
+        $loaderKnown = MinecraftModrinth::getLoaderFromServer($server) !== null;
+        $versions = $loaderKnown ? MinecraftModrinth::getProjectVersionsBulk(array_column($installedMods, 'project_id'), $server) : [];
+
+        $problems = Compatibility::problems(Compatibility::report($installedMods, $versions, $loaderKnown));
+
+        if ($problems === []) {
+            return [
+                TextEntry::make('compatibility_all_compatible')
+                    ->hiddenLabel()
+                    ->state(trans('modrinth-plus::strings.compatibility.all_compatible', ['count' => count($installedMods)]))
+                    ->icon('tabler-circle-check')
+                    ->iconColor('success'),
+            ];
+        }
+
+        $entries = [
+            TextEntry::make('compatibility_summary')
+                ->hiddenLabel()
+                ->state(trans('modrinth-plus::strings.compatibility.summary', ['count' => count($problems), 'total' => count($installedMods)])),
+        ];
+
+        foreach ($problems as $index => $row) {
+            $details = match ($row['status']) {
+                Compatibility::NEEDS_UPDATE => trans('modrinth-plus::strings.compatibility.details.needs_update', [
+                    'installed' => $row['installed_version'],
+                    'newest' => $row['newest_version'] ?? trans('modrinth-plus::strings.page.unknown'),
+                ]),
+                Compatibility::INCOMPATIBLE => trans('modrinth-plus::strings.compatibility.details.incompatible', ['installed' => $row['installed_version']]),
+                default => trans($loaderKnown ? 'modrinth-plus::strings.compatibility.details.unknown' : 'modrinth-plus::strings.compatibility.details.unknown_loader'),
+            };
+
+            // Titles come from the metadata file on the server: plain strings, so Blade escapes them.
+            $entries[] = TextEntry::make('compatibility_' . $index)
+                ->label($row['title'])
+                ->state(trans('modrinth-plus::strings.compatibility.status.' . $row['status']))
+                ->badge()
+                ->color(match ($row['status']) {
+                    Compatibility::NEEDS_UPDATE => 'warning',
+                    Compatibility::INCOMPATIBLE => 'danger',
+                    default => 'gray',
+                })
+                ->helperText($details);
+        }
+
+        return $entries;
     }
 
     public function content(Schema $schema): Schema

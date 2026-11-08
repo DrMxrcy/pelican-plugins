@@ -81,6 +81,28 @@ return [
         'players_need_it_tooltip' => 'Spieler müssen diese Mod ebenfalls installieren',
     ],
 
+    'compatibility' => [
+        'action' => 'Kompatibilität prüfen',
+        'tooltip' => 'Prüft, ob jedes installierte Projekt eine Version für diese Minecraft-Version und diesen Loader hat. Ändert nichts.',
+        'heading' => 'Kompatibilitätsprüfung',
+        'description' => 'Minecraft :version mit :loader. Diese Prüfung installiert, aktualisiert oder entfernt nichts.',
+        'close' => 'Schließen',
+        'none_installed' => 'Es ist noch nichts installiert.',
+        'all_compatible' => 'Alle :count installierten Projekte haben eine Version für diese Minecraft-Version und diesen Loader.',
+        'summary' => ':count von :total installierten Projekten brauchen Aufmerksamkeit:',
+        'status' => [
+            'needs_update' => 'Update nötig',
+            'incompatible' => 'Inkompatibel',
+            'unknown' => 'Unbekannt',
+        ],
+        'details' => [
+            'needs_update' => 'Die installierte Version :installed ist nicht für diese Minecraft-Version gebaut, :newest aber schon. Nutze den Update-Button im Tab „Installiert“.',
+            'incompatible' => 'Keine Version dieses Projekts unterstützt diese Minecraft-Version und diesen Loader bisher (installiert: :installed).',
+            'unknown' => 'Modrinth war für dieses Projekt nicht erreichbar. Versuche es später erneut.',
+            'unknown_loader' => 'Der Loader des Servers ist unbekannt, daher kann die Kompatibilität nicht geprüft werden.',
+        ],
+    ],
+
     'notifications' => [
         'install_success' => 'Installation abgeschlossen',
         'install_success_body' => ':name Version :version erfolgreich installiert',
