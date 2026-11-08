@@ -5,6 +5,7 @@ namespace DrMxrcy\ModrinthPlus\Services;
 use App\Models\Server;
 use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
+use DrMxrcy\ModrinthPlus\Support\SearchFacets;
 use Exception;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Illuminate\Http\Client\PendingRequest;
@@ -151,8 +152,11 @@ class MinecraftModrinthService
         });
     }
 
-    /** @return array{hits: array<int, array<string, mixed>>, total_hits: int} */
-    public function getProjects(Server $server, ModrinthProjectType $modrinthProjectType, int $page = 1, ?string $search = null): array
+    /**
+     * @param  bool  $includeClientOnly  also list client-only projects, overriding the hide_client_only config
+     * @return array{hits: array<int, array<string, mixed>>, total_hits: int}
+     */
+    public function getProjects(Server $server, ModrinthProjectType $modrinthProjectType, int $page = 1, ?string $search = null, bool $includeClientOnly = false): array
     {
         $modrinthProjectType = $modrinthProjectType->value;
         $minecraftLoader = $this->getLoaderFromServer($server);
@@ -167,21 +171,16 @@ class MinecraftModrinthService
         $minecraftVersion = $this->getMinecraftVersion($server);
         $minecraftLoader = $minecraftLoader['name'];
 
-        $facets = '[["categories:' . $minecraftLoader . '"]';
-
-        if ($minecraftVersion) {
-            $facets .= ',["versions:' . $minecraftVersion . '"]';
-        }
-
-        $facets .= ',["project_type:mod","project_type:plugin"]]';
+        $hideClientOnly = !$includeClientOnly && (bool) config('modrinth-plus.hide_client_only', true);
 
         $data = [
             'offset' => ($page - 1) * 20,
             'limit' => 20,
-            'facets' => $facets,
+            'facets' => SearchFacets::build($minecraftLoader, $minecraftVersion, $hideClientOnly),
         ];
 
-        $key = "modrinth_projects:{$modrinthProjectType}:$minecraftVersion:$minecraftLoader:$page";
+        // The filter is part of the key so toggling it never serves the other variant's cached page.
+        $key = "modrinth_projects:{$modrinthProjectType}:$minecraftVersion:$minecraftLoader:".($hideClientOnly ? 'server' : 'all').":$page";
 
         if ($search) {
             $data['query'] = $search;
