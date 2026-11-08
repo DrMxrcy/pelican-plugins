@@ -8,6 +8,7 @@ use App\Models\Server;
 use App\Traits\Filament\BlockAccessInConflict;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
+use DrMxrcy\ModrinthPlus\Exceptions\InvalidLevelNameException;
 use DrMxrcy\ModrinthPlus\Exceptions\ServerPropertiesUnreadableException;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
 use DrMxrcy\ModrinthPlus\Support\Compatibility;
@@ -21,6 +22,7 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Resources\Concerns\HasTabs;
+use Filament\Schemas\Components\Callout;
 use Filament\Schemas\Components\EmbeddedTable;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
@@ -195,12 +197,35 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
             Notification::make()
                 ->title(trans('modrinth-plus::strings.datapacks.world_unknown'))
-                ->body(trans('modrinth-plus::strings.datapacks.world_unknown_body'))
+                ->body(self::worldUnknownBody($exception))
                 ->danger()
                 ->persistent()
                 ->send();
 
             return false;
+        }
+    }
+
+    /** Why the world folder is unknown: server.properties unreadable, or its level-name unsafe. */
+    private static function worldUnknownBody(ServerPropertiesUnreadableException $exception): string
+    {
+        return $exception instanceof InvalidLevelNameException
+            ? trans('modrinth-plus::strings.datapacks.world_invalid_body')
+            : trans('modrinth-plus::strings.datapacks.world_unknown_body');
+    }
+
+    /**
+     * Why the project folder can't be worked out right now, or null when it can. Shown as a
+     * notice at the top of the page so an empty Installed tab is not taken at face value.
+     */
+    protected function projectFolderProblem(): ?string
+    {
+        try {
+            $this->getProjectFolder();
+
+            return null;
+        } catch (ServerPropertiesUnreadableException $exception) {
+            return self::worldUnknownBody($exception);
         }
     }
 
@@ -1819,6 +1844,11 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
         return $schema
             ->components([
+                Callout::make(trans('modrinth-plus::strings.datapacks.world_unknown'))
+                    ->description(fn () => $this->projectFolderProblem())
+                    ->icon('tabler-alert-triangle')
+                    ->color('warning')
+                    ->visible(fn () => $this->projectFolderProblem() !== null),
                 Grid::make(3)
                     ->schema([
                         TextEntry::make('Minecraft Version')

@@ -2,6 +2,8 @@
 
 namespace DrMxrcy\ModrinthPlus\Tests\Unit;
 
+use DrMxrcy\ModrinthPlus\Exceptions\InvalidLevelNameException;
+use DrMxrcy\ModrinthPlus\Exceptions\ServerPropertiesUnreadableException;
 use DrMxrcy\ModrinthPlus\Support\ServerProperties;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -58,9 +60,17 @@ class ServerPropertiesTest extends TestCase
         $this->assertSame('world', ServerProperties::levelName("level-name-old=nope\nlevel-type=minecraft\\:normal\n"));
     }
 
-    public function test_nested_folder_is_kept_without_surrounding_slashes(): void
+    public function test_nested_folder_is_kept_without_a_trailing_slash(): void
     {
-        $this->assertSame('worlds/main', ServerProperties::levelName("level-name=/worlds/main/\n"));
+        $this->assertSame('worlds/main', ServerProperties::levelName("level-name=worlds/main/\n"));
+    }
+
+    public function test_trailing_spaces_are_part_of_the_value(): void
+    {
+        // Java properties keep trailing whitespace; only the line terminator and the leading
+        // whitespace before the value are dropped.
+        $this->assertSame('world  ', ServerProperties::get("level-name=  world  \r\n", 'level-name'));
+        $this->assertSame("world\t", ServerProperties::get("level-name=world\t\n", 'level-name'));
     }
 
     /** @return array<string, array{string}> */
@@ -70,15 +80,31 @@ class ServerPropertiesTest extends TestCase
             'parent folder' => ['../outside'],
             'parent in the middle' => ['worlds/../../etc'],
             'only dots' => ['..'],
+            'current folder' => ['.'],
+            'current folder segment' => ['worlds/./main'],
+            'absolute' => ['/worlds/main/'],
+            'empty segment' => ['worlds//main'],
             'backslash' => ['..\\\\outside'],
             'windows drive' => ['C:/worlds'],
+            'NUL (escaped)' => ['world\\u0000'],
+            'control character (escaped)' => ['world\\n'],
+            'trailing space' => ['world '],
+            'trailing space in a segment' => ['worlds /main'],
+            'escaped leading space' => ['\\ world'],
         ];
     }
 
     #[DataProvider('unsafeLevelNames')]
-    public function test_level_names_leaving_the_server_root_fall_back_to_world(string $value): void
+    public function test_unsafe_level_names_are_refused_not_replaced_by_world(string $value): void
     {
-        $this->assertSame('world', ServerProperties::levelName("level-name=$value\n"));
+        // Fails if: an unsafe level-name silently falls back to "world" (or is trimmed into a
+        // different folder) instead of leaving the world folder unknown.
+        try {
+            $name = ServerProperties::levelName("level-name=$value\n");
+            $this->fail("Unsafe level-name accepted as [$name].");
+        } catch (InvalidLevelNameException $exception) {
+            $this->assertInstanceOf(ServerPropertiesUnreadableException::class, $exception);
+        }
     }
 
     public function test_get_returns_null_for_an_unset_key(): void

@@ -2,6 +2,8 @@
 
 namespace DrMxrcy\ModrinthPlus\Support;
 
+use DrMxrcy\ModrinthPlus\Exceptions\InvalidLevelNameException;
+
 /**
  * Reads values from a Minecraft `server.properties` file (Java properties format).
  */
@@ -10,30 +12,41 @@ final class ServerProperties
     public const DEFAULT_LEVEL_NAME = 'world';
 
     /**
-     * The world folder named by `level-name`, or "world" when the file is missing, has no
-     * usable value, or names something outside the server root (absolute path, `..`).
+     * The world folder named by `level-name`. A missing file or a missing/empty `level-name` is
+     * Minecraft's default, "world". A value that is not a plain folder inside the server root
+     * (absolute path, `.` or `..` segment, empty segment, backslash, drive letter, control
+     * character, whitespace around a segment) throws: falling back to "world" there would install
+     * into, or delete from, a world the server does not use. The value is never trimmed or
+     * otherwise altered, except that one trailing `/` is dropped.
+     *
+     * @throws InvalidLevelNameException
      */
     public static function levelName(?string $content): string
     {
         $value = $content === null ? null : self::get($content, 'level-name');
 
-        if ($value === null) {
+        if ($value === null || $value === '') {
             return self::DEFAULT_LEVEL_NAME;
         }
 
-        $value = trim($value, " \t\n\r\0\x0B/");
+        $name = str_ends_with($value, '/') ? substr($value, 0, -1) : $value;
 
         if (
-            $value === ''
-            || str_contains($value, "\0")
-            || str_contains($value, '\\')
-            || in_array('..', explode('/', $value), true)
-            || preg_match('/^[A-Za-z]:/', $value) === 1
+            $name === ''
+            || str_contains($name, '\\')
+            || preg_match('/[\x00-\x1F\x7F]/', $name) === 1
+            || preg_match('/^[A-Za-z]:/', $name) === 1
         ) {
-            return self::DEFAULT_LEVEL_NAME;
+            throw new InvalidLevelNameException('level-name in server.properties is not a folder inside the server');
         }
 
-        return $value;
+        foreach (explode('/', $name) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..' || $segment !== trim($segment)) {
+                throw new InvalidLevelNameException('level-name in server.properties is not a folder inside the server');
+            }
+        }
+
+        return $name;
     }
 
     /**
@@ -59,7 +72,8 @@ final class ServerProperties
 
             if (self::unescape($matches[1]) === $key) {
                 // The last occurrence wins, like java.util.Properties.
-                $found = self::unescape(rtrim($matches[2], "\r\n"));
+                // Trailing whitespace belongs to the value (java.util.Properties keeps it).
+                $found = self::unescape($matches[2]);
             }
         }
 

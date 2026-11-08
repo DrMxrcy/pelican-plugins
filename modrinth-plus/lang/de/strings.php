@@ -174,5 +174,6 @@ return [
         'uninstall_heading' => 'Datenpaket deinstallieren',
         'world_unknown' => 'Weltordner unbekannt',
         'world_unknown_body' => 'server.properties konnte nicht gelesen werden, daher ist der Weltordner für Datenpakete unbekannt. Es wurde nichts geändert; versuche es erneut, sobald der Server erreichbar ist.',
+        'world_invalid_body' => 'Der level-name in server.properties ist kein Ordner innerhalb des Servers (zum Beispiel ein absoluter Pfad, "." oder "..", ein Backslash oder Leerzeichen am Rand), daher ist der Weltordner für Datenpakete unbekannt. Es wurde nichts geändert; korrigiere level-name und versuche es erneut.',
     ],
 ];

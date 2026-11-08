@@ -174,5 +174,6 @@ return [
         'uninstall_heading' => 'Uninstall Datapack',
         'world_unknown' => 'World folder unknown',
         'world_unknown_body' => 'server.properties could not be read, so the world folder for datapacks is unknown. Nothing was changed; try again once the server is reachable.',
+        'world_invalid_body' => 'The level-name in server.properties is not a folder inside the server (for example an absolute path, "." or "..", a backslash or surrounding spaces), so the world folder for datapacks is unknown. Nothing was changed; fix level-name and try again.',
     ],
 ];

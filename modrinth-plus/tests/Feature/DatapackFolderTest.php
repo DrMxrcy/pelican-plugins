@@ -6,6 +6,7 @@ use App\Models\Egg;
 use App\Models\Server;
 use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
+use DrMxrcy\ModrinthPlus\Exceptions\InvalidLevelNameException;
 use DrMxrcy\ModrinthPlus\Exceptions\ServerPropertiesUnreadableException;
 use DrMxrcy\ModrinthPlus\Services\MinecraftModrinthService;
 use DrMxrcy\ModrinthPlus\Tests\TestCase;
@@ -104,9 +105,9 @@ class DatapackFolderTest extends TestCase
         $this->assertSame('world/datapacks', $this->service()->getProjectFolder($this->server(), ModrinthProjectType::Datapack));
     }
 
-    public function test_datapack_folder_defaults_to_world_without_a_usable_level_name(): void
+    public function test_datapack_folder_defaults_to_world_without_a_level_name(): void
     {
-        foreach (["motd=hi\n", "level-name=\n", "level-name=../../etc\n"] as $properties) {
+        foreach (["motd=hi\n", "level-name=\n"] as $properties) {
             $this->properties = $properties;
 
             $this->assertSame('world/datapacks', $this->service()->getProjectFolder($this->server(), ModrinthProjectType::Datapack), $properties);
@@ -128,6 +129,26 @@ class DatapackFolderTest extends TestCase
         $this->assertFalse($this->service()->saveModMetadata($this->server(), ModrinthProjectType::Datapack, 'terralith', 'terralith', 'Terralith', 'v1', '2.5.8', 'Terralith.zip'));
         $this->assertFalse($this->service()->removeModMetadata($this->server(), ModrinthProjectType::Datapack, 'terralith'));
         $this->assertNull($this->service()->readInstalledModsMetadata($this->server(), ModrinthProjectType::Datapack));
+        $this->assertSame([], $this->writes);
+        $this->assertSame(['server.properties'], array_values(array_unique($this->reads)));
+    }
+
+    public function test_unsafe_level_name_never_guesses_the_world(): void
+    {
+        foreach (["level-name=../../etc\n", "level-name=.\n", "level-name=/srv/world\n", "level-name=world \n"] as $properties) {
+            $this->properties = $properties;
+
+            // Fails if: an unsafe level-name falls back to "world" and datapacks land there.
+            try {
+                $folder = $this->service()->getProjectFolder($this->server(), ModrinthProjectType::Datapack);
+                $this->fail("The world folder was guessed as [$folder] for $properties");
+            } catch (InvalidLevelNameException) {
+            }
+
+            $this->assertFalse($this->service()->saveModMetadata($this->server(), ModrinthProjectType::Datapack, 'terralith', 'terralith', 'Terralith', 'v1', '2.5.8', 'Terralith.zip'));
+            $this->assertNull($this->service()->readInstalledModsMetadata($this->server(), ModrinthProjectType::Datapack));
+        }
+
         $this->assertSame([], $this->writes);
         $this->assertSame(['server.properties'], array_values(array_unique($this->reads)));
     }

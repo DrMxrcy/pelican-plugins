@@ -6,6 +6,7 @@ use App\Enums\SubuserPermission;
 use App\Models\Server;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
+use DrMxrcy\ModrinthPlus\Exceptions\InvalidLevelNameException;
 use DrMxrcy\ModrinthPlus\Exceptions\ServerPropertiesUnreadableException;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
 use DrMxrcy\ModrinthPlus\Filament\Server\Pages\MinecraftModrinthDatapackPage;
@@ -18,6 +19,7 @@ use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Features\SupportTesting\Testable;
@@ -336,6 +338,59 @@ class DatapackPageTest extends TestCase
         }
     }
 
+    public function test_unsafe_level_name_refuses_every_write_with_its_own_message(): void
+    {
+        $this->account(['modrinth_datapacks']);
+        $this->fakeModrinth(new InvalidLevelNameException('level-name leaves the server folder'));
+
+        MinecraftModrinth::shouldReceive('downloadFile')->never();
+        MinecraftModrinth::shouldReceive('deleteFile')->never();
+        MinecraftModrinth::shouldReceive('saveModMetadata')->never();
+        MinecraftModrinth::shouldReceive('removeModMetadata')->never();
+
+        $page = $this->page()->assertActionHidden('open_folder');
+
+        foreach (['install_latest' => self::NOT_INSTALLED_ROW, 'update' => self::INSTALLED_ROW, 'uninstall' => self::INSTALLED_ROW] as $name => $row) {
+            $page->callAction(TestAction::make($name)->table($row))
+                ->assertNotified(
+                    Notification::make()
+                        ->title(trans('modrinth-plus::strings.datapacks.world_unknown'))
+                        ->body(trans('modrinth-plus::strings.datapacks.world_invalid_body'))
+                        ->danger()
+                        ->persistent(),
+                );
+        }
+    }
+
+    public function test_unknown_world_shows_a_notice_on_the_page(): void
+    {
+        $this->account(['modrinth_datapacks']);
+        $this->fakeModrinth(new ServerPropertiesUnreadableException('daemon unreachable'));
+
+        // Fails if: the Installed tab is just empty with no hint why.
+        $this->page()->set('activeTab', 'installed')->loadTable()
+            ->assertSee(trans('modrinth-plus::strings.datapacks.world_unknown'))
+            ->assertSee(trans('modrinth-plus::strings.datapacks.world_unknown_body'));
+    }
+
+    public function test_unsafe_level_name_shows_a_notice_on_the_page(): void
+    {
+        $this->account(['modrinth_datapacks']);
+        $this->fakeModrinth(new InvalidLevelNameException('level-name leaves the server folder'));
+
+        $this->page()->set('activeTab', 'installed')->loadTable()
+            ->assertSee(trans('modrinth-plus::strings.datapacks.world_unknown'))
+            ->assertSee(trans('modrinth-plus::strings.datapacks.world_invalid_body'));
+    }
+
+    public function test_known_world_shows_no_notice(): void
+    {
+        $this->account(['modrinth_datapacks']);
+        $this->fakeModrinth();
+
+        $this->page()->assertDontSee(trans('modrinth-plus::strings.datapacks.world_unknown'));
+    }
+
     public function test_unreadable_server_properties_refuses_update_all(): void
     {
         $this->account(['modrinth_datapacks']);
@@ -408,7 +463,7 @@ class DatapackPageTest extends TestCase
     public function test_datapack_strings_exist_in_every_locale(): void
     {
         foreach (['en', 'de'] as $locale) {
-            foreach (['minecraft_datapacks', 'datapacks.update_heading', 'datapacks.uninstall_heading', 'datapacks.world_unknown', 'datapacks.world_unknown_body'] as $key) {
+            foreach (['minecraft_datapacks', 'datapacks.update_heading', 'datapacks.uninstall_heading', 'datapacks.world_unknown', 'datapacks.world_unknown_body', 'datapacks.world_invalid_body'] as $key) {
                 $line = "modrinth-plus::strings.$key";
                 $this->assertNotSame($line, trans($line, locale: $locale), "$locale: $key missing");
             }

@@ -4,6 +4,7 @@ namespace DrMxrcy\ModrinthPlus\Filament\Server\Pages;
 
 use App\Models\Server;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
+use DrMxrcy\ModrinthPlus\Exceptions\ServerPropertiesUnreadableException;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
 use Filament\Facades\Filament;
 
@@ -27,6 +28,9 @@ class MinecraftModrinthDatapackPage extends MinecraftModrinthProjectPage
     /** Read from server.properties once per request; not Livewire state, so a changed level-name shows up on the next one. */
     protected ?string $projectFolder = null;
 
+    /** Why the folder could not be read, kept for the rest of the request so one render doesn't ask the daemon again for every caller. */
+    protected ?ServerPropertiesUnreadableException $projectFolderError = null;
+
     protected static function usesClientOnlyFilter(): bool
     {
         return false;
@@ -45,11 +49,21 @@ class MinecraftModrinthDatapackPage extends MinecraftModrinthProjectPage
 
     protected function getProjectFolder(): string
     {
+        if ($this->projectFolderError !== null) {
+            throw $this->projectFolderError;
+        }
+
         if ($this->projectFolder === null) {
             /** @var Server $server */
             $server = Filament::getTenant();
 
-            $this->projectFolder = MinecraftModrinth::getProjectFolder($server, ModrinthProjectType::Datapack);
+            try {
+                $this->projectFolder = MinecraftModrinth::getProjectFolder($server, ModrinthProjectType::Datapack);
+            } catch (ServerPropertiesUnreadableException $exception) {
+                $this->projectFolderError = $exception;
+
+                throw $exception;
+            }
         }
 
         return $this->projectFolder;

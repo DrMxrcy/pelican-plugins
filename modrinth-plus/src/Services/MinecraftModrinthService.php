@@ -698,9 +698,10 @@ class MinecraftModrinthService
 
     /**
      * The world folder from server.properties' `level-name`. A missing file (e.g. a server that
-     * never started) or a missing/invalid `level-name` falls back to Minecraft's default, "world".
-     * A file that exists but could not be read (daemon error, timeout) throws instead: guessing
-     * "world" there could install into, or delete from, the wrong world.
+     * never started) or a missing/empty `level-name` falls back to Minecraft's default, "world".
+     * A file that exists but could not be read (daemon error, timeout) throws instead, and so
+     * does a `level-name` that is not a folder inside the server (InvalidLevelNameException, a
+     * subclass): guessing "world" there could install into, or delete from, the wrong world.
      *
      * @throws ServerPropertiesUnreadableException
      */

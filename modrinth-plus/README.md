@@ -11,7 +11,7 @@ Add `modrinth_mods` and/or `modrinth_plugins` to the _features_ of your egg.
 The egg also needs the `minecraft` _tag_ and a tag matching a Modrinth loader name (e.g. `fabric`, `paper`, `neoforge`).
 
 For datapacks, add `modrinth_datapacks` to the _features_ (the egg needs the `minecraft` _tag_, no loader tag).
-They are installed into the main world's `datapacks/` folder, taken from `level-name` in `server.properties` (default `world` when the file or the key is missing).
+They are installed into the main world's `datapacks/` folder, taken from `level-name` in `server.properties` (default `world` when the file or the key is missing). A `level-name` that is not a folder inside the server (absolute path, `.` or `..`, backslash, surrounding spaces) is refused: the page shows a warning and nothing is installed or removed until it is fixed.
 If `server.properties` exists but can't be read (daemon error), installs, updates and uninstalls of datapacks are refused instead of guessing the world.
 "Scan folder" and "Not on Modrinth" rows are not offered on the Datapacks page.
 
