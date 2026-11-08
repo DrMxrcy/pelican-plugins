@@ -8,6 +8,8 @@ parameters:
 
     level: 6
 
+    reportUnmatchedIgnoredErrors: false
+
     ignoreErrors:
         - identifier: missingType.generics
         - identifier: larastan.noEnvCallsOutsideOfConfig
