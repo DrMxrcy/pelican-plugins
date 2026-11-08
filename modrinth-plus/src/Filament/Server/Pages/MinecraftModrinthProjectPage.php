@@ -25,6 +25,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Schema;
+use Filament\Support\ArrayRecord;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
@@ -44,6 +45,9 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     use BlockAccessInConflict;
     use HasTabs;
     use InteractsWithTable;
+
+    /** Table record key of a "Not on Modrinth" row: this prefix plus the jar's file name. */
+    public const NOT_ON_MODRINTH_KEY_PREFIX = 'file:';
 
     /** @var array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}>|null */
     protected ?array $installedModsMetadata = null;
@@ -276,7 +280,8 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
     /**
      * A read-only Installed-tab row for a jar that is not on Modrinth: no project, no versions,
-     * no link; only uninstall (deleting the file) is offered.
+     * no link; only uninstall (deleting the file) is offered. The row is keyed by its file name,
+     * not its position, so an action on it can never land on another jar after the list shifts.
      *
      * @param  array{name: string, size: int, modified: ?string}  $file
      * @return array<string, mixed>
@@ -284,6 +289,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     protected function notOnModrinthRecord(array $file): array
     {
         return [
+            ArrayRecord::getKeyName() => self::NOT_ON_MODRINTH_KEY_PREFIX . $file['name'],
             'project_id' => '',
             'slug' => '',
             'title' => $file['name'],

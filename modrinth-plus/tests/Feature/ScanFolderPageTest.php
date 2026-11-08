@@ -35,7 +35,8 @@ class ScanFolderPageTest extends TestCase
     /** Installed tab rows: the imported project first, then the jars not on Modrinth. */
     private const IMPORTED_ROW = '0';
 
-    private const HOMEMADE_ROW = '1';
+    /** "Not on Modrinth" rows are keyed by file name, not position. */
+    private const HOMEMADE_ROW = 'file:homemade.jar';
 
     private Server $server;
 
@@ -133,6 +134,8 @@ class ScanFolderPageTest extends TestCase
         /** @var MinecraftModrinthModPage $instance */
         $instance = $page->instance();
         $this->assertSame('homemade.jar', $instance->getTableRecord(self::HOMEMADE_ROW)['title']);
+        // A positional key (what a shifted list used to resolve to) finds no jar.
+        $this->assertNull($instance->getTableRecord('1'));
 
         $column = $instance->getTable()->getColumn('title');
         $this->assertInstanceOf(TextColumn::class, $column);
