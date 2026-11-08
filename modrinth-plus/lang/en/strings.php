@@ -29,6 +29,20 @@ return [
         'badge_tooltip' => 'The server never loads this mod; only players use it on their own game',
     ],
 
+    'filters' => [
+        'sort' => 'Sort by',
+        'sort_default' => 'Default (relevance when searching, otherwise downloads)',
+        'categories' => 'Categories',
+    ],
+
+    'sort' => [
+        'relevance' => 'Relevance',
+        'downloads' => 'Downloads',
+        'follows' => 'Follows',
+        'newest' => 'Newest',
+        'updated' => 'Recently updated',
+    ],
+
     'table' => [
         'columns' => [
             'title' => 'Title',

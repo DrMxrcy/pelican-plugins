@@ -74,6 +74,7 @@ class ClientOnlyInstalledTest extends TestCase
             $this->project('lithium', 'optional', 'optional'),
             $this->project('sodium', 'unsupported', 'required'),
         ]);
+        MinecraftModrinth::shouldReceive('getCategories')->andReturn([]);
         MinecraftModrinth::shouldReceive('getProjects')->andReturn([
             'hits' => [$this->project('sodium', 'unsupported', 'required')],
             'total_hits' => 1,

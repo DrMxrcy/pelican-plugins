@@ -29,6 +29,20 @@ return [
         'badge_tooltip' => 'Der Server lädt diese Mod nie; nur Spieler nutzen sie in ihrem eigenen Spiel',
     ],
 
+    'filters' => [
+        'sort' => 'Sortieren nach',
+        'sort_default' => 'Standard (Relevanz bei Suche, sonst Downloads)',
+        'categories' => 'Kategorien',
+    ],
+
+    'sort' => [
+        'relevance' => 'Relevanz',
+        'downloads' => 'Downloads',
+        'follows' => 'Follower',
+        'newest' => 'Neueste',
+        'updated' => 'Zuletzt aktualisiert',
+    ],
+
     'table' => [
         'columns' => [
             'title' => 'Titel',

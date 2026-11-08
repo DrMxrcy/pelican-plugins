@@ -44,6 +44,7 @@ class PlayersNeedItBadgeTest extends TestCase
             $this->metadata('gone', 'Gone'),
             $this->metadata('lithium', 'Lithium'),
         ]);
+        MinecraftModrinth::shouldReceive('getCategories')->andReturn([]);
         MinecraftModrinth::shouldReceive('getProjects')->andReturn([
             'hits' => [
                 $this->hit('xaeros-minimap', 'optional', 'required'),

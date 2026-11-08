@@ -7,6 +7,7 @@ use App\Filament\Server\Resources\Files\Pages\ListFiles;
 use App\Models\Server;
 use App\Traits\Filament\BlockAccessInConflict;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
+use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
 use DrMxrcy\ModrinthPlus\Support\Sides;
 use Exception;
@@ -25,12 +26,15 @@ use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Enums\FiltersLayout;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 
 abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 {
@@ -407,10 +411,34 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         ]);
     }
 
+    /**
+     * Sort picked in the table filter; null (nothing picked, or a tampered value) lets the
+     * service choose relevance/downloads from the search term.
+     *
+     * @param  array<string, mixed>|null  $filters  Filament table filter state
+     */
+    protected function selectedSearchIndex(?array $filters): ?ModrinthSearchIndex
+    {
+        $value = is_array($filters['sort'] ?? null) ? ($filters['sort']['value'] ?? null) : null;
+
+        return is_string($value) ? ModrinthSearchIndex::tryFrom($value) : null;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $filters  Filament table filter state
+     * @return array<int, string>
+     */
+    protected function selectedCategories(?array $filters): array
+    {
+        $values = is_array($filters['categories'] ?? null) ? ($filters['categories']['values'] ?? null) : null;
+
+        return is_array($values) ? array_values(array_filter($values, 'is_string')) : [];
+    }
+
     public function table(Table $table): Table
     {
         return $table
-            ->records(function (?string $search, int $page) {
+            ->records(function (?string $search, int $page, ?array $filters) {
                 /** @var Server $server */
                 $server = Filament::getTenant();
 
@@ -435,7 +463,15 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                     return new LengthAwarePaginator($projects, count($installedMods), 20, $page);
                 } else {
-                    $response = MinecraftModrinth::getProjects($server, static::$modrinthProjectType, $page, $search, $this->showClientOnly);
+                    $response = MinecraftModrinth::getProjects(
+                        $server,
+                        static::$modrinthProjectType,
+                        $page,
+                        $search,
+                        $this->showClientOnly,
+                        index: $this->selectedSearchIndex($filters),
+                        categories: $this->selectedCategories($filters),
+                    );
 
                     // getProjects() already looked up every hit's versions to filter the page; reuse
                     // them instead of fetching again. A failed lookup (null) counts as "no versions"
@@ -446,6 +482,23 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                 }
             })
             ->paginated([20])
+            // Records are array-backed, so these filters never touch a query: records() reads their
+            // state and hands it to the Modrinth search. Changing one resets to page 1 (Filament).
+            ->filters([
+                SelectFilter::make('sort')
+                    ->label(trans('modrinth-plus::strings.filters.sort'))
+                    ->options(ModrinthSearchIndex::class)
+                    ->placeholder(trans('modrinth-plus::strings.filters.sort_default'))
+                    ->visible(fn () => $this->activeTab !== 'installed'),
+                SelectFilter::make('categories')
+                    ->label(trans('modrinth-plus::strings.filters.categories'))
+                    ->multiple()
+                    ->options(fn () => collect(MinecraftModrinth::getCategories(static::$modrinthProjectType))
+                        ->mapWithKeys(fn (string $category) => [$category => Str::headline($category)])
+                        ->all())
+                    ->visible(fn () => $this->activeTab !== 'installed'),
+            ], layout: FiltersLayout::AboveContent)
+            ->deferFilters(false)
             ->headerActions([
                 Action::make('toggle_client_only')
                     ->label(fn () => trans($this->showClientOnly ? 'modrinth-plus::strings.client_only.hide' : 'modrinth-plus::strings.client_only.show'))

@@ -72,6 +72,7 @@ class AllTabReusesVersionsTest extends TestCase
             'filename' => 'alpha-1.0.0.jar',
             'installed_at' => '2026-01-01T00:00:00+00:00',
         ]]);
+        MinecraftModrinth::shouldReceive('getCategories')->andReturn([]);
         MinecraftModrinth::shouldReceive('getProjects')->andReturn([
             'hits' => [$this->hit('alpha'), $this->hit('beta'), $this->hit('gamma')],
             'total_hits' => 3,
