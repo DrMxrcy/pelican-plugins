@@ -25,4 +25,4 @@ Updates are detected automatically via `update_url`.
 
 ## Credits
 
-The "Scan folder" import of hand-added jars (Modrinth lookup by file hash, "Not on Modrinth" rows) follows the idea of [YONN2222/pelican-minecraft-modrinth](https://github.com/YONN2222/pelican-minecraft-modrinth) (GPL-3.0).
+"Update all" (bulk update) and the "Scan folder" import of hand-added jars (Modrinth lookup by file hash, "Not on Modrinth" rows) are based on [YONN2222/pelican-minecraft-modrinth](https://github.com/YONN2222/pelican-minecraft-modrinth) (GPL-3.0).

@@ -141,6 +141,21 @@ return [
         'uninstall_failed_body' => 'Bei der Deinstallation ist ein Fehler aufgetreten. Bitte versuche es erneut oder wende dich an den Support, wenn das Problem weiterhin besteht.',
     ],
 
+    'update_all' => [
+        'action' => 'Alle aktualisieren (:count)',
+        'tooltip' => 'Aktualisiert jedes installierte Projekt, für das es eine neuere kompatible Version gibt. Reine Client-Projekte werden übersprungen.',
+        'heading' => 'Alle aktualisieren',
+        'description' => 'Diese :count Projekte werden auf ihre neueste kompatible Version aktualisiert: :list. Reine Client-Projekte und Projekte, die nicht mehr auf Modrinth sind, werden übersprungen.',
+        'entry' => ':name (:old → :new)',
+        'success_title' => 'Aktualisierungen installiert',
+        'partial_title' => 'Einige Aktualisierungen sind fehlgeschlagen',
+        'failed_title' => 'Aktualisierungen fehlgeschlagen',
+        'updated' => 'Aktualisiert: :list.',
+        'failed' => 'Nicht aktualisiert: :list. Die bisherige Version ist weiterhin installiert.',
+        'nothing_title' => 'Nichts zu aktualisieren',
+        'nothing_body' => 'Alle installierten Projekte sind bereits aktuell.',
+    ],
+
     'dependencies' => [
         'installed' => 'Benötigte Abhängigkeiten ebenfalls installiert: :list',
         'problems_title' => 'Einige benötigte Abhängigkeiten fehlen',
