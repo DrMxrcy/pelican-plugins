@@ -8,6 +8,7 @@ use App\Models\Server;
 use App\Traits\Filament\BlockAccessInConflict;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
+use DrMxrcy\ModrinthPlus\Support\Sides;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
@@ -27,6 +28,7 @@ use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\HtmlString;
 
@@ -428,7 +430,20 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->label(''),
                 TextColumn::make('title')
                     ->searchable()
-                    ->description(fn (array $record) => (strlen($record['description']) > 120) ? substr($record['description'], 0, 120).'...' : $record['description']),
+                    ->description(function (array $record) {
+                        $description = (strlen($record['description']) > 120) ? substr($record['description'], 0, 120).'...' : $record['description'];
+
+                        if (!Sides::playersNeedIt($record)) {
+                            return $description;
+                        }
+
+                        $badge = Blade::render('<x-filament::badge color="warning" size="sm" icon="tabler-users" :tooltip="$tooltip">{{ $label }}</x-filament::badge>', [
+                            'label' => trans('modrinth-plus::strings.sides.players_need_it'),
+                            'tooltip' => trans('modrinth-plus::strings.sides.players_need_it_tooltip'),
+                        ]);
+
+                        return new HtmlString($badge.' '.e($description));
+                    }),
                 TextColumn::make('author')
                     ->url(fn ($state) => "https://modrinth.com/user/$state", true)
                     ->toggleable(),

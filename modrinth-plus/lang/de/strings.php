@@ -54,6 +54,11 @@ return [
         'uninstall_description' => 'Möchtest du :name wirklich deinstallieren? Dies wird die Datei dauerhaft von deinem Server löschen.',
     ],
 
+    'sides' => [
+        'players_need_it' => 'Auch für Spieler nötig',
+        'players_need_it_tooltip' => 'Spieler müssen diese Mod ebenfalls installieren',
+    ],
+
     'notifications' => [
         'install_success' => 'Installation abgeschlossen',
         'install_success_body' => ':name Version :version erfolgreich installiert',

@@ -54,6 +54,11 @@ return [
         'uninstall_description' => 'Are you sure you want to uninstall :name? This will permanently delete the file from your server.',
     ],
 
+    'sides' => [
+        'players_need_it' => 'Players need it too',
+        'players_need_it_tooltip' => 'Players must install this mod too',
+    ],
+
     'notifications' => [
         'install_success' => 'Installation completed',
         'install_success_body' => 'Successfully installed :name version :version',
