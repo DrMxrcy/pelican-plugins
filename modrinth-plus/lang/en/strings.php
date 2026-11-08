@@ -120,6 +120,21 @@ return [
         'uninstall_failed_body' => 'An error occurred during uninstallation. Please try again or contact support if the issue persists.',
     ],
 
+    'update_all' => [
+        'action' => 'Update all (:count)',
+        'tooltip' => 'Update every installed project that has a newer compatible version. Client-only projects are skipped.',
+        'heading' => 'Update all',
+        'description' => 'These :count projects will be updated to their newest compatible version: :list. Client-only projects and projects no longer on Modrinth are skipped.',
+        'entry' => ':name (:old → :new)',
+        'success_title' => 'Updates installed',
+        'partial_title' => 'Some updates failed',
+        'failed_title' => 'Updates failed',
+        'updated' => 'Updated: :list.',
+        'failed' => 'Could not update: :list. Their current version is still installed.',
+        'nothing_title' => 'Nothing to update',
+        'nothing_body' => 'Every installed project is already up to date.',
+    ],
+
     'dependencies' => [
         'installed' => 'Also installed required dependencies: :list',
         'problems_title' => 'Some required dependencies are missing',

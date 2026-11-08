@@ -37,6 +37,7 @@ use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
+use Throwable;
 
 abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 {
@@ -49,6 +50,9 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
     /** @var array<string, array<int, mixed>> Cache for version data by project_id */
     protected array $versionsCache = [];
+
+    /** @var array<int, array<string, mixed>>|null What "Update all" would update, for this request only. */
+    protected ?array $updateAllCandidates = null;
 
     /** Per-visit override of the hide_client_only config; Livewire state only, never persisted. */
     public bool $showClientOnly = false;
@@ -235,6 +239,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     {
         $this->installedModsMetadata = null;
         $this->versionsCache = [];
+        $this->updateAllCandidates = null;
 
         if ($refresh) {
             $this->js('$wire.$refresh()');
@@ -838,6 +843,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         $this->resetPage();
                         $this->flushCachedTableRecords();
                     }),
+                $this->makeUpdateAllAction(),
             ])
             ->columns([
                 ImageColumn::make('icon_url')
@@ -1169,6 +1175,148 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         }
                     }),
             ]);
+    }
+
+    /**
+     * The installed projects "Update all" would update: every one on Modrinth with a newer
+     * compatible version, except client-only ones (no update offered for them, see the row
+     * action). Covers every page of the Installed tab, not just the one on screen.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function updateAllCandidates(): array
+    {
+        if ($this->updateAllCandidates !== null) {
+            return $this->updateAllCandidates;
+        }
+
+        $installedMods = $this->getInstalledModsMetadata();
+
+        // Same order as the Installed tab, so the per-page Modrinth lookups hit its cache.
+        usort($installedMods, fn (array $a, array $b) => strcasecmp($a['project_title'], $b['project_title']));
+
+        $projects = [];
+        $pages = (int) ceil(count(array_unique(array_column($installedMods, 'project_id'))) / 20);
+
+        for ($page = 1; $page <= $pages; $page++) {
+            array_push($projects, ...MinecraftModrinth::getInstalledModsFromModrinth($installedMods, $page));
+        }
+
+        $this->primeVersionsCache(array_column($projects, 'project_id'));
+
+        return $this->updateAllCandidates = array_values(array_filter(
+            $projects,
+            fn (array $project) => empty($project['unavailable']) && !Sides::isClientOnly($project) && $this->isUpdateAvailable($project),
+        ));
+    }
+
+    /**
+     * Updates every candidate one after the other through the same path as the update row
+     * action. A project that fails keeps its old jar and never stops the others.
+     *
+     * Ruling (plan 10, step 3): this runs in the request, not as queued jobs. Each update is
+     * one daemon pull (up to DOWNLOAD_TIMEOUT, usually a few seconds for a jar) and is complete
+     * on its own (download, metadata, then delete old), so a request cut off by a proxy only
+     * loses the summary, never leaves a project half-updated. Queued jobs would run without a
+     * user, so they would need the permission checks, the dependency install and the
+     * notifications rebuilt outside this page, and a queue worker on every panel.
+     */
+    protected function makeUpdateAllAction(): Action
+    {
+        return Action::make('update_all')
+            ->label(fn () => trans('modrinth-plus::strings.update_all.action', ['count' => count($this->updateAllCandidates())]))
+            ->tooltip(trans('modrinth-plus::strings.update_all.tooltip'))
+            ->icon('tabler-refresh')
+            ->color('warning')
+            ->visible(fn () => $this->activeTab === 'installed' && static::canUpdate() && $this->updateAllCandidates() !== [])
+            ->authorize(fn () => static::canUpdate())
+            ->requiresConfirmation()
+            ->modalHeading(trans('modrinth-plus::strings.update_all.heading'))
+            ->modalDescription(function () {
+                $candidates = $this->updateAllCandidates();
+                $unknown = trans('modrinth-plus::strings.page.unknown');
+
+                return trans('modrinth-plus::strings.update_all.description', [
+                    'count' => count($candidates),
+                    'list' => implode(', ', array_map(fn (array $record) => trans('modrinth-plus::strings.update_all.entry', [
+                        'name' => $record['title'],
+                        'old' => $this->getInstalledMod($record['project_id'])['version_number'] ?? $unknown,
+                        'new' => $this->getCachedVersions($record['project_id'])[0]['version_number'] ?? $unknown,
+                    ]), $candidates)),
+                ]);
+            })
+            ->action(fn () => $this->updateAll());
+    }
+
+    protected function updateAll(): void
+    {
+        abort_unless(static::canUpdate(), 403);
+
+        /** @var Server $server */
+        $server = Filament::getTenant();
+
+        // Worked out again from the server and Modrinth: the modal may have been open a while.
+        $this->forgetInstalledState(false);
+        $candidates = $this->updateAllCandidates();
+
+        if ($candidates === []) {
+            Notification::make()
+                ->title(trans('modrinth-plus::strings.update_all.nothing_title'))
+                ->body(trans('modrinth-plus::strings.update_all.nothing_body'))
+                ->info()
+                ->send();
+
+            return;
+        }
+
+        $updated = [];
+        $failed = [];
+        $dependencies = ['installed' => [], 'failed' => [], 'manual' => [], 'skipped' => [], 'unchecked' => [], 'error' => false];
+
+        foreach ($candidates as $record) {
+            try {
+                $report = $this->updateProject($server, $record)['dependencies'];
+
+                $updated[] = $record['title'];
+
+                foreach (['installed', 'failed', 'manual', 'skipped', 'unchecked'] as $kind) {
+                    $dependencies[$kind] = array_values(array_unique([...$dependencies[$kind], ...$report[$kind]]));
+                }
+                $dependencies['error'] = $dependencies['error'] || $report['error'];
+            } catch (Throwable $exception) {
+                report($exception);
+
+                $failed[] = $record['title'];
+            }
+        }
+
+        $this->forgetInstalledState();
+
+        $lines = [];
+
+        if ($updated !== []) {
+            $lines[] = trans('modrinth-plus::strings.update_all.updated', ['list' => implode(', ', $updated)]);
+        }
+
+        if ($dependencies['installed'] !== []) {
+            $lines[] = trans('modrinth-plus::strings.dependencies.installed', ['list' => implode(', ', $dependencies['installed'])]).'.';
+        }
+
+        if ($failed !== []) {
+            $lines[] = trans('modrinth-plus::strings.update_all.failed', ['list' => implode(', ', $failed)]);
+        }
+
+        $notification = Notification::make()->body(implode(' ', $lines));
+
+        match (true) {
+            $failed === [] => $notification->title(trans('modrinth-plus::strings.update_all.success_title'))->success(),
+            $updated === [] => $notification->title(trans('modrinth-plus::strings.update_all.failed_title'))->danger()->persistent(),
+            default => $notification->title(trans('modrinth-plus::strings.update_all.partial_title'))->warning()->persistent(),
+        };
+
+        $notification->send();
+
+        $this->notifyDependencyProblems($dependencies);
     }
 
     protected function getHeaderActions(): array
