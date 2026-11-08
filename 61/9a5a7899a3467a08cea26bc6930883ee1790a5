@@ -1,0 +1,23 @@
+modrinth-plus/tests/Feature/SubuserFilePermissionsTest.php
+  s_501b43856c653e::t_27272dab62ca8a 1-17,20-66,69,71-94,104-126,151-167,169-170,176-182,184-185,190-196,198-200,204-241,243,245-249
+  s_501b43856c653e::t_9f4df7ad285c3a 19,127-150,168,171-175,183,186-189
+  s_501b43856c653e::t_d50be8266749c3 100-103
+  s_501b43856c653e::t_a3dcdd6914d1d1 197,201-203
+  s_501b43856c653e::t_6842c55f0ab5b9 18,67-68,70,95-99,242,244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "619a5a7899a3467a08cea26bc6930883ee1790a5",
+  "prompts": {},
+  "sessions": {
+    "s_501b43856c653e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5ed0bea9-bde8-4bb4-b0ab-a0087e5c85b8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
