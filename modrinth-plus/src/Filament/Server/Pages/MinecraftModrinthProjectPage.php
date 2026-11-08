@@ -423,8 +423,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                 } else {
                     $response = MinecraftModrinth::getProjects($server, static::$modrinthProjectType, $page, $search, $this->showClientOnly);
 
-                    $installedIds = array_column($this->getInstalledModsMetadata(), 'project_id');
-                    $this->primeVersionsCache(array_intersect(array_column($response['hits'], 'project_id'), $installedIds));
+                    // getProjects() already looked up every hit's versions to filter the page; reuse
+                    // them instead of fetching again. A failed lookup (null) counts as "no versions"
+                    // for this render only, matching primeVersionsCache().
+                    $this->versionsCache += array_map(fn (?array $versions) => $versions ?? [], $response['versions']);
 
                     return new LengthAwarePaginator($response['hits'], $response['total_hits'], 20, $page);
                 }

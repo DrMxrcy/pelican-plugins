@@ -88,6 +88,7 @@ class SubuserFilePermissionsTest extends TestCase
         MinecraftModrinth::shouldReceive('getProjects')->andReturn([
             'hits' => [$this->hit('alpha'), $this->hit('beta')],
             'total_hits' => 2,
+            'versions' => [],
         ]);
         MinecraftModrinth::shouldReceive('getProjectVersions')->andReturn([$version]);
 
