@@ -1,0 +1,22 @@
+modrinth-plus/src/Filament/Server/Pages/MinecraftModrinthProjectPage.php
+  s_501b43856c653e::t_1c73d1d822f035 28,283-284,292
+  s_501b43856c653e::t_415cd7486acbcb 49-51
+modrinth-plus/tests/Feature/ScanFolderPageTest.php
+  s_501b43856c653e::t_415cd7486acbcb 38-39,137-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dfed939e0ee7c766bb65b6e29aeffaee1f9da976",
+  "prompts": {},
+  "sessions": {
+    "s_501b43856c653e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5ed0bea9-bde8-4bb4-b0ab-a0087e5c85b8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
