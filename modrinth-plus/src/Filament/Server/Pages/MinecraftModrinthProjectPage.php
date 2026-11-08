@@ -9,6 +9,7 @@ use App\Traits\Filament\BlockAccessInConflict;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
+use DrMxrcy\ModrinthPlus\Support\DependencyResolver;
 use DrMxrcy\ModrinthPlus\Support\Sides;
 use Exception;
 use Filament\Actions\Action;
@@ -342,6 +343,225 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     }
 
     /**
+     * Installs or updates to a version, then the required dependencies it pulls in. Once the
+     * project itself is on disk nothing here undoes it: dependency problems are only reported.
+     *
+     * @param  array<string, mixed>  $record
+     * @param  array<string, mixed>  $versionData
+     * @param  array<string, mixed>  $primaryFile
+     * @param  array<string, mixed>|null  $installedMod
+     * @return array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, error: bool}
+     *
+     * @throws Exception when the project itself could not be installed
+     */
+    private function installWithDependencies(Server $server, array $record, array $versionData, array $primaryFile, ?array $installedMod): array
+    {
+        $this->performInstallOrUpdate($server, $record, $versionData, $primaryFile, $installedMod);
+
+        try {
+            return $this->installRequiredDependencies($server, $record['project_id'], $versionData);
+        } catch (Exception $exception) {
+            report($exception);
+
+            return ['installed' => [], 'failed' => [], 'manual' => [], 'skipped' => [], 'error' => true];
+        }
+    }
+
+    /**
+     * Downloads every missing required dependency of $versionData (see DependencyResolver) and
+     * records it with `installed_as_dependency_of`. Each download is a new file, so the
+     * file.create permission is checked again before every one.
+     *
+     * Client-only dependencies (server_side = unsupported) are skipped: they do nothing on a
+     * server and can keep it from starting. Dependencies of a skipped or failed one are not
+     * installed either, since nothing on the server needs them then.
+     *
+     * @param  array<string, mixed>  $versionData
+     * @return array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, error: bool}
+     *
+     * @throws Exception
+     */
+    private function installRequiredDependencies(Server $server, string $projectId, array $versionData): array
+    {
+        $report = ['installed' => [], 'failed' => [], 'manual' => [], 'skipped' => [], 'error' => false];
+
+        if (!DependencyResolver::hasRequiredDependencies($versionData)) {
+            return $report;
+        }
+
+        $installedIds = array_column(MinecraftModrinth::getInstalledModsMetadata($server, static::$modrinthProjectType), 'project_id');
+
+        $plan = DependencyResolver::resolve($projectId, $versionData, function (string $dependencyId) use ($server) {
+            $versions = MinecraftModrinth::getProjectVersionsBulk([$dependencyId], $server);
+
+            return $versions[$dependencyId] ?? null;
+        }, $installedIds);
+
+        $projects = MinecraftModrinth::getProjectsByIds(array_values(array_filter(array_merge(
+            array_column($plan['install'], 'project_id'),
+            array_column($plan['unresolved'], 'project_id'),
+        ))));
+
+        $title = fn (string $id): string => is_string($projects[$id]['title'] ?? null) ? $projects[$id]['title'] : $id;
+
+        $folder = static::$modrinthProjectType->getFolder();
+
+        /** @var array<string, true> $notInstalled */
+        $notInstalled = [];
+
+        foreach ($plan['install'] as $entry) {
+            $dependencyId = $entry['project_id'];
+            $project = $projects[$dependencyId] ?? null;
+
+            if (isset($notInstalled[$entry['required_by']])) {
+                $notInstalled[$dependencyId] = true;
+
+                continue;
+            }
+
+            if ($project !== null && Sides::isClientOnly($project)) {
+                $report['skipped'][] = $title($dependencyId);
+                $notInstalled[$dependencyId] = true;
+
+                continue;
+            }
+
+            if (!static::canInstall()) {
+                $report['failed'][] = $title($dependencyId);
+                $notInstalled[$dependencyId] = true;
+
+                continue;
+            }
+
+            try {
+                $version = $entry['version'];
+                $primaryFile = $this->getPrimaryFile(is_array($version['files'] ?? null) ? $version['files'] : []);
+
+                if (!$primaryFile) {
+                    throw new Exception("No downloadable file found for dependency $dependencyId");
+                }
+
+                $filename = $this->validateFilename($primaryFile['filename']);
+
+                MinecraftModrinth::downloadFile($server, $primaryFile['url'], $folder, $filename);
+
+                $saved = MinecraftModrinth::saveModMetadata(
+                    $server,
+                    static::$modrinthProjectType,
+                    $dependencyId,
+                    is_string($project['slug'] ?? null) ? $project['slug'] : $dependencyId,
+                    $title($dependencyId),
+                    (string) ($version['id'] ?? ''),
+                    (string) ($version['version_number'] ?? ''),
+                    $filename,
+                    null,
+                    $entry['required_by'],
+                );
+
+                if (!$saved) {
+                    try {
+                        MinecraftModrinth::deleteFile($server, $folder, $filename);
+                    } catch (Exception $rollbackException) {
+                        report($rollbackException);
+                    }
+
+                    throw new Exception("Failed to save metadata for dependency $dependencyId");
+                }
+
+                $report['installed'][] = $title($dependencyId);
+            } catch (Exception $exception) {
+                report($exception);
+
+                $report['failed'][] = $title($dependencyId);
+                $notInstalled[$dependencyId] = true;
+            }
+        }
+
+        foreach ($plan['unresolved'] as $entry) {
+            if (isset($notInstalled[$entry['required_by']])) {
+                continue;
+            }
+
+            if ($entry['reason'] === DependencyResolver::REASON_MANUAL) {
+                $report['manual'][] = $entry['file_name'] ?? $entry['version_id'] ?? '?';
+            } else {
+                $report['failed'][] = $title((string) $entry['project_id']);
+            }
+        }
+
+        return $report;
+    }
+
+    /**
+     * The warning shown before installing a version that declares an installed project as
+     * `incompatible`, or null when there is none. It only warns; installing stays possible.
+     *
+     * @param  array<string, mixed>|null  $versionData
+     */
+    protected function incompatibleWarning(?array $versionData): ?string
+    {
+        if ($versionData === null) {
+            return null;
+        }
+
+        $installed = array_column($this->getInstalledModsMetadata(), 'project_title', 'project_id');
+        $conflicts = DependencyResolver::incompatibleInstalled($versionData, array_map('strval', array_keys($installed)));
+
+        if ($conflicts === []) {
+            return null;
+        }
+
+        return trans('modrinth-plus::strings.dependencies.incompatible_description', [
+            'list' => implode(', ', array_map(fn (string $id) => $installed[$id], $conflicts)),
+        ]);
+    }
+
+    /**
+     * The success body plus the dependencies that were pulled in.
+     *
+     * @param  array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, error: bool}  $report
+     */
+    private function withInstalledDependencies(string $body, array $report): string
+    {
+        if ($report['installed'] === []) {
+            return $body;
+        }
+
+        return $body.'. '.trans('modrinth-plus::strings.dependencies.installed', ['list' => implode(', ', $report['installed'])]);
+    }
+
+    /**
+     * A separate warning for required dependencies that are not on the server now.
+     *
+     * @param  array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, error: bool}  $report
+     */
+    private function notifyDependencyProblems(array $report): void
+    {
+        $lines = [];
+
+        foreach (['failed', 'manual', 'skipped'] as $kind) {
+            if ($report[$kind] !== []) {
+                $lines[] = trans("modrinth-plus::strings.dependencies.$kind", ['list' => implode(', ', $report[$kind])]);
+            }
+        }
+
+        if ($report['error']) {
+            $lines[] = trans('modrinth-plus::strings.dependencies.error');
+        }
+
+        if ($lines === []) {
+            return;
+        }
+
+        Notification::make()
+            ->title(trans('modrinth-plus::strings.dependencies.problems_title'))
+            ->body(implode(' ', $lines))
+            ->warning()
+            ->persistent()
+            ->send();
+    }
+
+    /**
      * The install button of one version in the versions modal.
      *
      * @param  array<string, mixed>  $record
@@ -355,6 +575,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             ->icon('tabler-download')
             ->visible($primaryFile !== null)
             ->authorize(fn () => $this->canInstallProject($record))
+            // Only opens a confirmation when the version is incompatible with something installed.
+            ->requiresConfirmation(fn () => $this->incompatibleWarning($versionData) !== null)
+            ->modalHeading(fn () => $this->incompatibleWarning($versionData) !== null ? trans('modrinth-plus::strings.dependencies.incompatible_heading') : null)
+            ->modalDescription(fn () => $this->incompatibleWarning($versionData))
             ->action(function () use ($record, $versionData, $primaryFile) {
                 abort_unless($this->canInstallProject($record), 403);
 
@@ -368,18 +592,20 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                     $installedMod = $this->getInstalledMod($record['project_id']);
 
-                    $this->performInstallOrUpdate($server, $record, $versionData, $primaryFile, $installedMod);
+                    $dependencies = $this->installWithDependencies($server, $record, $versionData, $primaryFile, $installedMod);
 
                     $this->forgetInstalledState();
 
                     Notification::make()
                         ->title(trans('modrinth-plus::strings.notifications.install_success'))
-                        ->body(trans('modrinth-plus::strings.notifications.install_success_body', [
+                        ->body($this->withInstalledDependencies(trans('modrinth-plus::strings.notifications.install_success_body', [
                             'name' => $record['title'],
                             'version' => $versionData['version_number'],
-                        ]))
+                        ]), $dependencies))
                         ->success()
                         ->send();
+
+                    $this->notifyDependencyProblems($dependencies);
                 } catch (Exception $exception) {
                     report($exception);
 
@@ -638,6 +864,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         return is_null($installedMod);
                     })
                     ->authorize(fn (array $record) => $this->canInstallProject($record))
+                    // Only opens a confirmation when the latest version is incompatible with something installed.
+                    ->requiresConfirmation(fn (array $record) => $this->incompatibleWarning($this->getCachedVersions($record['project_id'])[0] ?? null) !== null)
+                    ->modalHeading(fn (array $record) => $this->incompatibleWarning($this->getCachedVersions($record['project_id'])[0] ?? null) !== null ? trans('modrinth-plus::strings.dependencies.incompatible_heading') : null)
+                    ->modalDescription(fn (array $record) => $this->incompatibleWarning($this->getCachedVersions($record['project_id'])[0] ?? null))
                     ->action(function (array $record) {
                         abort_unless($this->canInstallProject($record), 403);
 
@@ -663,18 +893,20 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                             // its jar instead of leaving the old one next to the new one.
                             $installedMod = $this->getInstalledMod($record['project_id']);
 
-                            $this->performInstallOrUpdate($server, $record, $latestVersion, $primaryFile, $installedMod);
+                            $dependencies = $this->installWithDependencies($server, $record, $latestVersion, $primaryFile, $installedMod);
 
                             $this->forgetInstalledState();
 
                             Notification::make()
                                 ->title(trans('modrinth-plus::strings.notifications.install_success'))
-                                ->body(trans('modrinth-plus::strings.notifications.install_success_body', [
+                                ->body($this->withInstalledDependencies(trans('modrinth-plus::strings.notifications.install_success_body', [
                                     'name' => $record['title'],
                                     'version' => $latestVersion['version_number'],
-                                ]))
+                                ]), $dependencies))
                                 ->success()
                                 ->send();
+
+                            $this->notifyDependencyProblems($dependencies);
                         } catch (Exception $exception) {
                             report($exception);
 
@@ -719,10 +951,14 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         $installedMod = $this->getInstalledMod($record['project_id']);
                         $versions = $this->getCachedVersions($record['project_id']);
 
-                        return trans('modrinth-plus::strings.modals.update_description', [
+                        $description = trans('modrinth-plus::strings.modals.update_description', [
                             'old_version' => $installedMod['version_number'] ?? 'unknown',
                             'new_version' => $versions[0]['version_number'] ?? 'unknown',
                         ]);
+
+                        $warning = $this->incompatibleWarning($versions[0] ?? null);
+
+                        return $warning === null ? $description : "$description $warning";
                     })
                     ->action(function (array $record) {
                         abort_unless(static::canUpdate(), 403);
@@ -752,17 +988,20 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                                 throw new Exception('No downloadable file found');
                             }
 
-                            $this->performInstallOrUpdate($server, $record, $latestVersion, $primaryFile, $installedMod);
+                            // A new version can require dependencies the old one didn't.
+                            $dependencies = $this->installWithDependencies($server, $record, $latestVersion, $primaryFile, $installedMod);
 
                             $this->forgetInstalledState();
 
                             Notification::make()
                                 ->title(trans('modrinth-plus::strings.notifications.update_success'))
-                                ->body(trans('modrinth-plus::strings.notifications.update_success_body', [
+                                ->body($this->withInstalledDependencies(trans('modrinth-plus::strings.notifications.update_success_body', [
                                     'version' => $latestVersion['version_number'],
-                                ]))
+                                ]), $dependencies))
                                 ->success()
                                 ->send();
+
+                            $this->notifyDependencyProblems($dependencies);
                         } catch (Exception $exception) {
                             report($exception);
 

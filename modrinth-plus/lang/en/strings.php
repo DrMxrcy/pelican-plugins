@@ -97,4 +97,15 @@ return [
         'uninstall_failed' => 'Uninstall failed',
         'uninstall_failed_body' => 'An error occurred during uninstallation. Please try again or contact support if the issue persists.',
     ],
+
+    'dependencies' => [
+        'installed' => 'Also installed required dependencies: :list',
+        'problems_title' => 'Some required dependencies are missing',
+        'failed' => 'Could not install: :list.',
+        'manual' => 'Not on Modrinth, install manually: :list.',
+        'skipped' => 'Skipped because they are client-only: :list.',
+        'error' => 'The required dependencies could not be checked.',
+        'incompatible_heading' => 'Incompatible mod installed',
+        'incompatible_description' => 'This version is marked as incompatible with :list, which is installed on this server. Install it anyway?',
+    ],
 ];

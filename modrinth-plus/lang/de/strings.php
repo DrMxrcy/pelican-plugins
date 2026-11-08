@@ -97,4 +97,15 @@ return [
         'uninstall_failed' => 'Deinstallation fehlgeschlagen',
         'uninstall_failed_body' => 'Bei der Deinstallation ist ein Fehler aufgetreten. Bitte versuche es erneut oder wende dich an den Support, wenn das Problem weiterhin besteht.',
     ],
+
+    'dependencies' => [
+        'installed' => 'Benötigte Abhängigkeiten ebenfalls installiert: :list',
+        'problems_title' => 'Einige benötigte Abhängigkeiten fehlen',
+        'failed' => 'Konnte nicht installiert werden: :list.',
+        'manual' => 'Nicht auf Modrinth, bitte manuell installieren: :list.',
+        'skipped' => 'Übersprungen, da nur für den Client: :list.',
+        'error' => 'Die benötigten Abhängigkeiten konnten nicht geprüft werden.',
+        'incompatible_heading' => 'Inkompatible Mod installiert',
+        'incompatible_description' => 'Diese Version ist als inkompatibel mit :list markiert, das auf diesem Server installiert ist. Trotzdem installieren?',
+    ],
 ];

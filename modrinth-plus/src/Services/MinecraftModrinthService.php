@@ -578,6 +578,53 @@ class MinecraftModrinthService
     }
 
     /**
+     * Modrinth projects by id (`/v2/projects`), keyed by id. Ids Modrinth doesn't know, and every
+     * id when the request fails, are missing from the result.
+     *
+     * @param  array<int, string>  $projectIds
+     * @return array<string, array<string, mixed>>
+     */
+    public function getProjectsByIds(array $projectIds): array
+    {
+        $projectIds = array_values(array_unique(array_filter($projectIds)));
+
+        if (empty($projectIds)) {
+            return [];
+        }
+
+        $idsParam = json_encode($projectIds, JSON_THROW_ON_ERROR);
+        $cacheKey = 'modrinth_projects_by_id:'.md5($idsParam);
+
+        $projects = cache()->get($cacheKey);
+
+        if (!is_array($projects)) {
+            try {
+                $projects = $this->modrinth(10)
+                    ->throw()
+                    ->get('projects', ['ids' => $idsParam])
+                    ->json();
+            } catch (Exception $exception) {
+                report($exception);
+
+                return [];
+            }
+
+            $projects = is_array($projects) ? $projects : [];
+
+            cache()->put($cacheKey, $projects, now()->addMinutes(30));
+        }
+
+        $result = [];
+        foreach ($projects as $project) {
+            if (is_array($project) && is_string($project['id'] ?? null)) {
+                $result[$project['id']] = $project;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * @throws Exception
      */
     protected function getMetadataFilePath(ModrinthProjectType $modrinthProjectType): string
@@ -646,10 +693,11 @@ class MinecraftModrinthService
         string $versionId,
         string $versionNumber,
         string $filename,
-        ?string $author = null
+        ?string $author = null,
+        ?string $installedAsDependencyOf = null
     ): bool {
         try {
-            return Cache::lock("modrinth_metadata:{$server->id}", 10)->block(5, function () use ($server, $modrinthProjectType, $projectId, $projectSlug, $projectTitle, $versionId, $versionNumber, $filename, $author) {
+            return Cache::lock("modrinth_metadata:{$server->id}", 10)->block(5, function () use ($server, $modrinthProjectType, $projectId, $projectSlug, $projectTitle, $versionId, $versionNumber, $filename, $author, $installedAsDependencyOf) {
                 $fileRepository = app(DaemonFileRepository::class);
 
                 $installedMods = $this->getInstalledModsMetadata($server, $modrinthProjectType);
@@ -683,7 +731,15 @@ class MinecraftModrinthService
                     $modEntry['author'] = $author;
                 }
 
+                if ($installedAsDependencyOf !== null) {
+                    $modEntry['installed_as_dependency_of'] = $installedAsDependencyOf;
+                }
+
                 if ($existingIndex !== null) {
+                    // Keep keys this method doesn't write (`installed_as_dependency_of`, or ones another
+                    // tool added) instead of dropping them on every update.
+                    $modEntry += $installedMods[$existingIndex];
+
                     // Replace in place. Removing and re-appending pushed the entry to the end of the
                     // list, which moved the row to the bottom of the installed tab on every update.
                     $installedMods[$existingIndex] = $modEntry;
