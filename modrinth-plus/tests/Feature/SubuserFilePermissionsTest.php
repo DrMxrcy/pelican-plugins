@@ -10,12 +10,14 @@ use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
 use DrMxrcy\ModrinthPlus\Filament\Server\Pages\MinecraftModrinthModPage;
 use DrMxrcy\ModrinthPlus\Tests\TestCase;
+use Filament\Actions\Action;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Mockery;
+use ReflectionMethod;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
@@ -69,11 +71,7 @@ class SubuserFilePermissionsTest extends TestCase
      */
     private function fakeModrinth(bool $forbidWrites = true): void
     {
-        $version = [
-            'id' => 'v2',
-            'version_number' => '2.0.0',
-            'files' => [['primary' => true, 'filename' => 'alpha-2.0.0.jar', 'url' => 'https://cdn.modrinth.com/alpha-2.0.0.jar']],
-        ];
+        $version = $this->latestVersion();
 
         MinecraftModrinth::shouldReceive('getMinecraftVersion')->andReturn('1.21.1');
         MinecraftModrinth::shouldReceive('getLoaderFromServer')->andReturn(null);
@@ -101,6 +99,16 @@ class SubuserFilePermissionsTest extends TestCase
         MinecraftModrinth::shouldReceive('deleteFile')->never();
         MinecraftModrinth::shouldReceive('saveModMetadata')->never();
         MinecraftModrinth::shouldReceive('removeModMetadata')->never();
+    }
+
+    /** @return array{id: string, version_number: string, files: array<int, array{primary: bool, filename: string, url: string}>} */
+    private function latestVersion(): array
+    {
+        return [
+            'id' => 'v2',
+            'version_number' => '2.0.0',
+            'files' => [['primary' => true, 'filename' => 'alpha-2.0.0.jar', 'url' => 'https://cdn.modrinth.com/alpha-2.0.0.jar']],
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -132,20 +140,49 @@ class SubuserFilePermissionsTest extends TestCase
      */
     private function assertHandlerForbidden(Testable $page, string $name, array $record): void
     {
+        $action = $this->tableAction($page, $name);
+
+        $this->assertActionHandlerForbidden($action->record($record));
+    }
+
+    private function tableAction(Testable $page, string $name): Action
+    {
         /** @var MinecraftModrinthModPage $instance */
         $instance = $page->instance();
         $action = $instance->getTable()->getAction($name);
         $this->assertNotNull($action, "Action [$name] not found");
 
+        return $action;
+    }
+
+    private function assertActionHandlerForbidden(Action $action): void
+    {
         try {
-            $action->record($record)->call();
+            $action->call();
         } catch (HttpException $exception) {
             $this->assertSame(403, $exception->getStatusCode());
 
             return;
         }
 
-        $this->fail("The [$name] handler ran without the required file permission.");
+        $this->fail("The [{$action->getName()}] handler ran without the required file permission.");
+    }
+
+    /**
+     * The install button of the latest version in the versions modal, built for $record.
+     *
+     * @param  array<string, mixed>  $record
+     */
+    private function installVersionAction(Testable $page, array $record): Action
+    {
+        $version = $this->latestVersion();
+        $instance = $page->instance();
+
+        /** @var Action $action */
+        $action = (new ReflectionMethod($instance, 'makeInstallVersionAction'))
+            ->invoke($instance, 0, $record, $version, $version['files'][0]);
+
+        return $action;
     }
 
     public function test_subuser_without_file_read_cannot_open_the_page(): void
@@ -173,6 +210,10 @@ class SubuserFilePermissionsTest extends TestCase
         $this->assertHandlerForbidden($page, 'install_latest', $this->hit('beta'));
         $this->assertHandlerForbidden($page, 'update', $this->hit('alpha'));
         $this->assertHandlerForbidden($page, 'uninstall', $this->hit('alpha'));
+
+        $installVersion = $this->installVersionAction($page, $this->hit('beta'));
+        $this->assertFalse($installVersion->isAuthorized());
+        $this->assertActionHandlerForbidden($installVersion);
     }
 
     public function test_subuser_without_file_delete_cannot_update_or_uninstall(): void
@@ -187,6 +228,15 @@ class SubuserFilePermissionsTest extends TestCase
 
         $this->assertHandlerForbidden($page, 'update', $this->hit('alpha'));
         $this->assertHandlerForbidden($page, 'uninstall', $this->hit('alpha'));
+
+        // Installing over an installed project deletes its old jar: that is an update.
+        $this->assertHandlerForbidden($page, 'install_latest', $this->hit('alpha'));
+
+        $this->assertTrue($this->installVersionAction($page, $this->hit('beta'))->isAuthorized());
+
+        $replaceVersion = $this->installVersionAction($page, $this->hit('alpha'));
+        $this->assertFalse($replaceVersion->isAuthorized());
+        $this->assertActionHandlerForbidden($replaceVersion);
     }
 
     public function test_subuser_without_file_create_cannot_install_or_update_but_can_uninstall(): void
@@ -201,6 +251,10 @@ class SubuserFilePermissionsTest extends TestCase
 
         $this->assertHandlerForbidden($page, 'install_latest', $this->hit('beta'));
         $this->assertHandlerForbidden($page, 'update', $this->hit('alpha'));
+
+        $replaceVersion = $this->installVersionAction($page, $this->hit('alpha'));
+        $this->assertFalse($replaceVersion->isAuthorized());
+        $this->assertActionHandlerForbidden($replaceVersion);
     }
 
     public function test_owner_keeps_every_action(): void
@@ -210,10 +264,13 @@ class SubuserFilePermissionsTest extends TestCase
 
         $this->assertTrue(MinecraftModrinthModPage::canAccess());
 
-        $this->page()
+        $page = $this->page()
             ->assertActionVisible(TestAction::make('install_latest')->table(self::NOT_INSTALLED_ROW))
             ->assertActionVisible(TestAction::make('update')->table(self::INSTALLED_ROW))
             ->assertActionVisible(TestAction::make('uninstall')->table(self::INSTALLED_ROW));
+
+        $this->assertTrue($this->installVersionAction($page, $this->hit('beta'))->isAuthorized());
+        $this->assertTrue($this->installVersionAction($page, $this->hit('alpha'))->isAuthorized());
     }
 
     public function test_root_admin_keeps_every_action(): void
@@ -245,5 +302,18 @@ class SubuserFilePermissionsTest extends TestCase
         MinecraftModrinth::shouldReceive('removeModMetadata')->once()->andReturn(true);
 
         $this->page()->callAction(TestAction::make('uninstall')->table(self::INSTALLED_ROW));
+    }
+
+    public function test_install_latest_over_an_installed_project_replaces_its_jar(): void
+    {
+        $this->account();
+        $this->fakeModrinth(forbidWrites: false);
+
+        MinecraftModrinth::shouldReceive('downloadFile')->once()->with(Mockery::type(Server::class), Mockery::any(), 'mods', 'alpha-2.0.0.jar');
+        MinecraftModrinth::shouldReceive('saveModMetadata')->once()->andReturn(true);
+        MinecraftModrinth::shouldReceive('deleteFile')->once()->with(Mockery::type(Server::class), 'mods', 'alpha-1.0.0.jar');
+
+        // Reachable from a page rendered before the project was installed.
+        $this->tableAction($this->page(), 'install_latest')->record($this->hit('alpha'))->call();
     }
 }

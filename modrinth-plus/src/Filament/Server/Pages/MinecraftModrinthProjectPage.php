@@ -102,11 +102,12 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     }
 
     /**
-     * Installing a specific version replaces the jar when the project is already installed.
+     * Installing (the latest or a specific version) over a project that is already installed
+     * replaces its jar, so it needs the update permissions rather than just file.create.
      *
      * @param  array<string, mixed>  $record
      */
-    protected function canInstallVersion(array $record): bool
+    protected function canInstallProject(array $record): bool
     {
         return is_null($this->getInstalledMod($record['project_id'])) ? static::canInstall() : static::canUpdate();
     }
@@ -330,6 +331,59 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     }
 
     /**
+     * The install button of one version in the versions modal.
+     *
+     * @param  array<string, mixed>  $record
+     * @param  array<string, mixed>  $versionData
+     * @param  array{primary: bool, filename: string, url: string}|null  $primaryFile
+     */
+    protected function makeInstallVersionAction(int|string $versionIndex, array $record, array $versionData, ?array $primaryFile): Action
+    {
+        return Action::make('install_version_' . $versionIndex)
+            ->label(trans('modrinth-plus::strings.actions.install'))
+            ->icon('tabler-download')
+            ->visible($primaryFile !== null)
+            ->authorize(fn () => $this->canInstallProject($record))
+            ->action(function () use ($record, $versionData, $primaryFile) {
+                abort_unless($this->canInstallProject($record), 403);
+
+                try {
+                    /** @var Server $server */
+                    $server = Filament::getTenant();
+
+                    if (!$primaryFile) {
+                        throw new Exception('No downloadable file found');
+                    }
+
+                    $installedMod = $this->getInstalledMod($record['project_id']);
+
+                    $this->performInstallOrUpdate($server, $record, $versionData, $primaryFile, $installedMod);
+
+                    $this->forgetInstalledState();
+
+                    Notification::make()
+                        ->title(trans('modrinth-plus::strings.notifications.install_success'))
+                        ->body(trans('modrinth-plus::strings.notifications.install_success_body', [
+                            'name' => $record['title'],
+                            'version' => $versionData['version_number'],
+                        ]))
+                        ->success()
+                        ->send();
+                } catch (Exception $exception) {
+                    report($exception);
+
+                    $this->forgetInstalledState();
+
+                    Notification::make()
+                        ->title(trans('modrinth-plus::strings.notifications.install_failed'))
+                        ->body(trans('modrinth-plus::strings.notifications.install_failed_body'))
+                        ->danger()
+                        ->send();
+                }
+            });
+    }
+
+    /**
      * @throws Exception
      */
     public function table(Table $table): Table
@@ -450,48 +504,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                                 $sectionIcon = 'tabler-check';
                                 $sectionIconColor = 'success';
                             } else {
-                                $headerAction = Action::make('install_version_' . $versionIndex)
-                                    ->label(trans('modrinth-plus::strings.actions.install'))
-                                    ->icon('tabler-download')
-                                    ->visible($primaryFile !== null)
-                                    ->authorize(fn () => $this->canInstallVersion($record))
-                                    ->action(function () use ($record, $versionData, $primaryFile) {
-                                        abort_unless($this->canInstallVersion($record), 403);
-
-                                        try {
-                                            /** @var Server $server */
-                                            $server = Filament::getTenant();
-
-                                            if (!$primaryFile) {
-                                                throw new Exception('No downloadable file found');
-                                            }
-
-                                            $installedMod = $this->getInstalledMod($record['project_id']);
-
-                                            $this->performInstallOrUpdate($server, $record, $versionData, $primaryFile, $installedMod);
-
-                                            $this->forgetInstalledState();
-
-                                            Notification::make()
-                                                ->title(trans('modrinth-plus::strings.notifications.install_success'))
-                                                ->body(trans('modrinth-plus::strings.notifications.install_success_body', [
-                                                    'name' => $record['title'],
-                                                    'version' => $versionData['version_number'],
-                                                ]))
-                                                ->success()
-                                                ->send();
-                                        } catch (Exception $exception) {
-                                            report($exception);
-
-                                            $this->forgetInstalledState();
-
-                                            Notification::make()
-                                                ->title(trans('modrinth-plus::strings.notifications.install_failed'))
-                                                ->body(trans('modrinth-plus::strings.notifications.install_failed_body'))
-                                                ->danger()
-                                                ->send();
-                                        }
-                                    });
+                                $headerAction = $this->makeInstallVersionAction($versionIndex, $record, $versionData, $primaryFile);
                                 $sectionIcon = null;
                                 $sectionIconColor = null;
                             }
@@ -521,9 +534,9 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                         return is_null($installedMod);
                     })
-                    ->authorize(fn () => static::canInstall())
+                    ->authorize(fn (array $record) => $this->canInstallProject($record))
                     ->action(function (array $record) {
-                        abort_unless(static::canInstall(), 403);
+                        abort_unless($this->canInstallProject($record), 403);
 
                         try {
                             /** @var Server $server */
@@ -543,7 +556,11 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                                 throw new Exception('No downloadable file found');
                             }
 
-                            $this->performInstallOrUpdate($server, $record, $latestVersion, $primaryFile);
+                            // A stale page can still offer this on a project installed since; replace
+                            // its jar instead of leaving the old one next to the new one.
+                            $installedMod = $this->getInstalledMod($record['project_id']);
+
+                            $this->performInstallOrUpdate($server, $record, $latestVersion, $primaryFile, $installedMod);
 
                             $this->forgetInstalledState();
 
