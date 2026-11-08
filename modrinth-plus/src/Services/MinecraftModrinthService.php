@@ -759,7 +759,7 @@ class MinecraftModrinthService
      */
     protected function writeMetadata(Server $server, ModrinthProjectType $modrinthProjectType, array $document, array $mods): bool
     {
-        $document['installed_mods'] = array_values($mods);
+        $document['installed_mods'] = $mods;
 
         $response = app(DaemonFileRepository::class)->setServer($server)->putContent(
             $this->getMetadataFilePath($modrinthProjectType),

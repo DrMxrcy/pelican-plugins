@@ -3,10 +3,10 @@
 namespace DrMxrcy\ModrinthPlus\Tests\Feature;
 
 use App\Enums\SubuserPermission;
-use ArrayObject;
 use App\Models\Server;
 use App\Repositories\Daemon\DaemonFileRepository;
 use App\Tests\Traits\Integration\CreatesTestModels;
+use ArrayObject;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
 use DrMxrcy\ModrinthPlus\Filament\Server\Pages\MinecraftModrinthModPage;
 use DrMxrcy\ModrinthPlus\Services\MinecraftModrinthService;
@@ -536,6 +536,7 @@ class RequiredDependenciesTest extends TestCase
      */
     private function realMetadataWritesWithFailingRead(): ArrayObject
     {
+        /** @var ArrayObject<int, string> $writes */
         $writes = new ArrayObject();
 
         $repository = Mockery::mock(DaemonFileRepository::class);
