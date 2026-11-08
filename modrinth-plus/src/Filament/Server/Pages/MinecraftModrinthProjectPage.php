@@ -388,6 +388,20 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     /**
      * @throws Exception
      */
+    /**
+     * A small badge for the title column's description; `$key` names a `strings.php` entry
+     * whose `_tooltip` sibling holds the tooltip. Blade escapes both.
+     */
+    private function renderBadge(string $color, string $icon, string $key): string
+    {
+        return Blade::render('<x-filament::badge :color="$color" size="sm" :icon="$icon" :tooltip="$tooltip">{{ $label }}</x-filament::badge>', [
+            'color' => $color,
+            'icon' => $icon,
+            'label' => trans("modrinth-plus::strings.$key"),
+            'tooltip' => trans("modrinth-plus::strings.{$key}_tooltip"),
+        ]);
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -433,14 +447,13 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->description(function (array $record) {
                         $description = (strlen($record['description']) > 120) ? substr($record['description'], 0, 120).'...' : $record['description'];
 
-                        if (!Sides::playersNeedIt($record)) {
+                        if (Sides::playersNeedIt($record)) {
+                            $badge = $this->renderBadge('warning', 'tabler-users', 'sides.players_need_it');
+                        } elseif ($this->activeTab === 'installed' && Sides::isClientOnly($record)) {
+                            $badge = $this->renderBadge('danger', 'tabler-alert-triangle', 'client_only.badge');
+                        } else {
                             return $description;
                         }
-
-                        $badge = Blade::render('<x-filament::badge color="warning" size="sm" icon="tabler-users" :tooltip="$tooltip">{{ $label }}</x-filament::badge>', [
-                            'label' => trans('modrinth-plus::strings.sides.players_need_it'),
-                            'tooltip' => trans('modrinth-plus::strings.sides.players_need_it_tooltip'),
-                        ]);
 
                         return new HtmlString($badge.' '.e($description));
                     }),
@@ -605,6 +618,11 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->color('warning')
                     ->tooltip(trans('modrinth-plus::strings.actions.update'))
                     ->visible(function (array $record) {
+                        // A client-only mod does nothing on a server: offer uninstall, not an update.
+                        if (Sides::isClientOnly($record)) {
+                            return false;
+                        }
+
                         $installedMod = $this->getInstalledMod($record['project_id']);
 
                         if (is_null($installedMod)) {
@@ -633,6 +651,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     })
                     ->action(function (array $record) {
                         abort_unless(static::canUpdate(), 403);
+                        abort_if(Sides::isClientOnly($record), 403);
 
                         try {
                             /** @var Server $server */
