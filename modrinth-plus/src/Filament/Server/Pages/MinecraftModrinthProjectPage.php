@@ -344,6 +344,67 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     }
 
     /**
+     * The installed project has a newer compatible version than the one on disk, going by the
+     * versions cached for this render. Says nothing about client-only projects.
+     *
+     * @param  array<string, mixed>  $record
+     */
+    protected function isUpdateAvailable(array $record): bool
+    {
+        $installedMod = $this->getInstalledMod($record['project_id']);
+
+        if (is_null($installedMod)) {
+            return false;
+        }
+
+        $versions = $this->getCachedVersions($record['project_id']);
+
+        if (empty($versions)) {
+            return false;
+        }
+
+        return $installedMod['version_id'] !== $versions[0]['id'];
+    }
+
+    /**
+     * Updates one installed project to its newest compatible version (asked from Modrinth again,
+     * not taken from the render cache), plus the required dependencies that version added. The
+     * caller checks permissions and client-only first.
+     *
+     * @param  array<string, mixed>  $record
+     * @return array{version: array<string, mixed>, dependencies: array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, unchecked: list<string>, error: bool}}
+     *
+     * @throws Exception when the project itself could not be updated
+     */
+    private function updateProject(Server $server, array $record): array
+    {
+        $installedMod = $this->getInstalledMod($record['project_id']);
+
+        if (!$installedMod) {
+            throw new Exception('Mod not found in metadata');
+        }
+
+        $versions = MinecraftModrinth::getProjectVersions($record['project_id'], $server);
+
+        if (empty($versions)) {
+            throw new Exception('No compatible versions found');
+        }
+
+        $latestVersion = $versions[0];
+
+        $primaryFile = $this->getPrimaryFile($latestVersion['files']);
+
+        if (!$primaryFile) {
+            throw new Exception('No downloadable file found');
+        }
+
+        // A new version can require dependencies the old one didn't.
+        $dependencies = $this->installWithDependencies($server, $record, $latestVersion, $primaryFile, $installedMod);
+
+        return ['version' => $latestVersion, 'dependencies' => $dependencies];
+    }
+
+    /**
      * Installs or updates to a version, then the required dependencies it pulls in. Once the
      * project itself is on disk nothing here undoes it: dependency problems are only reported.
      *
@@ -962,26 +1023,8 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->icon('tabler-refresh')
                     ->color('warning')
                     ->tooltip(trans('modrinth-plus::strings.actions.update'))
-                    ->visible(function (array $record) {
-                        // A client-only mod does nothing on a server: offer uninstall, not an update.
-                        if (Sides::isClientOnly($record)) {
-                            return false;
-                        }
-
-                        $installedMod = $this->getInstalledMod($record['project_id']);
-
-                        if (is_null($installedMod)) {
-                            return false;
-                        }
-
-                        $versions = $this->getCachedVersions($record['project_id']);
-
-                        if (empty($versions)) {
-                            return false;
-                        }
-
-                        return $installedMod['version_id'] !== $versions[0]['id'];
-                    })
+                    // A client-only mod does nothing on a server: offer uninstall, not an update.
+                    ->visible(fn (array $record) => !Sides::isClientOnly($record) && $this->isUpdateAvailable($record))
                     ->authorize(fn () => static::canUpdate())
                     ->requiresConfirmation()
                     ->modalHeading(trans('modrinth-plus::strings.modals.update_heading'))
@@ -1006,28 +1049,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                             /** @var Server $server */
                             $server = Filament::getTenant();
 
-                            $installedMod = $this->getInstalledMod($record['project_id']);
-
-                            if (!$installedMod) {
-                                throw new Exception('Mod not found in metadata');
-                            }
-
-                            $versions = MinecraftModrinth::getProjectVersions($record['project_id'], $server);
-
-                            if (empty($versions)) {
-                                throw new Exception('No compatible versions found');
-                            }
-
-                            $latestVersion = $versions[0];
-
-                            $primaryFile = $this->getPrimaryFile($latestVersion['files']);
-
-                            if (!$primaryFile) {
-                                throw new Exception('No downloadable file found');
-                            }
-
-                            // A new version can require dependencies the old one didn't.
-                            $dependencies = $this->installWithDependencies($server, $record, $latestVersion, $primaryFile, $installedMod);
+                            ['version' => $latestVersion, 'dependencies' => $dependencies] = $this->updateProject($server, $record);
 
                             $this->forgetInstalledState();
 
