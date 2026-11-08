@@ -192,6 +192,12 @@ class FreshInstallUntrackedFileTest extends TestCase
         return Livewire::test(MinecraftModrinthModPage::class)->loadTable();
     }
 
+    /** @return array<int, string> */
+    private function daemonCalls(): array
+    {
+        return $this->calls;
+    }
+
     private function installLatest(): void
     {
         $this->page()->callAction(TestAction::make('install_latest')->table(self::XAERO_ROW));
@@ -325,6 +331,6 @@ class FreshInstallUntrackedFileTest extends TestCase
 
         $this->assertEquals([self::XAERO_JAR => 'modrinth', self::FAPI_JAR => 'modrinth', 'other.jar' => 'hand-added'], $this->disk);
         // Nothing is moved aside or deleted: the daemon only pulls the two files (plus folder listings).
-        $this->assertSame(['pull ' . self::XAERO_JAR, 'pull ' . self::FAPI_JAR], array_values(array_filter($this->calls, fn (string $call) => $call !== 'list')));
+        $this->assertSame(['pull ' . self::XAERO_JAR, 'pull ' . self::FAPI_JAR], array_values(array_filter($this->daemonCalls(), fn (string $call) => $call !== 'list')));
     }
 }

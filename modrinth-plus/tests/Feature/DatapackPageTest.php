@@ -256,7 +256,9 @@ class DatapackPageTest extends TestCase
         MinecraftModrinth::shouldReceive('saveModMetadata')->once()->andReturn(false)->ordered();
         MinecraftModrinth::shouldReceive('deleteFile')->once()->with(Mockery::type(Server::class), 'survival/datapacks', 'Terralith_v2.5.8.zip')->ordered();
         MinecraftModrinth::shouldReceive('renameFile')->once()
-            ->withArgs(fn (Server $server, string $folder, string $from, string $to) => $folder === 'survival/datapacks' && $from === $movedAside && $to === 'Terralith_v2.5.8.zip')
+            ->withArgs(function (Server $server, string $folder, string $from, string $to) use (&$movedAside) {
+                return $folder === 'survival/datapacks' && $from === $movedAside && $to === 'Terralith_v2.5.8.zip';
+            })
             ->ordered();
 
         $this->page()->callAction(TestAction::make('install_latest')->table(self::NOT_INSTALLED_ROW));

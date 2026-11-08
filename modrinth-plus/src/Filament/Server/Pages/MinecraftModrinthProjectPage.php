@@ -461,6 +461,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
      * @param  array<string, mixed>  $versionData
      * @param  array<string, mixed>  $primaryFile
      * @param  array<string, mixed>|null  $installedMod
+     * @param  array<string, true>|null  $folderNames  see folderFileNames()
      *
      * @throws Exception
      */
@@ -469,23 +470,23 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         array $record,
         array $versionData,
         array $primaryFile,
-        ?array $installedMod = null
+        ?array $installedMod = null,
+        ?array &$folderNames = null,
     ): void {
         $safeNewFilename = $this->validateFilename($primaryFile['filename']);
         $oldFilename = $installedMod ? $this->validateFilename($installedMod['filename']) : null;
 
         $folder = $this->getProjectFolder();
 
-        // When the new version keeps the old file name, the download would overwrite the old file
-        // before the metadata write (which can still be refused) has happened. So the old file is
-        // moved aside first and only deleted once the update is recorded; any failure puts it
-        // back. The daemon never renames onto an existing file, hence the random suffix.
+        // The download overwrites whatever already has the new file name: the old file of a
+        // same-name update, or an untracked file (a hand-added jar, a "Not on Modrinth" row). It
+        // happens before the metadata write, which can still be refused. So that file is moved
+        // aside first and only deleted once the install is recorded; any failure puts it back.
+        // The folder is only listed when the name differs from the tracked file.
         $movedAside = null;
 
-        if ($oldFilename === $safeNewFilename) {
-            $movedAside = '.' . $safeNewFilename . '.modrinth-backup-' . bin2hex(random_bytes(4));
-
-            MinecraftModrinth::renameFile($server, $folder, $oldFilename, $movedAside);
+        if ($oldFilename === $safeNewFilename || isset($this->folderFileNames($server, $folder, $folderNames)[$safeNewFilename])) {
+            $movedAside = $this->moveAside($server, $folder, $safeNewFilename);
         }
 
         try {
@@ -524,25 +525,18 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             throw new Exception('Failed to save mod metadata');
         }
 
-        if ($movedAside !== null) {
-            // The update is recorded; a leftover copy is only clutter, so this never fails it.
-            try {
-                MinecraftModrinth::deleteFile($server, $folder, $movedAside);
-            } catch (Exception $cleanupException) {
-                report($cleanupException);
-            }
-
-            return;
-        }
-
         if ($oldFilename && $oldFilename !== $safeNewFilename) {
             try {
                 MinecraftModrinth::deleteFile($server, $folder, $oldFilename);
             } catch (Exception $deleteException) {
-                try {
-                    MinecraftModrinth::deleteFile($server, $folder, $safeNewFilename);
-                } catch (Exception $rollbackException) {
-                    report($rollbackException);
+                if ($movedAside !== null) {
+                    $this->restoreMovedAside($server, $folder, $movedAside, $safeNewFilename);
+                } else {
+                    try {
+                        MinecraftModrinth::deleteFile($server, $folder, $safeNewFilename);
+                    } catch (Exception $rollbackException) {
+                        report($rollbackException);
+                    }
                 }
 
                 if ($installedMod && !MinecraftModrinth::saveModMetadata(
@@ -561,13 +555,85 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                 throw $deleteException;
             }
+
+            if ($folderNames !== null) {
+                unset($folderNames[$oldFilename]);
+            }
+        }
+
+        $this->dropMovedAside($server, $folder, $movedAside);
+
+        if ($folderNames !== null) {
+            $folderNames[$safeNewFilename] = true;
         }
     }
 
     /**
-     * Rollback of a same-name update: removes whatever the download left under $filename and
-     * renames the moved-aside old file back. If that fails the old file is still there under
-     * $movedAside, never deleted, and the failure is reported.
+     * The file names in $folder, listed from the daemon once per action and kept up to date by
+     * the installs that follow; $names is that action's cache (null until the first call). A
+     * listing failure throws, so nothing is installed over a file that could not be checked.
+     *
+     * @param  array<string, true>|null  $names
+     *
+     * @param-out array<string, true> $names
+     *
+     * @return array<string, true>
+     *
+     * @throws Exception
+     */
+    private function folderFileNames(Server $server, string $folder, ?array &$names): array
+    {
+        if ($names === null) {
+            $listed = [];
+
+            foreach (MinecraftModrinth::listFolder($server, $folder) as $file) {
+                if (is_array($file) && is_string($file['name'] ?? null)) {
+                    $listed[$file['name']] = true;
+                }
+            }
+
+            $names = $listed;
+        }
+
+        return $names;
+    }
+
+    /**
+     * Renames $filename in $folder out of the way of a download and returns its new name. The
+     * daemon never renames onto an existing file, hence the random suffix.
+     *
+     * @throws Exception
+     */
+    private function moveAside(Server $server, string $folder, string $filename): string
+    {
+        $movedAside = '.' . $filename . '.modrinth-backup-' . bin2hex(random_bytes(4));
+
+        MinecraftModrinth::renameFile($server, $folder, $filename, $movedAside);
+
+        return $movedAside;
+    }
+
+    /**
+     * Deletes the moved-aside copy once the install is recorded: the downloaded file has replaced
+     * it under the same name. A leftover copy is only clutter, so this never fails the install.
+     */
+    private function dropMovedAside(Server $server, string $folder, ?string $movedAside): void
+    {
+        if ($movedAside === null) {
+            return;
+        }
+
+        try {
+            MinecraftModrinth::deleteFile($server, $folder, $movedAside);
+        } catch (Exception $cleanupException) {
+            report($cleanupException);
+        }
+    }
+
+    /**
+     * Rollback of a download onto an existing file: removes whatever the download left under
+     * $filename and renames the moved-aside file back. If that fails the file is still there
+     * under $movedAside, never deleted, and the failure is reported.
      */
     private function restoreMovedAside(Server $server, string $folder, string $movedAside, string $filename): void
     {
@@ -659,10 +725,13 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
      */
     private function installWithDependencies(Server $server, array $record, array $versionData, array $primaryFile, ?array $installedMod): array
     {
-        $this->performInstallOrUpdate($server, $record, $versionData, $primaryFile, $installedMod);
+        // One folder listing for the project and all of its dependencies (see folderFileNames()).
+        $folderNames = null;
+
+        $this->performInstallOrUpdate($server, $record, $versionData, $primaryFile, $installedMod, $folderNames);
 
         try {
-            return $this->installRequiredDependencies($server, $record['project_id'], $versionData);
+            return $this->installRequiredDependencies($server, $record['project_id'], $versionData, $folderNames);
         } catch (Exception $exception) {
             report($exception);
 
@@ -683,11 +752,12 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
      * the first of its parents that got installed.
      *
      * @param  array<string, mixed>  $versionData
+     * @param  array<string, true>|null  $folderNames  see folderFileNames()
      * @return array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, unchecked: list<string>, error: bool}
      *
      * @throws Exception
      */
-    private function installRequiredDependencies(Server $server, string $projectId, array $versionData): array
+    private function installRequiredDependencies(Server $server, string $projectId, array $versionData, ?array &$folderNames = null): array
     {
         $report = ['installed' => [], 'failed' => [], 'manual' => [], 'skipped' => [], 'unchecked' => [], 'error' => false];
 
@@ -783,7 +853,20 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                 $filename = $this->validateFilename($primaryFile['filename']);
 
-                MinecraftModrinth::downloadFile($server, $primaryFile['url'], $folder, $filename);
+                // An untracked file with this name is kept until the dependency is recorded.
+                $movedAside = isset($this->folderFileNames($server, $folder, $folderNames)[$filename])
+                    ? $this->moveAside($server, $folder, $filename)
+                    : null;
+
+                try {
+                    MinecraftModrinth::downloadFile($server, $primaryFile['url'], $folder, $filename);
+                } catch (Exception $downloadException) {
+                    if ($movedAside !== null) {
+                        $this->restoreMovedAside($server, $folder, $movedAside, $filename);
+                    }
+
+                    throw $downloadException;
+                }
 
                 $saved = MinecraftModrinth::saveModMetadata(
                     $server,
@@ -799,14 +882,22 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                 );
 
                 if (!$saved) {
-                    try {
-                        MinecraftModrinth::deleteFile($server, $folder, $filename);
-                    } catch (Exception $rollbackException) {
-                        report($rollbackException);
+                    if ($movedAside !== null) {
+                        $this->restoreMovedAside($server, $folder, $movedAside, $filename);
+                    } else {
+                        try {
+                            MinecraftModrinth::deleteFile($server, $folder, $filename);
+                        } catch (Exception $rollbackException) {
+                            report($rollbackException);
+                        }
                     }
 
                     throw new Exception("Failed to save metadata for dependency $dependencyId");
                 }
+
+                $this->dropMovedAside($server, $folder, $movedAside);
+
+                $folderNames[$filename] = true;
 
                 $installed[$dependencyId] = true;
                 $report['installed'][] = $title($dependencyId);
