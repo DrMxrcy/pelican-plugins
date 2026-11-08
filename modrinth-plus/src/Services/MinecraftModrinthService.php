@@ -917,6 +917,12 @@ class MinecraftModrinthService
         /** @var array<string, int> $sizes */
         $sizes = [];
 
+        // A jar that could not be read this time keeps what the last scan found for it, so a
+        // daemon hiccup doesn't hide (or clear) its "Not on Modrinth" row.
+        $previous = UnmatchedJars::remembered($server->id, $modrinthProjectType);
+        /** @var array<string, int> $keep */
+        $keep = [];
+
         foreach ($untracked as $file) {
             $name = $file['name'];
 
@@ -933,11 +939,15 @@ class MinecraftModrinthService
                 report($exception);
 
                 $result['skipped'][] = $name;
+
+                if (($previous[$name] ?? null) === $file['size']) {
+                    $keep[$name] = $file['size'];
+                }
             }
         }
 
         if ($hashes === []) {
-            UnmatchedJars::remember($server->id, $modrinthProjectType, []);
+            UnmatchedJars::remember($server->id, $modrinthProjectType, $keep);
 
             return $result;
         }
@@ -978,7 +988,7 @@ class MinecraftModrinthService
             }
         }
 
-        UnmatchedJars::remember($server->id, $modrinthProjectType, $notOnModrinth);
+        UnmatchedJars::remember($server->id, $modrinthProjectType, $notOnModrinth + $keep);
 
         return $result;
     }

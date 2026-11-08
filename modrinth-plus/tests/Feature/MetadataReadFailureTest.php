@@ -242,4 +242,33 @@ class MetadataReadFailureTest extends TestCase
         $this->assertSame([], $this->writes);
         $this->assertSame($before, $this->file);
     }
+
+    public function test_a_scan_whose_jar_reads_all_failed_keeps_the_previous_not_on_modrinth_result(): void
+    {
+        $this->jars = ['homemade.jar' => 'homemade bytes'];
+        $this->unreadableJars = ['homemade.jar' => true];
+        UnmatchedJars::remember(1, ModrinthProjectType::Mod, ['homemade.jar' => strlen('homemade bytes')]);
+        Http::fake();
+
+        $result = $this->service()->scanAndImport($this->server(), ModrinthProjectType::Mod);
+
+        $this->assertSame(['homemade.jar'], $result['skipped']);
+        Http::assertNothingSent();
+        $this->assertSame(['homemade.jar' => strlen('homemade bytes')], UnmatchedJars::remembered(1, ModrinthProjectType::Mod));
+    }
+
+    public function test_a_jar_whose_read_failed_keeps_its_previous_not_on_modrinth_result(): void
+    {
+        $this->jars = ['homemade.jar' => 'homemade bytes', 'other.jar' => 'other bytes'];
+        $this->unreadableJars = ['homemade.jar' => true];
+        UnmatchedJars::remember(1, ModrinthProjectType::Mod, ['homemade.jar' => strlen('homemade bytes'), 'gone.jar' => 3]);
+        Http::fake(['api.modrinth.com/v2/version_files' => Http::response('{}')]);
+
+        $this->service()->scanAndImport($this->server(), ModrinthProjectType::Mod);
+
+        $this->assertSame(
+            ['other.jar' => strlen('other bytes'), 'homemade.jar' => strlen('homemade bytes')],
+            UnmatchedJars::remembered(1, ModrinthProjectType::Mod),
+        );
+    }
 }
