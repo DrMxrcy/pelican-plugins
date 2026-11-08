@@ -123,6 +123,38 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         return is_null($this->getInstalledMod($record['project_id'])) ? static::canInstall() : static::canUpdate();
     }
 
+    /**
+     * Whether Modrinth's client/server sides apply to this page: the client-only toggle, the
+     * side badges and the "no update for a client-only project" rule. Datapacks always run on
+     * the server, so their page turns this off.
+     */
+    protected static function usesClientOnlyFilter(): bool
+    {
+        return true;
+    }
+
+    /** Heading of the update/uninstall confirmation (`modals.update_heading`, `modals.uninstall_heading`). */
+    protected static function modalHeading(string $key): string
+    {
+        return trans("modrinth-plus::strings.modals.$key");
+    }
+
+    /** Folder this page installs into, relative to the server root. */
+    protected function getProjectFolder(): string
+    {
+        return static::$modrinthProjectType->getFolder();
+    }
+
+    /**
+     * Whether a file listed in the project folder counts as an installed project.
+     *
+     * @param  array<mixed>  $file  daemon directory entry
+     */
+    protected function isProjectFile(array $file): bool
+    {
+        return ($file['mime'] ?? null) === 'application/jar' || str(is_string($file['name'] ?? null) ? $file['name'] : '')->lower()->endsWith('.jar');
+    }
+
     public static function getNavigationLabel(): string
     {
         return static::$modrinthProjectType?->getLabel() ?? 'Modrinth';
@@ -197,7 +229,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         if (!isset($this->versionsCache[$projectId])) {
             /** @var Server $server */
             $server = Filament::getTenant();
-            $this->versionsCache[$projectId] = MinecraftModrinth::getProjectVersions($projectId, $server);
+            $this->versionsCache[$projectId] = MinecraftModrinth::getProjectVersions($projectId, $server, static::$modrinthProjectType);
         }
 
         return $this->versionsCache[$projectId];
@@ -225,7 +257,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
         // A failed request (null) is cached as "no versions" for this render only, like before,
         // so an outage doesn't fall back to one slow request per row.
-        $this->versionsCache += array_map(fn (?array $versions) => $versions ?? [], MinecraftModrinth::getProjectVersionsBulk($projectIds, $server));
+        $this->versionsCache += array_map(fn (?array $versions) => $versions ?? [], MinecraftModrinth::getProjectVersionsBulk($projectIds, $server, static::$modrinthProjectType));
     }
 
     /**
@@ -286,7 +318,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $safeNewFilename = $this->validateFilename($primaryFile['filename']);
         $oldFilename = $installedMod ? $this->validateFilename($installedMod['filename']) : null;
 
-        $folder = static::$modrinthProjectType->getFolder();
+        $folder = $this->getProjectFolder();
 
         MinecraftModrinth::downloadFile($server, $primaryFile['url'], $folder, $safeNewFilename);
 
@@ -393,7 +425,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $installedIds = array_column(MinecraftModrinth::getInstalledModsMetadata($server, static::$modrinthProjectType), 'project_id');
 
         $plan = DependencyResolver::resolve($projectId, $versionData, function (string $dependencyId) use ($server) {
-            $versions = MinecraftModrinth::getProjectVersionsBulk([$dependencyId], $server);
+            $versions = MinecraftModrinth::getProjectVersionsBulk([$dependencyId], $server, static::$modrinthProjectType);
 
             return $versions[$dependencyId] ?? null;
         }, $installedIds);
@@ -405,7 +437,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
         $title = fn (string $id): string => is_string($projects[$id]['title'] ?? null) ? $projects[$id]['title'] : $id;
 
-        $folder = static::$modrinthProjectType->getFolder();
+        $folder = $this->getProjectFolder();
 
         /** @var array<string, true> $notInstalled */
         $notInstalled = [];
@@ -733,7 +765,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->icon(fn () => $this->showClientOnly ? 'tabler-eye-off' : 'tabler-eye')
                     ->color(fn () => $this->showClientOnly ? 'warning' : 'gray')
                     // Only meaningful on the "All" tab and while the config hides client-only projects.
-                    ->visible(fn () => $this->activeTab !== 'installed' && (bool) config('modrinth-plus.hide_client_only', true))
+                    ->visible(fn () => static::usesClientOnlyFilter() && $this->activeTab !== 'installed' && (bool) config('modrinth-plus.hide_client_only', true))
                     ->action(function () {
                         $this->showClientOnly = !$this->showClientOnly;
 
@@ -748,6 +780,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->searchable()
                     ->description(function (array $record) {
                         $description = (strlen($record['description']) > 120) ? substr($record['description'], 0, 120).'...' : $record['description'];
+
+                        if (!static::usesClientOnlyFilter()) {
+                            return $description;
+                        }
 
                         if (Sides::playersNeedIt($record)) {
                             $badge = $this->renderBadge('warning', 'tabler-users', 'sides.players_need_it');
@@ -876,7 +912,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                             /** @var Server $server */
                             $server = Filament::getTenant();
 
-                            $versions = MinecraftModrinth::getProjectVersions($record['project_id'], $server);
+                            $versions = MinecraftModrinth::getProjectVersions($record['project_id'], $server, static::$modrinthProjectType);
 
                             if (empty($versions)) {
                                 throw new Exception('No compatible versions found');
@@ -927,7 +963,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->tooltip(trans('modrinth-plus::strings.actions.update'))
                     ->visible(function (array $record) {
                         // A client-only mod does nothing on a server: offer uninstall, not an update.
-                        if (Sides::isClientOnly($record)) {
+                        if (static::usesClientOnlyFilter() && Sides::isClientOnly($record)) {
                             return false;
                         }
 
@@ -947,7 +983,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     })
                     ->authorize(fn () => static::canUpdate())
                     ->requiresConfirmation()
-                    ->modalHeading(trans('modrinth-plus::strings.modals.update_heading'))
+                    ->modalHeading(static::modalHeading('update_heading'))
                     ->modalDescription(function (array $record) {
                         $installedMod = $this->getInstalledMod($record['project_id']);
                         $versions = $this->getCachedVersions($record['project_id']);
@@ -963,7 +999,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     })
                     ->action(function (array $record) {
                         abort_unless(static::canUpdate(), 403);
-                        abort_if(Sides::isClientOnly($record), 403);
+                        abort_if(static::usesClientOnlyFilter() && Sides::isClientOnly($record), 403);
 
                         try {
                             /** @var Server $server */
@@ -975,7 +1011,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                                 throw new Exception('Mod not found in metadata');
                             }
 
-                            $versions = MinecraftModrinth::getProjectVersions($record['project_id'], $server);
+                            $versions = MinecraftModrinth::getProjectVersions($record['project_id'], $server, static::$modrinthProjectType);
 
                             if (empty($versions)) {
                                 throw new Exception('No compatible versions found');
@@ -1046,7 +1082,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     })
                     ->authorize(fn () => static::canUninstall())
                     ->requiresConfirmation()
-                    ->modalHeading(fn (array $record) => trans('modrinth-plus::strings.modals.uninstall_heading'))
+                    ->modalHeading(fn (array $record) => static::modalHeading('uninstall_heading'))
                     ->modalDescription(fn (array $record) => trans('modrinth-plus::strings.modals.uninstall_description', ['name' => $record['title']]))
                     ->action(function (array $record) {
                         abort_unless(static::canUninstall(), 403);
@@ -1063,7 +1099,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                             $safeFilename = $this->validateFilename($installedMod['filename']);
 
-                            $folder = static::$modrinthProjectType->getFolder();
+                            $folder = $this->getProjectFolder();
 
                             MinecraftModrinth::deleteFile($server, $folder, $safeFilename);
 
@@ -1118,7 +1154,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             return [];
         }
 
-        $folder = static::$modrinthProjectType->getFolder();
+        $folder = $this->getProjectFolder();
 
         return [
             $this->makeCheckCompatibilityAction(),
@@ -1150,7 +1186,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                 return trans('modrinth-plus::strings.compatibility.description', [
                     'version' => MinecraftModrinth::getMinecraftVersion($server) ?? $unknown,
-                    'loader' => MinecraftModrinth::getLoaderFromServer($server)['display_name'] ?? $unknown,
+                    'loader' => MinecraftModrinth::getLoaderFromServer($server, static::$modrinthProjectType)['display_name'] ?? $unknown,
                 ]);
             })
             ->modalSubmitAction(false)
@@ -1176,8 +1212,8 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
         // Asks Modrinth directly: the page's versionsCache turns a failed lookup into "no
         // versions", which would report an outage as incompatible.
-        $loaderKnown = MinecraftModrinth::getLoaderFromServer($server) !== null;
-        $versions = $loaderKnown ? MinecraftModrinth::getProjectVersionsBulk(array_column($installedMods, 'project_id'), $server) : [];
+        $loaderKnown = MinecraftModrinth::getLoaderFromServer($server, static::$modrinthProjectType) !== null;
+        $versions = $loaderKnown ? MinecraftModrinth::getProjectVersionsBulk(array_column($installedMods, 'project_id'), $server, static::$modrinthProjectType) : [];
 
         $problems = Compatibility::problems(Compatibility::report($installedMods, $versions, $loaderKnown));
 
@@ -1236,15 +1272,15 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                             ->state(fn () => MinecraftModrinth::getMinecraftVersion($server) ?? trans('modrinth-plus::strings.page.unknown'))
                             ->badge(),
                         TextEntry::make('Loader')
-                            ->state(fn () => MinecraftModrinth::getLoaderFromServer($server)['display_name'] ?? trans('modrinth-plus::strings.page.unknown'))
-                            ->icon(fn () => new HtmlString(MinecraftModrinth::getLoaderFromServer($server)['icon'] ?? ''))
+                            ->state(fn () => MinecraftModrinth::getLoaderFromServer($server, static::$modrinthProjectType)['display_name'] ?? trans('modrinth-plus::strings.page.unknown'))
+                            ->icon(fn () => new HtmlString(MinecraftModrinth::getLoaderFromServer($server, static::$modrinthProjectType)['icon'] ?? ''))
                             ->badge(),
                         TextEntry::make('installed')
                             ->label(fn () => trans('modrinth-plus::strings.page.installed', ['type' => static::$modrinthProjectType?->getLabel() ?? 'Modrinth']))
                             ->state(function () use ($server) {
                                 try {
-                                    return collect(MinecraftModrinth::listFolder($server, static::$modrinthProjectType->getFolder()))
-                                        ->filter(fn ($file) => ($file['mime'] ?? null) === 'application/jar' || str($file['name'] ?? '')->lower()->endsWith('.jar'))
+                                    return collect(MinecraftModrinth::listFolder($server, $this->getProjectFolder()))
+                                        ->filter(fn ($file) => is_array($file) && $this->isProjectFile($file))
                                         ->count();
                                 } catch (Exception $exception) {
                                     report($exception);

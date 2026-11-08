@@ -131,4 +131,9 @@ return [
         'incompatible_heading' => 'Inkompatible Mod installiert',
         'incompatible_description' => 'Diese Version ist als inkompatibel mit :list markiert, das auf diesem Server installiert ist. Trotzdem installieren?',
     ],
+
+    'datapacks' => [
+        'update_heading' => 'Datenpaket aktualisieren',
+        'uninstall_heading' => 'Datenpaket deinstallieren',
+    ],
 ];

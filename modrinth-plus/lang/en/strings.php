@@ -131,4 +131,9 @@ return [
         'incompatible_heading' => 'Incompatible mod installed',
         'incompatible_description' => 'This version is marked as incompatible with :list, which is installed on this server. Install it anyway?',
     ],
+
+    'datapacks' => [
+        'update_heading' => 'Update Datapack',
+        'uninstall_heading' => 'Uninstall Datapack',
+    ],
 ];
