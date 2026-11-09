@@ -40,8 +40,14 @@ return [
         'max_file_bytes' => (int) env('MODPACKS_PLUS_MAX_FILE_BYTES', 256 * 1024 * 1024),
         // The .mrpack archive itself (downloaded by the panel to read its index and overrides).
         'max_archive_bytes' => (int) env('MODPACKS_PLUS_MAX_ARCHIVE_BYTES', 100 * 1024 * 1024),
-        // Everything written to the server: downloads plus extracted overrides.
-        'max_total_bytes' => (int) env('MODPACKS_PLUS_MAX_TOTAL_BYTES', 4 * 1024 * 1024 * 1024),
+        // Everything written to the server: downloads plus extracted overrides. On a server with a
+        // disk limit the pack must also fit its free space minus the headroom below (plan 38);
+        // this cap applies on its own when the disk is unlimited or its usage can't be read.
+        'max_total_bytes' => (int) env('MODPACKS_PLUS_MAX_TOTAL_BYTES', 20 * 1024 * 1024 * 1024),
+        // Space kept free on a disk-limited server: this percent of its limit (0-90), at least
+        // disk_headroom_min_mb. Old mods/ and config/ stay on disk while a pack installs.
+        'disk_headroom_percent' => (int) env('MODPACKS_PLUS_DISK_HEADROOM_PERCENT', 10),
+        'disk_headroom_min_mb' => (int) env('MODPACKS_PLUS_DISK_HEADROOM_MIN_MB', 512),
         // Entries in the .mrpack archive.
         'max_archive_entries' => (int) env('MODPACKS_PLUS_MAX_ARCHIVE_ENTRIES', 20000),
         // Files not vouched for by Modrinth (other hosts, lookup misses) are fetched and hashed by
