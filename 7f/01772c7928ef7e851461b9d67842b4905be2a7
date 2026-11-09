@@ -1,0 +1,55 @@
+modpacks-plus/config/modpacks-plus.php
+  s_1d8485e49bfacb::t_24fd16772981ee 32-36
+modpacks-plus/lang/de/strings.php
+  s_6045bb8891482b::t_6afe7b10591d49 133-143,214-215,230-232,295-300
+modpacks-plus/lang/en/strings.php
+  s_6045bb8891482b::t_0785673f46f3ce 133-143,214-215,230-232,295-300
+modpacks-plus/src/Filament/Server/Components/InstallProgress.php
+  s_1d8485e49bfacb::t_1f8e0790011862 99-102,109-117,199-230
+modpacks-plus/src/Jobs/Steps/DownloadStep.php
+  s_6045bb8891482b::t_959a9c1c317220 59-60,68,74-77
+modpacks-plus/src/Jobs/Steps/OverridesStep.php
+  s_1d8485e49bfacb::t_e9869a65d696b0 56-57,73
+modpacks-plus/src/Jobs/Steps/PropertiesStep.php
+  s_1d8485e49bfacb::t_34863a908801ef 1-210
+modpacks-plus/src/Jobs/Steps/UpdateApplyStep.php
+  s_6045bb8891482b::t_853a7c2d3a2eec 1-84
+modpacks-plus/src/Jobs/Steps/UpdateDiffStep.php
+  s_6045bb8891482b::t_dcff91f951ed3f 1-164
+modpacks-plus/src/Services/InstallEngine.php
+  s_1d8485e49bfacb::t_5a6c6bcb6bb730 22,26-27,56,60-81,110,129-132,146-149,153,155-159,188-203,215-220,312,431-435
+modpacks-plus/src/Services/PropertiesPreserver.php
+  s_6045bb8891482b::t_9a1ca012812c1f 6,14-21,42-44,164-166,172,196,208-211,220-234
+modpacks-plus/tests/Feature/CurseForgeInstallTest.php
+  s_6045bb8891482b::t_54484d3c70e849 203-207
+modpacks-plus/tests/Feature/PackUpdateTest.php
+  s_1d8485e49bfacb::t_6f7e6359ba3d35 1-470
+modpacks-plus/tests/Support/PackVersions.php
+  s_1d8485e49bfacb::t_b35ea683186639 1-124
+modpacks-plus/tests/Unit/PropertiesPreserverTest.php
+  s_1d8485e49bfacb::t_7fb64d3bb42ec8 112-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7f01772c7928ef7e851461b9d67842b4905be2a7",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    },
+    "s_6045bb8891482b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "045ea695-5f94-47c3-a79b-08c08dd55164",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
