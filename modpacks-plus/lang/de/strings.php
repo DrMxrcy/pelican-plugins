@@ -209,6 +209,7 @@ return [
         'ftb_not_found' => 'Nicht auf FTB gefunden: :detail',
         'atlauncher_unavailable' => 'ATLauncher ist nicht erreichbar. Später erneut versuchen. (:detail)',
         'atlauncher_not_found' => 'Nicht auf ATLauncher gefunden: :detail',
+        'properties_unmergeable' => 'Die server.properties des Packs lässt sich nicht sicher zusammenführen; die des Servers blieb unverändert: :detail',
     ],
     'steps' => [
         'prepare' => 'Pack prüfen',
