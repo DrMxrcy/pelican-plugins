@@ -46,6 +46,12 @@ final class PlanValidator
     /** Where previous pack files are moved aside; packs never write here. */
     public const OWN_FOLDER = '.modpacks-plus';
 
+    /** Override folders only a game client uses (never written; skipped whatever their size). */
+    public const CLIENT_ONLY_FOLDERS = ['resourcepacks', 'shaderpacks', 'screenshots'];
+
+    /** Top-level override files only a game client uses. */
+    public const CLIENT_ONLY_FILES = ['options.txt', 'optionsof.txt', 'optionsshaders.txt'];
+
     /** Archive prefixes applied to the server, lowest precedence first. */
     public const OVERRIDE_PREFIXES = ['overrides/', 'server-overrides/'];
 
@@ -153,6 +159,15 @@ final class PlanValidator
         }
 
         return $stack !== [];
+    }
+
+    /** Whether a normalised override target is something only a game client uses (top level only). */
+    public static function isClientOnlyOverride(string $path): bool
+    {
+        $segments = explode('/', strtolower($path));
+
+        return (count($segments) > 1 && in_array($segments[0], self::CLIENT_ONLY_FOLDERS, true))
+            || (count($segments) === 1 && in_array($segments[0], self::CLIENT_ONLY_FILES, true));
     }
 
     /**
@@ -341,6 +356,7 @@ final class PlanValidator
 
         $overrides = [];
         $skippedOverrides = $plan->skippedOverrides;
+        $skippedClient = $plan->skippedClientOverrides;
         $targets = [];
 
         foreach ($plan->overrides as $override) {
@@ -348,6 +364,19 @@ final class PlanValidator
 
             if ($this->overrideTarget($override->entry) !== $path) {
                 throw new UnsafePlanException('unsafe_path', $override->entry);
+            }
+
+            if (isset($targets[strtolower($path)])) {
+                throw new UnsafePlanException('duplicate_path', $path);
+            }
+            $targets[strtolower($path)] = true;
+
+            // Resource/shader packs, screenshots and client options are never written, so their
+            // size doesn't matter (path checks above still applied).
+            if (self::isClientOnlyOverride($path)) {
+                $skippedClient[] = $path;
+
+                continue;
             }
 
             if ($override->size < 0 || $override->size > $this->caps->maxFileBytes) {
@@ -358,11 +387,6 @@ final class PlanValidator
             if ($override->size > $this->caps->maxOverrideBytes) {
                 throw new UnsafePlanException('override_too_large', $path);
             }
-
-            if (isset($targets[strtolower($path)])) {
-                throw new UnsafePlanException('duplicate_path', $path);
-            }
-            $targets[strtolower($path)] = true;
 
             if ($this->isProtected($path)) {
                 $skippedOverrides[] = $path;
@@ -378,6 +402,7 @@ final class PlanValidator
             'overrides' => $overrides,
             'skippedClientFiles' => array_values(array_unique($skipped)),
             'skippedOverrides' => array_values(array_unique($skippedOverrides)),
+            'skippedClientOverrides' => array_values(array_unique($skippedClient)),
         ]);
 
         if ($validated->totalBytes() > $this->caps->maxTotalBytes) {

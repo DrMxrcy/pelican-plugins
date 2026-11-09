@@ -110,6 +110,10 @@ final class InstallProgress
             $lines[] = trans('modpacks-plus::strings.summary.skipped_overrides', ['paths' => implode(', ', array_map('strval', (array) $summary['skipped_overrides']))]);
         }
 
+        if (!empty($summary['skipped_client_overrides'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.skipped_client_overrides', ['paths' => implode(', ', array_map('strval', (array) $summary['skipped_client_overrides']))]);
+        }
+
         return new HtmlString('<ul>'.implode('', array_map(fn (string $line) => '<li>'.e($line).'</li>', $lines)).'</ul>');
     }
 }

@@ -356,6 +356,59 @@ class PlanValidatorTest extends TestCase
         );
     }
 
+    /** @return array<string, array{string}> */
+    public static function clientOnlyOverrides(): array
+    {
+        return [
+            'resource pack' => ['resourcepacks/Faithful.zip'],
+            'shader pack' => ['shaderpacks/Complementary.zip'],
+            'screenshot' => ['screenshots/2026-01-01.png'],
+            'options' => ['options.txt'],
+            'optifine options' => ['optionsof.txt'],
+            'shader options' => ['optionsshaders.txt'],
+        ];
+    }
+
+    #[DataProvider('clientOnlyOverrides')]
+    public function test_client_only_overrides_are_skipped_whatever_their_size(string $path): void
+    {
+        $plan = $this->validator(new Caps(maxOverrideBytes: 10, maxFileBytes: 100))->validate($this->plan([], [
+            new OverrideEntry("overrides/$path", $path, 5000),
+            new OverrideEntry('overrides/config/a.toml', 'config/a.toml', 5),
+        ]));
+
+        $this->assertSame(['config/a.toml'], array_map(fn (OverrideEntry $entry) => $entry->path, $plan->overrides));
+        $this->assertSame([$path], $plan->skippedClientOverrides);
+        $this->assertSame([], $plan->skippedOverrides);
+        // Skipped entries are never written, so they don't count towards the total either.
+        $this->assertSame(5, $plan->totalBytes());
+
+        $again = $this->validator(new Caps(maxOverrideBytes: 10, maxFileBytes: 100))->validate($plan);
+        $this->assertSame($plan->toArray(), $again->toArray());
+    }
+
+    public function test_an_oversized_override_elsewhere_still_rejects_the_pack(): void
+    {
+        foreach (['config/big.json', 'mods/resourcepacks/x.zip', 'resourcepacksx/a.zip', 'kubejs/options.txt'] as $path) {
+            $this->assertRejected(
+                fn () => $this->validator(new Caps(maxOverrideBytes: 10))->validate($this->plan([], [new OverrideEntry("overrides/$path", $path, 11)])),
+                'override_too_large',
+            );
+        }
+    }
+
+    public function test_client_only_skipping_never_relaxes_path_checks(): void
+    {
+        $this->assertRejected(
+            fn () => $this->validator()->validate($this->plan([], [new OverrideEntry('overrides/resourcepacks/../../x', 'resourcepacks/../../x', 1)])),
+            'unsafe_path',
+        );
+        $this->assertRejected(
+            fn () => $this->validator()->validate($this->plan([], [new OverrideEntry('overrides/resourcepacks/a.zip', '../resourcepacks/a.zip', 1)])),
+            'unsafe_path',
+        );
+    }
+
     public function test_only_cdn_files_may_be_marked_for_a_node_pull(): void
     {
         $this->assertRejected(

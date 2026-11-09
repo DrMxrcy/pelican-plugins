@@ -47,6 +47,9 @@ Checked before anything is written to the server; archive entries are checked ag
 - Caps (config / env): 1000 files, 256 MB per file, 100 MB archive, 4 GB total, 20 000 archive entries,
   32 MB per panel-fetched file (`max_panel_fetch_bytes`; such files are held in the worker's memory),
   16 MB per override file (`max_override_bytes`). A pack over a cap is refused before anything is written.
+- Overrides only a game client uses — `resourcepacks/`, `shaderpacks/`, `screenshots/`, `options.txt`,
+  `optionsof.txt`, `optionsshaders.txt` — are skipped whatever their size and listed in the summary
+  (after the same path checks as every other entry).
 - The daemon adapter refuses again, right before each call: paths outside the root, creating, writing,
   deleting or moving a world, player list or `server.properties`, and any pull that is not
   `cdn.modrinth.com`.
@@ -86,6 +89,10 @@ handlers (`installPack`, `cancelInstall`) check every permission again, so direc
   with pack updates, a later release). After a failed install, `.modpacks-plus/staging/` may keep
   files that were never used.
 - Stop the server before installing; the plugin doesn't stop it for you.
+- A node pull that times out is checked and retried, at most 3 attempts per file; a very slow CDN
+  download can therefore fail the install (retry it later).
+- Any `server.properties` line ending in a single backslash is read as a line continuation and stops
+  the install (fail closed), even when it isn't next to `level-name`.
 
 ## Settings
 

@@ -16,6 +16,7 @@ final class InstallPlan
      * @param  array<int, OverrideEntry>  $overrides
      * @param  array<int, string>  $skippedClientFiles  paths dropped because the server doesn't need them
      * @param  array<int, string>  $skippedOverrides  override targets dropped because they are protected
+     * @param  array<int, string>  $skippedClientOverrides  override targets dropped because only clients use them
      */
     public function __construct(
         public readonly string $provider,
@@ -32,6 +33,7 @@ final class InstallPlan
         public readonly ?PackArchive $serverPack = null,
         public readonly array $skippedClientFiles = [],
         public readonly array $skippedOverrides = [],
+        public readonly array $skippedClientOverrides = [],
     ) {}
 
     /** @param  array<string, mixed>  $changes */
@@ -52,6 +54,7 @@ final class InstallPlan
             'serverPack' => $this->serverPack,
             'skippedClientFiles' => $this->skippedClientFiles,
             'skippedOverrides' => $this->skippedOverrides,
+            'skippedClientOverrides' => $this->skippedClientOverrides,
         ], $changes);
 
         return new self(...$data);
@@ -89,6 +92,7 @@ final class InstallPlan
             'server_pack' => $this->serverPack?->toArray(),
             'skipped_client_files' => $this->skippedClientFiles,
             'skipped_overrides' => $this->skippedOverrides,
+            'skipped_client_overrides' => $this->skippedClientOverrides,
         ];
     }
 
@@ -113,6 +117,7 @@ final class InstallPlan
             serverPack: is_array($data['server_pack'] ?? null) ? PackArchive::fromArray($data['server_pack']) : null,
             skippedClientFiles: array_values(array_filter($list('skipped_client_files'), 'is_string')),
             skippedOverrides: array_values(array_filter($list('skipped_overrides'), 'is_string')),
+            skippedClientOverrides: array_values(array_filter($list('skipped_client_overrides'), 'is_string')),
         );
     }
 }

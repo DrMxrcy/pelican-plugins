@@ -262,6 +262,7 @@ class InstallEngine
             'overrides_total' => $plan ? count($plan->overrides) : null,
             'skipped_client_files' => $plan ? count($plan->skippedClientFiles) : 0,
             'skipped_overrides' => $plan ? $plan->skippedOverrides : [],
+            'skipped_client_overrides' => $plan ? $plan->skippedClientOverrides : [],
         ];
     }
 

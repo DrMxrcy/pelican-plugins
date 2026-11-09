@@ -50,6 +50,7 @@ return [
         'overrides' => 'Applied :done of :total overrides.',
         'skipped_client' => ':count client-only files skipped.',
         'skipped_overrides' => 'Protected overrides skipped: :paths',
+        'skipped_client_overrides' => 'Client-only overrides skipped (resource packs, shaders, screenshots, options): :paths',
     ],
     'reasons' => [
         'unsafe_level_name' => 'The world folder (level-name in server.properties) is not a folder inside the server: :detail',

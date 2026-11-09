@@ -599,6 +599,30 @@ class InstallEngineTest extends TestCase
         $this->assertSame(0, $this->backupsCreated);
     }
 
+    public function test_an_oversized_resource_pack_override_is_skipped_and_the_install_proceeds(): void
+    {
+        config()->set('modpacks-plus.caps.max_override_bytes', 1024);
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack([
+            'overrides/resourcepacks/Big.zip' => str_repeat('x', 4096),
+            'server-overrides/shaderpacks/Shader.zip' => str_repeat('y', 4096),
+            'overrides/options.txt' => 'fov:90',
+            'overrides/config/sodium.toml' => 'server',
+        ]);
+
+        $this->start($server);
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame('server', $this->files->files['config/sodium.toml'] ?? null);
+        $this->assertArrayNotHasKey('resourcepacks/Big.zip', $this->files->files);
+        $this->assertArrayNotHasKey('shaderpacks/Shader.zip', $this->files->files);
+        $this->assertArrayNotHasKey('options.txt', $this->files->files);
+        $this->assertEqualsCanonicalizing(['resourcepacks/Big.zip', 'shaderpacks/Shader.zip', 'options.txt'], $install->summary['skipped_client_overrides'] ?? null);
+        $this->assertSame(1, $install->summary['overrides_total']);
+    }
+
     public function test_size_mismatch_after_a_modrinth_pull_never_reaches_mods(): void
     {
         [, $server] = $this->scenarioServer();

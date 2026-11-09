@@ -50,6 +50,7 @@ return [
         'overrides' => ':done von :total Overrides angewendet.',
         'skipped_client' => ':count reine Client-Dateien übersprungen.',
         'skipped_overrides' => 'Geschützte Overrides übersprungen: :paths',
+        'skipped_client_overrides' => 'Reine Client-Overrides übersprungen (Ressourcenpakete, Shader, Screenshots, Optionen): :paths',
     ],
     'reasons' => [
         'unsafe_level_name' => 'Der Weltordner (level-name in server.properties) ist kein Ordner im Server: :detail',
