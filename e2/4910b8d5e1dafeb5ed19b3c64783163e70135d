@@ -1,0 +1,21 @@
+modrinth-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_d6163a8e37f523 102
+modrinth-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_f965a93889da68 102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e24910b8d5e1dafeb5ed19b3c64783163e70135d",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
