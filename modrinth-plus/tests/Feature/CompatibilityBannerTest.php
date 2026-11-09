@@ -177,17 +177,41 @@ class CompatibilityBannerTest extends TestCase
         $this->assertStringContainsString('1 installed project doesn', $this->heading(1));
     }
 
-    public function test_no_banner_before_it_is_loaded(): void
+    public function test_first_render_never_waits_on_modrinth_and_queues_the_banner(): void
     {
         $this->account();
         Http::fake();
         $this->install(['gone' => 'g1']);
 
         Livewire::test(MinecraftModrinthModPage::class)
+            ->assertOk()
+            ->assertJs('$wire.loadCompatibilityBanner()')
             ->assertSet('incompatibleCount', null)
             ->assertDontSee($this->description());
 
         Http::assertNothingSent();
+    }
+
+    public function test_changed_installs_drop_the_cached_summary_and_reload_the_banner(): void
+    {
+        $this->account();
+        $this->fakeModrinth();
+        $this->install(['gone' => 'g1']);
+        MinecraftModrinth::shouldReceive('scanAndImport')->once()
+            ->andReturn(['imported' => [], 'not_on_modrinth' => [], 'skipped' => [], 'duplicates' => [], 'error' => false]);
+
+        $page = $this->page()->assertSee($this->heading(1));
+        Http::assertSentCount(1);
+
+        $page->callAction('scan_folder')
+            ->assertSet('incompatibleCount', null)
+            ->assertJs('$wire.loadCompatibilityBanner()')
+            ->assertDontSee($this->description());
+
+        // The summary cache was dropped: the next load asks Modrinth again.
+        $this->forgetVersionsCache();
+        $page->call('loadCompatibilityBanner')->assertSee($this->heading(1));
+        Http::assertSentCount(2);
     }
 
     public function test_no_banner_when_everything_is_compatible(): void

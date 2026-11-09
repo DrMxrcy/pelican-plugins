@@ -11,6 +11,7 @@ use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
 use DrMxrcy\ModrinthPlus\Exceptions\InvalidLevelNameException;
 use DrMxrcy\ModrinthPlus\Exceptions\ServerPropertiesUnreadableException;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
+use DrMxrcy\ModrinthPlus\Services\MinecraftModrinthService;
 use DrMxrcy\ModrinthPlus\Support\Compatibility;
 use DrMxrcy\ModrinthPlus\Support\DependencyResolver;
 use DrMxrcy\ModrinthPlus\Support\Sides;
@@ -288,6 +289,17 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $this->authorizeAccess();
 
         $this->loadDefaultActiveTab();
+
+        $this->queueCompatibilityBanner();
+    }
+
+    /**
+     * The banner is worked out in a request of its own, sent by the browser right after the
+     * page has rendered: on a cache miss it asks Modrinth, and the page must not wait for that.
+     */
+    protected function queueCompatibilityBanner(): void
+    {
+        $this->js('$wire.loadCompatibilityBanner()');
     }
 
     protected function authorizeAccess(): void
@@ -389,6 +401,14 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $this->installedModsMetadata = null;
         $this->versionsCache = [];
         $this->updateAllCandidates = null;
+
+        // The installed projects may have changed: work the banner out again, after this request.
+        $server = Filament::getTenant();
+        if ($server instanceof Server && static::$modrinthProjectType) {
+            MinecraftModrinthService::forgetCompatibilitySummary($server, static::$modrinthProjectType);
+        }
+        $this->incompatibleCount = null;
+        $this->queueCompatibilityBanner();
 
         if ($refresh) {
             $this->js('$wire.$refresh()');
