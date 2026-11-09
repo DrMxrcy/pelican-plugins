@@ -1,0 +1,42 @@
+players-plus/tests/Fixtures/FakeConsole.php
+  s_1d8485e49bfacb::t_35f345e5109ac5 1-55
+players-plus/tests/Unit/PlayerNameTest.php
+  s_1d8485e49bfacb::t_30e529768ec53b 1-86
+players-plus/src/Support/PlayerName.php
+  s_1d8485e49bfacb::t_17a12a9342fadd 1-36
+players-plus/src/Services/ModerationService.php
+  s_1d8485e49bfacb::t_8a404e740a3ffc 1-133
+players-plus/src/Support/ConsoleText.php
+  s_1d8485e49bfacb::t_471c4f5c7c4091 1-45
+players-plus/tests/Feature/ModerationServiceTest.php
+  s_1d8485e49bfacb::t_db51b3d8d7099a 1-223
+  s_1d8485e49bfacb::t_7bfb9e328bde80 224
+players-plus/tests/Unit/ModerationCommandTest.php
+  s_1d8485e49bfacb::t_cd0797e166b298 1-123
+players-plus/tests/Unit/ConsoleTextTest.php
+  s_1d8485e49bfacb::t_df896bf8b290c2 1-107
+players-plus/config/players-plus.php
+  s_1d8485e49bfacb::t_cac89269d9587e 7-9
+players-plus/src/Enums/ModerationAction.php
+  s_1d8485e49bfacb::t_4416f9e572d15d 1-42
+players-plus/src/Services/ModerationException.php
+  s_1d8485e49bfacb::t_87a431012ecd60 1-22
+players-plus/src/Support/Settings.php
+  s_1d8485e49bfacb::t_5e626b99640997 22-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a4ad754d1f29405b9c7c5fb4f6378b8eb2c38166",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
