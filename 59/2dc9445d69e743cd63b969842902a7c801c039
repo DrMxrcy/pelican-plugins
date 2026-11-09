@@ -1,0 +1,24 @@
+modrinth-plus/tests/Feature/CompatibilitySummaryTest.php
+  s_1d8485e49bfacb::t_98786375213793 1-269
+  s_1d8485e49bfacb::t_b9173bfdbc6fec 270-283
+modrinth-plus/src/Facades/MinecraftModrinth.php
+  s_1d8485e49bfacb::t_2b68a622895748 25
+modrinth-plus/src/Services/MinecraftModrinthService.php
+  s_1d8485e49bfacb::t_c31e5719444cf1 10,34-39,702-789
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "592dc9445d69e743cd63b969842902a7c801c039",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
