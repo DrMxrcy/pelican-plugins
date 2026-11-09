@@ -1,0 +1,4 @@
+[12:00:30] [User Authenticator #1/INFO] [minecraft/ServerLoginPacketListenerImpl]: UUID of player Alice is 853c80ef-3c37-49fd-aa49-938b674adae6
+[12:00:31] [Server thread/INFO] [minecraft/PlayerList]: Alice[/203.0.113.7:51234] logged in with entity id 117 at (12.5, 64.0, -3.5)
+[12:00:31] [Server thread/INFO] [minecraft/MinecraftServer]: Alice joined the game
+[12:10:44] [Server thread/INFO] [minecraft/MinecraftServer]: Alice left the game

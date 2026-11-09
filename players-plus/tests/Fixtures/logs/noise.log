@@ -1,0 +1,6 @@
+[12:00:00] [Server thread/INFO]: Preparing spawn area: 0%
+[12:00:01] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 2001ms or 40 ticks behind
+java.lang.NullPointerException: Cannot invoke "foo" because "bar" is null
+	at net.minecraft.server.Main.main(Main.java:1)
+
+[99:99:99] [Server thread/INFO]: Alice joined the game

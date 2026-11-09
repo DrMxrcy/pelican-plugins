@@ -1,0 +1,13 @@
+[12:00:40] [Server thread/INFO]: <Bob> Alice joined the game
+[12:00:41] [Server thread/INFO]: [Not Secure] <Bob> Alice left the game
+[12:00:42 INFO]: <Bob> Mallory joined the game
+[12:00:43] [Async Chat Thread - #0/INFO]: <Bob> [Server thread/INFO]: Alice joined the game
+[12:00:44] [Server thread/INFO]: [Bob] Alice joined the game
+[12:00:45] [Server thread/INFO]: * Bob Alice joined the game
+[12:00:46] [Server thread/INFO]: <Bob> UUID of player Alice is 853c80ef-3c37-49fd-aa49-938b674adae6
+[12:00:47] [Server thread/INFO]: Bob issued server command: /say Alice joined the game
+[12:00:48] [Server thread/INFO]: Alice joined the game twice
+[12:00:49] [Server thread/INFO]: Al!ce joined the game
+[12:00:50] [Server thread/INFO]: ThisNameIsWayTooLong joined the game
+Alice joined the game
+    at net.minecraft.server.Foo.bar(Foo.java:12) Alice left the game
