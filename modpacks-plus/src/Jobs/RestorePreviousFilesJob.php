@@ -134,8 +134,10 @@ class RestorePreviousFilesJob implements ShouldQueue
             return;
         }
 
+        // An install script may still run: wait (the restore ends itself after RESTORE_MINUTES).
         if (self::reinstallMayBeRunning($install, $server)) {
-            $this->stop($install, 'restore_failed', 'reinstall_pending');
+            $this->waitOnce($install, 'restore_reinstall_pending', ['minutes' => self::REINSTALL_QUIET_MINUTES]);
+            $this->again(self::WAIT_SECONDS);
 
             return;
         }
@@ -187,9 +189,16 @@ class RestorePreviousFilesJob implements ShouldQueue
         /** @var array<int, array{string, string, string}> $todo [key, root, entry] */
         $todo = [];
         if ($install->preserved_path !== null && !$install->progressValue('preserved_restored')) {
-            // The record plus whatever else is in the preserved folder (nothing set aside is left behind).
-            foreach ($service->reconcile($files, $server, $install->preserved_path, $install->preservedEntries()) as $entry) {
-                $todo[] = ['p:'.$entry, (string) $install->preserved_path, $entry];
+            // The record plus any expected entry the record lacks; anything else in the folder
+            // is reported and left where it is.
+            $reconciled = $service->reconcile($files, $server, $install->preserved_path, $install->preservedEntries(), is_array($worlds) ? array_values(array_filter($worlds, 'is_string')) : ['world']);
+            foreach ($reconciled['entries'] as $entry) {
+                $todo[] = ['p:'.$entry, $install->preserved_path, $entry];
+            }
+            if ($reconciled['unexpected'] !== [] && $install->progressValue('preserved_unexpected') !== $reconciled['unexpected']) {
+                $install->setProgress('preserved_unexpected', $reconciled['unexpected']);
+                $install->addLog('warning', 'restore_unexpected', ['paths' => implode(', ', $reconciled['unexpected']), 'path' => $install->preserved_path]);
+                $install->save();
             }
         }
         if ($install->moved_aside_path !== null) {
@@ -209,8 +218,17 @@ class RestorePreviousFilesJob implements ShouldQueue
                 return;
             }
 
-            $result = $service->restore($files, $server, $root, $entry, $replaced);
-            RestoreLog::add($install, $result, $entry, $replaced);
+            try {
+                $result = $service->restore($files, $server, $root, $entry, $replaced);
+                RestoreLog::add($install, $result, $entry, $replaced);
+            } catch (StepFailedException|UnsafePlanException $exception) {
+                // One entry that can't move never blocks the others: it stays where it is and
+                // is reported. (Daemon errors still end the job and are retried.)
+                $skipped = $install->progressValue('restore_skipped', []);
+                $skipped[] = $entry;
+                $install->setProgress('restore_skipped', array_values(array_unique($skipped)));
+                $install->addLog('warning', 'restore_skipped', ['path' => $entry, 'detail' => $exception->reason]);
+            }
 
             $done[] = $key;
             $install->setProgress('restore_done', $done);

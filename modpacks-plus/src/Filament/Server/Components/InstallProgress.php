@@ -121,10 +121,21 @@ final class InstallProgress
 
         array_push($lines, ...self::metadataLines($summary['modrinth_metadata'] ?? null));
 
-        if ($install->restored_at !== null) {
+        if ($install->progressValue('restore_discarded')) {
+            $lines[] = trans('modpacks-plus::strings.summary.restore_discarded', ['path' => (string) $install->preserved_path]);
+        } elseif ($install->restored_at !== null) {
             $lines[] = trans('modpacks-plus::strings.summary.restored');
         } elseif ($install->isRestoring()) {
             $lines[] = trans('modpacks-plus::strings.summary.restoring');
+        }
+
+        $skipped = $install->progressValue('restore_skipped', []);
+        if (is_array($skipped) && $skipped !== []) {
+            $lines[] = trans('modpacks-plus::strings.summary.restore_skipped', ['paths' => implode(', ', array_map('strval', $skipped)), 'path' => (string) $install->preserved_path]);
+        }
+        $unexpected = $install->progressValue('preserved_unexpected', []);
+        if (is_array($unexpected) && $unexpected !== []) {
+            $lines[] = trans('modpacks-plus::strings.summary.preserved_unexpected', ['paths' => implode(', ', array_map('strval', $unexpected)), 'path' => (string) $install->preserved_path]);
         }
 
         $switch = $summary['loader_switch'] ?? null;
@@ -191,11 +202,11 @@ final class InstallProgress
         }
 
         if ($previous !== null) {
-            // Values only with startup.read, and never for variables users can't see (those
-            // aren't recorded); names otherwise.
+            // With startup.read: values of visible variables, names of hidden ones (their values
+            // aren't recorded). Without it: only how many there were.
             $variables = [];
             foreach (is_array($previous['variables'] ?? null) ? $previous['variables'] : [] as $name => $value) {
-                $variables[] = $showSetup ? $name.'='.(is_scalar($value) ? (string) $value : '') : (string) $name;
+                $variables[] = $name.'='.(is_scalar($value) ? (string) $value : '');
             }
             foreach (is_array($previous['hidden_variables'] ?? null) ? $previous['hidden_variables'] : [] as $name) {
                 $variables[] = (string) $name;
@@ -210,7 +221,7 @@ final class InstallProgress
                 ])
                 : trans('modpacks-plus::strings.summary.previous_hidden', [
                     'egg' => (string) ($previous['egg_name'] ?? '?'),
-                    'variables' => implode(', ', $variables),
+                    'count' => count($variables),
                 ]);
         }
 

@@ -406,11 +406,16 @@ class ModpacksPage extends Page implements HasTable
             $new = $egg->variables()->pluck('env_variable')->all();
             $dropped = array_values(array_diff($current, $new));
             $defaults = array_values(array_diff($new, $current, $versionVariables));
-            if ($dropped !== []) {
-                $resets[] = trans('modpacks-plus::strings.install.reset_variables_dropped', ['variables' => implode(', ', $dropped)]);
-            }
-            if ($defaults !== []) {
-                $resets[] = trans('modpacks-plus::strings.install.reset_variables_default', ['variables' => implode(', ', $defaults)]);
+            // Variable names only for those who may read the startup settings; a count otherwise.
+            if ($showSetup) {
+                if ($dropped !== []) {
+                    $resets[] = trans('modpacks-plus::strings.install.reset_variables_dropped', ['variables' => implode(', ', $dropped)]);
+                }
+                if ($defaults !== []) {
+                    $resets[] = trans('modpacks-plus::strings.install.reset_variables_default', ['variables' => implode(', ', $defaults)]);
+                }
+            } elseif ($dropped !== [] || $defaults !== []) {
+                $resets[] = trans('modpacks-plus::strings.install.reset_variables_count', ['count' => count($dropped) + count($defaults)]);
             }
 
             $mounts = $server->mounts()
@@ -473,16 +478,9 @@ class ModpacksPage extends Page implements HasTable
             return;
         }
 
-        // Never while an install script may still be running on the node.
-        if ($server->status === ServerState::Installing || RestorePreviousFilesJob::reinstallMayBeRunning($install, $server)) {
-            Notification::make()
-                ->title(trans('modpacks-plus::strings.restore.pending'))
-                ->body(trans('modpacks-plus::strings.restore.pending_body', ['minutes' => RestorePreviousFilesJob::REINSTALL_QUIET_MINUTES]))
-                ->warning()
-                ->send();
-
-            return;
-        }
+        // While an install script may still run on the node the job waits (and ends itself
+        // after PackInstall::RESTORE_MINUTES); say so instead of "started".
+        $waiting = $server->status === ServerState::Installing || RestorePreviousFilesJob::reinstallMayBeRunning($install, $server);
 
         if (config('queue.default') === 'sync') {
             Notification::make()
@@ -508,7 +506,50 @@ class ModpacksPage extends Page implements HasTable
         dispatch(new RestorePreviousFilesJob($install->id));
         $this->latestInstallLoaded = false;
 
+        if ($waiting) {
+            Notification::make()
+                ->title(trans('modpacks-plus::strings.restore.pending'))
+                ->body(trans('modpacks-plus::strings.restore.pending_body', ['minutes' => RestorePreviousFilesJob::REINSTALL_QUIET_MINUTES, 'limit' => PackInstall::RESTORE_MINUTES]))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
         Notification::make()->title(trans('modpacks-plus::strings.restore.started'))->success()->send();
+    }
+
+    /**
+     * "Discard pending restore": gives up on putting a switch's set-aside worlds and player
+     * files back, so installs can run again (e.g. when the restore can't finish). Moves and
+     * deletes nothing: the files stay in `.modpacks-plus/preserved-*`. Same permissions as
+     * restoring, behind a confirm that says so.
+     */
+    public function discardPendingRestore(): void
+    {
+        abort_unless(static::canAccess() && static::canInstall(), 403);
+
+        $install = PackInstall::restoreCandidate($this->server()->id);
+        if ($install === null || !$install->hasPreservedPending() || $install->isRestoring()) {
+            Notification::make()->title(trans('modpacks-plus::strings.restore.nothing'))->warning()->send();
+
+            return;
+        }
+
+        $discarded = PackInstall::query()->whereKey($install->id)->whereNull('restored_at')
+            ->where(fn ($query) => $query->whereNull('restore_requested_at')->orWhere('restore_requested_at', '<', now()->subMinutes(PackInstall::RESTORE_MINUTES)))
+            ->update(['restored_at' => now()]);
+        if ($discarded !== 1) {
+            return;
+        }
+
+        $install->refresh();
+        $install->setProgress('restore_discarded', true);
+        $install->addLog('warning', 'restore_discarded', ['path' => (string) $install->preserved_path]);
+        $install->save();
+        $this->latestInstallLoaded = false;
+
+        Notification::make()->title(trans('modpacks-plus::strings.restore.discarded', ['path' => (string) $install->preserved_path]))->warning()->send();
     }
 
     /**
@@ -776,6 +817,17 @@ class ModpacksPage extends Page implements HasTable
                         ->modalDescription(trans('modpacks-plus::strings.restore.body'))
                         ->modalSubmitActionLabel(trans('modpacks-plus::strings.actions.restore'))
                         ->action(fn () => $this->restorePreviousFiles()),
+                    Action::make('discard_restore')
+                        ->label(trans('modpacks-plus::strings.actions.discard_restore'))
+                        ->icon('tabler-archive-off')
+                        ->color('danger')
+                        ->authorize(fn () => static::canInstall())
+                        ->visible(fn () => static::canInstall() && ($candidate = PackInstall::restoreCandidate($server->id)) !== null && $candidate->hasPreservedPending() && !$candidate->isRestoring())
+                        ->requiresConfirmation()
+                        ->modalHeading(trans('modpacks-plus::strings.restore.discard_heading'))
+                        ->modalDescription(fn () => trans('modpacks-plus::strings.restore.discard_body', ['path' => (string) PackInstall::restoreCandidate($server->id)?->preserved_path]))
+                        ->modalSubmitActionLabel(trans('modpacks-plus::strings.actions.discard_restore'))
+                        ->action(fn () => $this->discardPendingRestore()),
                 ])
                 ->schema([
                     Callout::make(fn () => trans('modpacks-plus::strings.status.failed'))

@@ -45,6 +45,9 @@ final class FakeServerFiles implements ServerFiles
     /** Runs after a preserved move landed, e.g. to simulate the worker dying before it is recorded. */
     public ?\Closure $afterMove = null;
 
+    /** Runs before a stat, e.g. to make the node fail before anything moved. */
+    public ?\Closure $beforeStat = null;
+
     /** @var array<int, string> worlds protected by the copy the engine got */
     private array $worlds = ['world'];
 
@@ -63,6 +66,7 @@ final class FakeServerFiles implements ServerFiles
         $copy->remote = &$this->remote;
         $copy->failMoves = &$this->failMoves;
         $copy->afterMove = &$this->afterMove;
+        $copy->beforeStat = &$this->beforeStat;
 
         return $copy;
     }
@@ -193,6 +197,10 @@ final class FakeServerFiles implements ServerFiles
     public function stat(Server $server, string $path): ?array
     {
         $this->check($path);
+
+        if ($this->beforeStat !== null) {
+            ($this->beforeStat)($path);
+        }
 
         if (isset($this->files[$path])) {
             return ['size' => strlen($this->files[$path]), 'directory' => false];

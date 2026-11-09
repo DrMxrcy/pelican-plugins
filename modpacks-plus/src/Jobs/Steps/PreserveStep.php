@@ -31,11 +31,15 @@ class PreserveStep extends InstallStep
             return StepResult::again(self::STOP_POLL_SECONDS);
         }
 
-        if ($install->preserved_path === null) {
-            $install->preserved_path = PlanValidator::OWN_FOLDER.'/preserved-'.now()->format('Ymd-His').'-'.$install->id;
+        // The folder name is fixed up front, but only becomes the install's preserved_path
+        // right before the first real move: until then nothing is set aside, nothing is
+        // pending and the step can still be cancelled.
+        $root = $install->preserved_path ?? $install->progressValue('preserved_dir');
+        if (!is_string($root)) {
+            $root = PlanValidator::OWN_FOLDER.'/preserved-'.now()->format('Ymd-His').'-'.$install->id;
+            $install->setProgress('preserved_dir', $root);
             $engine->persist($install);
         }
-        $root = $install->preserved_path;
 
         $worlds = $install->progressValue('worlds', ['world']);
         $worlds = is_array($worlds) ? array_values(array_filter($worlds, 'is_string')) : ['world'];
@@ -54,23 +58,20 @@ class PreserveStep extends InstallStep
             }
 
             // Recorded before the move: a crash right after it can never leave a moved
-            // entry unknown to the restore (an entry that turns out absent is dropped below).
-            if (!in_array($entry, $preserved, true)) {
-                $preserved[] = $entry;
+            // entry unknown to the restore.
+            $result = $service->preserve($files, $server, $root, $entry, function () use ($install, $engine, $root, $entry, &$preserved) {
+                $install->preserved_path ??= $root;
+                if (!in_array($entry, $preserved, true)) {
+                    $preserved[] = $entry;
+                }
                 $install->setProgress('preserved', $preserved);
                 $engine->persist($install);
-            }
-
-            $result = $service->preserve($files, $server, $root, $entry);
-            if ($result === PreservedFiles::RESULT_ABSENT) {
-                $preserved = array_values(array_diff($preserved, [$entry]));
-            }
+            });
             if ($result === PreservedFiles::RESULT_MOVED) {
                 $install->addLog('info', 'preserved', ['path' => $entry, 'to' => "$root/$entry"]);
             }
 
             $checked[] = $entry;
-            $install->setProgress('preserved', $preserved);
             $install->setProgress('preserve_checked', $checked);
             $engine->persist($install);
         }

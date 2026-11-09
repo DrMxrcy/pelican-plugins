@@ -40,25 +40,34 @@ class RestorePreservedStep extends InstallStep
             $engine->persist($install);
         }
 
-        $root = (string) $install->preserved_path;
-        $service = new PreservedFiles();
-        $files = $this->files();
         $done = $install->progressValue('preserved_back', []);
+        $root = $install->preserved_path;
 
-        foreach ($service->reconcile($files, $server, $root, $install->preservedEntries()) as $entry) {
-            if (in_array($entry, $done, true)) {
-                continue;
+        if ($root !== null) {
+            $service = new PreservedFiles();
+            $files = $this->files();
+            $worlds = $install->progressValue('worlds', ['world']);
+            $reconciled = $service->reconcile($files, $server, $root, $install->preservedEntries(), is_array($worlds) ? array_values(array_filter($worlds, 'is_string')) : ['world']);
+            if ($reconciled['unexpected'] !== [] && !$install->progressValue('preserved_unexpected')) {
+                $install->setProgress('preserved_unexpected', $reconciled['unexpected']);
+                $install->addLog('warning', 'restore_unexpected', ['paths' => implode(', ', $reconciled['unexpected']), 'path' => $root]);
             }
-            if ($this->outOfTime()) {
-                return StepResult::again();
+
+            foreach ($reconciled['entries'] as $entry) {
+                if (in_array($entry, $done, true)) {
+                    continue;
+                }
+                if ($this->outOfTime()) {
+                    return StepResult::again();
+                }
+
+                $result = $service->restore($files, $server, $root, $entry, $replaced);
+                RestoreLog::add($install, $result, $entry, $replaced);
+
+                $done[] = $entry;
+                $install->setProgress('preserved_back', $done);
+                $engine->persist($install);
             }
-
-            $result = $service->restore($files, $server, $root, $entry, $replaced);
-            RestoreLog::add($install, $result, $entry, $replaced);
-
-            $done[] = $entry;
-            $install->setProgress('preserved_back', $done);
-            $engine->persist($install);
         }
 
         $install->setProgress('preserved_restored', true);

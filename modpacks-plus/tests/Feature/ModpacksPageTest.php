@@ -685,8 +685,9 @@ class ModpacksPageTest extends TestCase
         Livewire::test(ModpacksPage::class)
             ->assertOk()
             ->assertSee('Old Fabric')
-            ->assertSee('MINECRAFT_VERSION')
-            ->assertSee('RCON_PASSWORD')
+            ->assertSee(trans('modpacks-plus::strings.summary.previous_hidden', ['egg' => 'Old Fabric', 'count' => 2]))
+            ->assertDontSee('MINECRAFT_VERSION')
+            ->assertDontSee('RCON_PASSWORD')
             ->assertDontSee('secret-startup-flag')
             ->assertDontSee('ghcr.io/private/registry:fabric')
             ->assertDontSee('ghcr.io/pelican-eggs/yolks:java_21')
@@ -743,7 +744,7 @@ class ModpacksPageTest extends TestCase
         Queue::assertPushed(RestorePreviousFilesJob::class, fn (RestorePreviousFilesJob $job) => $job->installId === $install->id);
     }
 
-    public function test_restore_is_refused_while_a_reinstall_may_still_run(): void
+    public function test_restore_while_a_reinstall_may_still_run_is_queued_to_wait(): void
     {
         $server = $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
         $install = $this->failedSwitch($server);
@@ -754,7 +755,56 @@ class ModpacksPageTest extends TestCase
             ->call('restorePreviousFiles')
             ->assertNotified(trans('modpacks-plus::strings.restore.pending'));
 
+        Queue::assertPushed(RestorePreviousFilesJob::class, 1);
+        $this->assertNotNull($install->refresh()->restore_requested_at);
+    }
+
+    public function test_switch_confirm_counts_variables_without_startup_read(): void
+    {
+        config()->set('modpacks-plus.allow_user_loader_switch', true);
+        $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $this->importNeoForgeEgg();
+
+        /** @var ModpacksPage $page */
+        $page = Livewire::test(ModpacksPage::class)->instance();
+        $html = (string) (new \ReflectionMethod($page, 'switchDescription'))->invoke($page, ['loader' => 'neoforge', 'minecraft' => '1.21.1']);
+
+        $this->assertStringNotContainsString('MINECRAFT_VERSION', $html);
+        $this->assertMatchesRegularExpression('/\d+ egg settings reset/', $html);
+    }
+
+    public function test_discard_pending_restore_unblocks_installs_and_moves_nothing(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $install = $this->failedSwitch($server);
+        $this->fakeModrinthApi();
+
+        Livewire::test(ModpacksPage::class)
+            ->assertSee(trans('modpacks-plus::strings.actions.discard_restore'))
+            ->call('discardPendingRestore')
+            ->assertNotified(trans('modpacks-plus::strings.restore.discarded', ['path' => (string) $install->preserved_path]));
+
+        $install->refresh();
+        $this->assertNotNull($install->restored_at);
+        $this->assertTrue((bool) $install->progressValue('restore_discarded'));
+        $this->assertFalse($install->hasPreservedPending());
+        $this->assertSame(0, $this->files->writeCalls());
         Queue::assertNotPushed(RestorePreviousFilesJob::class);
-        $this->assertNull($install->refresh()->restore_requested_at);
+
+        Livewire::test(ModpacksPage::class)
+            ->assertDontSee(trans('modpacks-plus::strings.actions.discard_restore'))
+            ->call('installPack', Mrpack::PACK_ID, Mrpack::VERSION_ID)
+            ->assertNotified(trans('modpacks-plus::strings.install.started', ['name' => 'Test <b>Pack</b>']));
+    }
+
+    public function test_discard_pending_restore_needs_the_install_permissions(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, SubuserPermission::FileCreate, SubuserPermission::FileDelete, SubuserPermission::BackupCreate]);
+        $this->failedSwitch($server);
+
+        Livewire::test(ModpacksPage::class)
+            ->assertDontSee(trans('modpacks-plus::strings.actions.discard_restore'))
+            ->call('discardPendingRestore')
+            ->assertForbidden();
     }
 }

@@ -59,35 +59,49 @@ final class PreservedFiles
     }
 
     /**
-     * The recorded entries plus anything else at the top of the preserved folder (the
-     * database and the disk reconciled, so nothing set aside is ever left behind). A
-     * top-level name that is the first folder of a recorded nested entry is not added.
+     * The recorded entries plus any expected entry (a candidate for these worlds) found in
+     * the preserved folder although the record lacks it: the database and the disk
+     * reconciled. Nothing else in the folder is ever moved (a name planted there, e.g.
+     * `.modpacks-plus`, could otherwise block every restore); it is reported as unexpected
+     * and left in place.
      *
      * @param  array<int, string>  $entries
-     * @return array<int, string>
+     * @param  array<int, string>  $worlds
+     * @return array{entries: array<int, string>, unexpected: array<int, string>}
      */
-    public function reconcile(ServerFiles $files, Server $server, string $root, array $entries): array
+    public function reconcile(ServerFiles $files, Server $server, string $root, array $entries, array $worlds): array
     {
-        $prefixes = array_map(fn (string $entry) => explode('/', $entry)[0], $entries);
+        $candidates = self::candidates($worlds);
 
-        foreach (array_keys($files->list($server, $root) ?? []) as $name) {
-            $name = (string) $name;
-            if (!in_array($name, $prefixes, true) && PlanValidator::isSafeRelativePath($name)) {
-                $entries[] = $name;
+        foreach ($candidates as $candidate) {
+            if (!in_array($candidate, $entries, true) && $files->stat($server, "$root/$candidate") !== null) {
+                $entries[] = $candidate;
             }
         }
 
-        return $entries;
+        $known = array_map(fn (string $path) => explode('/', $path)[0], array_merge($entries, $candidates));
+        $unexpected = [];
+        foreach (array_keys($files->list($server, $root) ?? []) as $name) {
+            if (!in_array((string) $name, $known, true)) {
+                $unexpected[] = (string) $name;
+            }
+        }
+
+        return ['entries' => $entries, 'unexpected' => $unexpected];
     }
 
     /**
      * Moves $entry (relative to the root) to $root/$entry.
      *
+     * $beforeMove runs once the entry is known to exist (at the root, or already in $root on a
+     * retry) and before anything moves: the caller records it there.
+     *
+     * @param  (\Closure(): void)|null  $beforeMove
      * @return string moved | already (only in $root, a retry) | absent (nowhere)
      *
      * @throws StepFailedException `preserve_conflict` when both places hold it
      */
-    public function preserve(ServerFiles $files, Server $server, string $root, string $entry): string
+    public function preserve(ServerFiles $files, Server $server, string $root, string $entry, ?\Closure $beforeMove = null): string
     {
         $target = "$root/$entry";
         $atRoot = $files->stat($server, $entry) !== null;
@@ -96,8 +110,15 @@ final class PreservedFiles
         if ($atRoot && $aside) {
             throw new StepFailedException('preserve_conflict', $target);
         }
+        if (!$atRoot && !$aside) {
+            return self::RESULT_ABSENT;
+        }
+
+        if ($beforeMove !== null) {
+            $beforeMove();
+        }
         if (!$atRoot) {
-            return $aside ? self::RESULT_ALREADY : self::RESULT_ABSENT;
+            return self::RESULT_ALREADY;
         }
 
         $files->createDirectory($server, dirname($target));

@@ -823,13 +823,15 @@ class LoaderSwitchTest extends TestCase
         $this->assertSame($moves, count($this->files->argsOf('movePreserved')));
 
         // An admin toggled the status, but the node never reported the install finished:
-        // within the quiet period nothing moves.
+        // within the quiet period nothing moves; the job waits (re-dispatches) instead of ending.
         $server->refresh()->forceFill(['status' => null])->save();
+        $pushed = count(Queue::pushedJobs()[RestorePreviousFilesJob::class] ?? []);
         $this->app->call([new RestorePreviousFilesJob($install->id), 'handle']);
         $install->refresh();
         $this->assertCount($moves, $this->files->argsOf('movePreserved'));
         $this->assertNull($install->restored_at);
-        $this->assertNull($install->restore_requested_at);
+        $this->assertNotNull($install->restore_requested_at);
+        $this->assertCount($pushed + 1, Queue::pushedJobs()[RestorePreviousFilesJob::class] ?? []);
 
         // Long after the last request it may go ahead.
         $this->travel(RestorePreviousFilesJob::REINSTALL_QUIET_MINUTES + 1)->minutes();
@@ -929,5 +931,120 @@ class LoaderSwitchTest extends TestCase
         $this->assertSame($before, $this->serverState($server));
         $this->assertSame(0, $this->reinstalls);
         $this->assertTrue($install->isRestorable());
+    }
+
+    // --- Plan 35 security re-review ---
+
+    /** A switch that failed after setting the world aside, with its restore requested. */
+    private function failedSwitchAwaitingRestore(): PackInstall
+    {
+        $server = $this->fabricServer();
+        $this->reinstallOutcome = ServerState::ReinstallFailed;
+        $this->startSwitch($server);
+        $this->runSwitch($server);
+
+        return $this->latestInstall();
+    }
+
+    private function restore(PackInstall $install): PackInstall
+    {
+        PackInstall::query()->whereKey($install->id)->update(['restore_requested_at' => now()]);
+        dispatch(new RestorePreviousFilesJob($install->id));
+        $this->runRestoreJobs();
+
+        return $install->refresh();
+    }
+
+    public function test_a_planted_own_folder_name_neither_blocks_restore_nor_installs(): void
+    {
+        $install = $this->failedSwitchAwaitingRestore();
+        $kept = array_keys($this->filesUnder((string) $install->preserved_path));
+        // A user with file.create plants the own folder's name inside the preserved folder.
+        $this->files->seed([$install->preserved_path.'/.modpacks-plus/preserved-1/world/level.dat' => 'planted']);
+
+        $install = $this->restore($install);
+
+        $this->assertNotNull($install->restored_at, (string) json_encode(array_slice($install->log ?? [], -4)));
+        $this->assertSame([], $this->files->violations);
+        $this->assertSame('level', $this->files->files['world/level.dat'] ?? null);
+        $this->assertSame('planted', $this->files->files[$install->preserved_path.'/.modpacks-plus/preserved-1/world/level.dat'] ?? null);
+        $this->assertSame(['.modpacks-plus'], $install->progressValue('preserved_unexpected'));
+        $this->assertStringContainsString('.modpacks-plus', (string) InstallProgress::summary($install));
+        $this->assertNotContains('.modpacks-plus', array_map(fn (array $args) => $args[0], $this->files->argsOf('movePreserved')));
+        $this->assertNotSame([], $kept);
+
+        $this->assertFalse($install->hasPreservedPending());
+        $this->startSwitch($install->server ?? $this->fail('server'));
+        $this->assertSame(2, PackInstall::query()->count());
+    }
+
+    public function test_a_planted_unexpected_file_is_left_in_place_and_listed(): void
+    {
+        $install = $this->failedSwitchAwaitingRestore();
+        $kept = $this->filesUnder((string) $install->preserved_path);
+        ksort($kept);
+        $this->files->seed([$install->preserved_path.'/notes.txt' => 'mine']);
+
+        $install = $this->restore($install);
+
+        $this->assertNotNull($install->restored_at);
+        $this->assertSame($kept, $this->keptFiles());
+        $this->assertArrayNotHasKey('notes.txt', $this->files->files);
+        $this->assertSame('mine', $this->files->files[$install->preserved_path.'/notes.txt'] ?? null);
+        $this->assertSame(['notes.txt'], $install->progressValue('preserved_unexpected'));
+    }
+
+    public function test_one_entry_that_cannot_move_back_does_not_fail_the_restore(): void
+    {
+        $install = $this->failedSwitchAwaitingRestore();
+        $replaced = '.modpacks-plus/replaced-test-'.$install->id;
+        $install->setProgress('restore_replaced_path', $replaced);
+        $install->save();
+        // Something is in the way of ops.json, and its keep-place is taken too.
+        $this->files->seed(['ops.json' => 'new list', "$replaced/ops.json" => 'older']);
+
+        $install = $this->restore($install);
+
+        $this->assertNotNull($install->restored_at);
+        $this->assertSame(['ops.json'], $install->progressValue('restore_skipped'));
+        $this->assertSame('[{"name":"owner"}]', $this->files->files[$install->preserved_path.'/ops.json'] ?? null);
+        $this->assertSame('new list', $this->files->files['ops.json'] ?? null);
+        $this->assertSame('level', $this->files->files['world/level.dat'] ?? null);
+        $this->assertSame('["friend"]', $this->files->files['whitelist.json'] ?? null);
+        $this->assertStringContainsString('ops.json', (string) InstallProgress::summary($install));
+        $this->assertFalse($install->hasPreservedPending());
+    }
+
+    public function test_a_switch_that_fails_before_anything_moved_is_not_pending(): void
+    {
+        $server = $this->fabricServer();
+        $before = $this->keptFiles();
+
+        $this->startSwitch($server);
+        try {
+            $this->runSwitch($server, also: function (InstallStep $job) {
+                if ($job instanceof PreserveStep) {
+                    $this->files->beforeStat = fn (string $path) => $path === 'world' ? throw new RuntimeException('node down') : null;
+                }
+            });
+            $this->fail('expected the node to fail');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('node down', $exception->getMessage());
+        }
+        $this->files->beforeStat = null;
+
+        $install = $this->latestInstall();
+        (new PreserveStep($install->id, $install->seq))->failed(new RuntimeException('gave up'));
+        $install->refresh();
+
+        $this->assertSame(PackInstall::STATUS_FAILED, $install->status);
+        $this->assertNull($install->preserved_path);
+        $this->assertFalse($install->hasPreservedPending());
+        $this->assertSame($before, $this->keptFiles());
+        $this->assertSame([], $this->files->argsOf('movePreserved'));
+
+        // Nothing blocks the next install.
+        $this->startSwitch($server);
+        $this->assertSame(2, PackInstall::query()->count());
     }
 }
