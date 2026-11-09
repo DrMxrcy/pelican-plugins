@@ -1,0 +1,73 @@
+modpacks-plus/src/Jobs/Steps/DownloadStep.php
+  s_1d8485e49bfacb::t_a1bee71045d9d5 10,18-22,24-30,36-37,41-45,49-50,63,81,88-91,93-96,102-119,129-133,136-145,148-157,160-161,167-173,175-191,193,195-199,203-209
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_aa9c8bebbefdc8 20-21,40-46,48-53,66-67,76-89
+modpacks-plus/config/modpacks-plus.php
+  s_1d8485e49bfacb::t_6d445574e0ae21 23-27
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_8ffc6f1accea96 66-67,113,115
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_44fdb047427131 66-67,113,115
+modpacks-plus/src/Contracts/ServerFiles.php
+  s_1d8485e49bfacb::t_af67c0700d581a 9-14,18-24,41
+modpacks-plus/src/Data/PlanFile.php
+  s_1d8485e49bfacb::t_57aa181bfc14e9 8-11,14-18
+modpacks-plus/src/Filament/Server/Pages/ModpacksPage.php
+  s_1d8485e49bfacb::t_18d53fa2076c61 393-394,452
+modpacks-plus/src/Jobs/Steps/FinalizeStep.php
+  s_1d8485e49bfacb::t_31601dd1c6a5a1 9-12,19-28
+modpacks-plus/src/Jobs/Steps/InstallStep.php
+  s_1d8485e49bfacb::t_2cc0ea2571f06c 34-39,52-54,104-105,165,168-170
+modpacks-plus/src/Jobs/Steps/OverridesStep.php
+  s_1d8485e49bfacb::t_ea392468c23ae2 81
+modpacks-plus/src/Jobs/Steps/PrepareStep.php
+  s_1d8485e49bfacb::t_b78e40bd0a2f72 60,80,82,87-89
+modpacks-plus/src/Providers/Modrinth/ModrinthClient.php
+  s_1d8485e49bfacb::t_415c3adff5af49 27-29,32-37,79,91-97,108,111,114,116,143
+modpacks-plus/src/Providers/Modrinth/ModrinthPackProvider.php
+  s_1d8485e49bfacb::t_cdb6542fe8845b 26-30,269-270,294,328
+modpacks-plus/src/Services/DaemonServerFiles.php
+  s_1d8485e49bfacb::t_bef588bf342eed 23-33,39-67,123,146-147,162,164,192,199
+modpacks-plus/src/Support/Caps.php
+  s_1d8485e49bfacb::t_5b658eaa02aca3 14-15,32-33
+modpacks-plus/src/Support/PlanValidator.php
+  s_1d8485e49bfacb::t_c2af71692ac444 177-193,327-332,357-361
+modpacks-plus/src/Support/ServerProperties.php
+  s_1d8485e49bfacb::t_5c915670d19342 5-7,11-18,30-40,44-45
+modpacks-plus/tests/Feature/DaemonServerFilesTest.php
+  s_1d8485e49bfacb::t_b2c79e0edb8e9b 1-171
+modpacks-plus/tests/Feature/InstallEngineTest.php
+  s_1d8485e49bfacb::t_82cd4f6afb4eb3 28,137-149,452,455,546,549,556-569,572,574,581-632,634-635,654-655
+modpacks-plus/tests/Feature/ModpacksPageTest.php
+  s_1d8485e49bfacb::t_b7d2ba414582ed 283-284,297,299-305,321-323,331-340,348-374
+modpacks-plus/tests/Feature/ModrinthClientDownloadTest.php
+  s_1d8485e49bfacb::t_c4c9707e68fc7c 1-123
+modpacks-plus/tests/Feature/ModrinthPackProviderTest.php
+  s_1d8485e49bfacb::t_e8aed11c14b623 125,152
+modpacks-plus/tests/Support/FakeServerFiles.php
+  s_1d8485e49bfacb::t_69fa52f6a0c1fd 37-74,120-132,197,204-205,241,243-244,280,287-292,294-303
+modpacks-plus/tests/Support/InstallScenario.php
+  s_1d8485e49bfacb::t_fc966f5de305af 88,90,110-117,121,124-128,131-132
+modpacks-plus/tests/Unit/PackArchiveReaderTest.php
+  s_1d8485e49bfacb::t_b7951880d3c0fb 1-57
+modpacks-plus/tests/Unit/PlanValidatorTest.php
+  s_1d8485e49bfacb::t_15d64cba8be54c 337,339,343-366,464-466
+modpacks-plus/tests/Unit/ServerPropertiesTest.php
+  s_1d8485e49bfacb::t_7c5a3b995ed224 1-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e0f0195006d64bace26ee3b546584aaa6016eca7",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}

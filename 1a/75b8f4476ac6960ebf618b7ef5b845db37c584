@@ -1,0 +1,25 @@
+modpacks-plus/src/Jobs/Steps/BackupStep.php
+  s_1d8485e49bfacb::t_32c06738ce4dab 18-25,33,35,45-46,49-53,57,96-109
+modpacks-plus/src/Jobs/Steps/OverridesStep.php
+  s_1d8485e49bfacb::t_85a2be994b9fff 51-53,77
+modpacks-plus/src/Support/PackArchiveReader.php
+  s_1d8485e49bfacb::t_fe4823e7fdea7b 165-167
+modpacks-plus/tests/Feature/InstallEngineTest.php
+  s_1d8485e49bfacb::t_159ea3d23ab731 7-8,29,31,272,302,307-320,322,324-399,401,675-693
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1a75b8f4476ac6960ebf618b7ef5b845db37c584",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}

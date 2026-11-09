@@ -1,0 +1,37 @@
+README.md
+  s_1d8485e49bfacb::t_5a45e1b928242e 9
+modpacks-plus/LICENSE
+  s_1d8485e49bfacb::t_c87710f5f8c03f 1-674
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_daec51b14c38ee 1-78
+modpacks-plus/config/modpacks-plus.php
+  s_1d8485e49bfacb::t_eb081b73659dd5 1-24
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_8dd16dd8fa4219 1-9
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_5cc4d818b9b576 1-9
+modpacks-plus/plugin.json
+  s_1d8485e49bfacb::t_4a9d2b1cf4d6c2 1-18
+modpacks-plus/src/ModpacksPlusPlugin.php
+  s_1d8485e49bfacb::t_eee72af6878bbf 1-58
+modpacks-plus/tests/TestCase.php
+  s_1d8485e49bfacb::t_146d76c51452dc 1-51
+modpacks-plus/tests/Unit/LangFilesTest.php
+  s_1d8485e49bfacb::t_53bcbc1aa6a67c 1-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0daae95f9d477123321eadeecf6be4bba321dc17",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
