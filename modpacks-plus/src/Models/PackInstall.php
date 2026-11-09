@@ -32,6 +32,11 @@ use Illuminate\Support\Carbon;
  * @property array<string, mixed>|null $summary
  * @property string|null $backup_uuid
  * @property string|null $moved_aside_path
+ * @property array<string, mixed>|null $loader_switch
+ * @property array<string, mixed>|null $snapshot
+ * @property string|null $preserved_path
+ * @property Carbon|null $restore_requested_at
+ * @property Carbon|null $restored_at
  * @property string|null $error
  * @property Carbon|null $cancel_requested_at
  * @property Carbon|null $step_started_at
@@ -69,6 +74,9 @@ class PackInstall extends Model
     /** Log lines kept per install (oldest dropped first). */
     public const MAX_LOG_LINES = 300;
 
+    /** A "Restore previous files" that started this long ago without finishing may be asked for again. */
+    public const RESTORE_MINUTES = 15;
+
     protected $table = 'mp_installs';
 
     protected $guarded = ['id'];
@@ -81,6 +89,8 @@ class PackInstall extends Model
             'plan' => 'array',
             'progress' => 'array',
             'summary' => 'array',
+            'loader_switch' => 'array',
+            'snapshot' => 'array',
             'seq' => 'integer',
             'resumes' => 'integer',
             'cancel_requested_at' => 'datetime',
@@ -88,6 +98,8 @@ class PackInstall extends Model
             'step_deadline_at' => 'datetime',
             'heartbeat_at' => 'datetime',
             'finished_at' => 'datetime',
+            'restore_requested_at' => 'datetime',
+            'restored_at' => 'datetime',
         ];
     }
 
@@ -112,6 +124,51 @@ class PackInstall extends Model
     public function isActive(): bool
     {
         return $this->status === self::STATUS_INSTALLING;
+    }
+
+    /** Whether this install moves the server to another loader egg first. */
+    public function isLoaderSwitch(): bool
+    {
+        return is_array($this->loader_switch) && $this->loader_switch !== [];
+    }
+
+    /** Whether a restore of this install's files is running (asked for recently, not finished). */
+    public function isRestoring(): bool
+    {
+        return $this->restored_at === null
+            && $this->restore_requested_at !== null
+            && $this->restore_requested_at->gt(now()->subMinutes(self::RESTORE_MINUTES));
+    }
+
+    /**
+     * Whether "Restore previous files" applies: the install ended without installing, and
+     * worlds/player files or old pack folders are still set aside.
+     */
+    public function isRestorable(): bool
+    {
+        if ($this->isActive() || $this->status === self::STATUS_INSTALLED || $this->restored_at !== null) {
+            return false;
+        }
+
+        $preservedAside = $this->preservedEntries() !== [] && !$this->progressValue('preserved_restored', false);
+
+        return $preservedAside || ($this->moved_aside_path !== null && $this->movedFolders() !== []);
+    }
+
+    /** @return array<int, string> worlds and player files moved into preserved_path */
+    public function preservedEntries(): array
+    {
+        $entries = $this->progressValue('preserved', []);
+
+        return $this->preserved_path !== null && is_array($entries) ? array_values(array_filter($entries, 'is_string')) : [];
+    }
+
+    /** @return array<int, string> old pack folders moved into moved_aside_path */
+    public function movedFolders(): array
+    {
+        $moved = $this->progressValue('moved', []);
+
+        return is_array($moved) ? array_values(array_filter($moved, 'is_string')) : [];
     }
 
     public function installPlan(): ?InstallPlan

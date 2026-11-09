@@ -117,6 +117,17 @@ final class InstallProgress
 
         array_push($lines, ...self::metadataLines($summary['modrinth_metadata'] ?? null));
 
+        if ($install->restored_at !== null) {
+            $lines[] = trans('modpacks-plus::strings.summary.restored');
+        } elseif ($install->isRestoring()) {
+            $lines[] = trans('modpacks-plus::strings.summary.restoring');
+        }
+
+        $switch = $summary['loader_switch'] ?? null;
+        if (is_array($switch)) {
+            $lines = array_merge($lines, self::switchLines($switch, $install));
+        }
+
         return new HtmlString('<ul>'.implode('', array_map(fn (string $line) => '<li>'.e($line).'</li>', $lines)).'</ul>');
     }
 
@@ -151,6 +162,46 @@ final class InstallProgress
 
         if (is_string($result['previous'] ?? null)) {
             $lines[] = trans('modpacks-plus::strings.summary.metadata_previous', ['path' => $result['previous']]);
+        }
+
+        return $lines;
+    }
+
+    /**
+     * What a loader switch changed and what the server had before (the egg is never switched back).
+     *
+     * @param  array<string, mixed>  $switch
+     * @return array<int, string>
+     */
+    private static function switchLines(array $switch, PackInstall $install): array
+    {
+        $lines = [];
+        $previous = is_array($switch['previous'] ?? null) ? $switch['previous'] : null;
+
+        if (!empty($switch['egg_changed'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.switched', ['from' => (string) ($previous['egg_name'] ?? '?'), 'to' => (string) ($switch['egg_name'] ?? '?'), 'image' => (string) ($switch['image'] ?? '')]);
+        } elseif (is_string($switch['egg_name'] ?? null)) {
+            $lines[] = trans('modpacks-plus::strings.summary.not_switched', ['egg' => (string) ($previous['egg_name'] ?? '?')]);
+        }
+
+        if ($previous !== null) {
+            $variables = [];
+            foreach (is_array($previous['variables'] ?? null) ? $previous['variables'] : [] as $name => $value) {
+                $variables[] = $name.'='.(is_scalar($value) ? (string) $value : '');
+            }
+            $lines[] = trans('modpacks-plus::strings.summary.previous', [
+                'egg' => (string) ($previous['egg_name'] ?? '?'),
+                'image' => (string) ($previous['image'] ?? ''),
+                'startup' => (string) ($previous['startup'] ?? ''),
+                'variables' => implode(', ', $variables),
+            ]);
+        }
+
+        $preserved = is_array($switch['preserved'] ?? null) ? array_map('strval', $switch['preserved']) : [];
+        if ($preserved !== []) {
+            $lines[] = empty($switch['preserved_restored']) && $install->restored_at === null
+                ? trans('modpacks-plus::strings.summary.preserved_aside', ['paths' => implode(', ', $preserved), 'path' => (string) ($switch['preserved_path'] ?? '')])
+                : trans('modpacks-plus::strings.summary.preserved_back', ['paths' => implode(', ', $preserved)]);
         }
 
         return $lines;

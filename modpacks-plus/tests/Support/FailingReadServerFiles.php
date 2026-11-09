@@ -43,6 +43,11 @@ final class FailingReadServerFiles implements ServerFiles
         $this->inner->rename($server, $from, $to);
     }
 
+    public function movePreserved(Server $server, string $from, string $to): void
+    {
+        $this->inner->movePreserved($server, $from, $to);
+    }
+
     public function pull(Server $server, string $url, string $directory, string $filename, int $timeoutSeconds): void
     {
         $this->inner->pull($server, $url, $directory, $filename, $timeoutSeconds);

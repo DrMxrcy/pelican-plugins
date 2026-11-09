@@ -18,7 +18,8 @@ use Illuminate\Contracts\Filesystem\FileNotFoundException;
  * Reads and validates the pack before anything on the server changes: finds the
  * worlds to protect, resolves the plan (archive download, sha512, zip-slip, index,
  * caps, hosts, hashes) and checks the pack's Minecraft version and loader against
- * the server. Only reads from the server.
+ * the server (or, for a loader switch, against the confirmed switch target). Only reads
+ * from the server.
  */
 class PrepareStep extends InstallStep
 {
@@ -33,10 +34,19 @@ class PrepareStep extends InstallStep
             return StepResult::done();
         }
 
-        $minecraft = ServerTarget::minecraftVersion($server);
-        $loader = ServerTarget::loader($server);
-        if ($minecraft === null || $loader === null) {
-            throw new StepFailedException('server_not_supported');
+        if ($install->isLoaderSwitch()) {
+            // The pack must be exactly what the switch was confirmed for.
+            $minecraft = (string) ($install->loader_switch['minecraft'] ?? '');
+            $loader = (string) ($install->loader_switch['loader'] ?? '');
+            if (!ServerTarget::isMinecraft($server) || $minecraft === '' || $loader === '') {
+                throw new StepFailedException('server_not_supported');
+            }
+        } else {
+            $minecraft = ServerTarget::minecraftVersion($server);
+            $loader = ServerTarget::loader($server);
+            if ($minecraft === null || $loader === null) {
+                throw new StepFailedException('server_not_supported');
+            }
         }
 
         $worlds = $this->worlds($server);

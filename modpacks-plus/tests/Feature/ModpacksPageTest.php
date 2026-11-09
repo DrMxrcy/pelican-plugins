@@ -8,6 +8,7 @@ use App\Models\Server;
 use App\Models\User;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModpacksPlus\Filament\Server\Pages\ModpacksPage;
+use DrMxrcy\ModpacksPlus\Jobs\RestorePreviousFilesJob;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\PrepareStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
@@ -375,5 +376,66 @@ class ModpacksPageTest extends TestCase
     private function runningInstall(Server $server): PackInstall
     {
         return app(InstallEngine::class)->start($server, null, ModrinthPackProvider::ID, Mrpack::PACK_ID, Mrpack::VERSION_ID, 'Running Pack', '1.0.0');
+    }
+
+    /** A switch that failed after setting the world aside. */
+    private function failedSwitch(Server $server): PackInstall
+    {
+        $install = $this->runningInstall($server);
+        $install->forceFill([
+            'status' => PackInstall::STATUS_FAILED,
+            'error' => 'step_timeout',
+            'preserved_path' => '.modpacks-plus/preserved-x-'.$install->id,
+            'progress' => ['preserved' => ['world', 'ops.json'], 'worlds' => ['world']],
+        ])->save();
+
+        return $install;
+    }
+
+    #[DataProvider('eachInstallPermission')]
+    public function test_restore_previous_files_needs_every_install_permission(SubuserPermission $missing): void
+    {
+        $granted = array_values(array_filter(self::INSTALL_PERMISSIONS, fn (SubuserPermission $permission) => $permission !== $missing));
+        $server = $this->actingOn([SubuserPermission::FileRead, ...$granted]);
+        $this->failedSwitch($server);
+
+        Livewire::test(ModpacksPage::class)->call('restorePreviousFiles')->assertForbidden();
+
+        Queue::assertNotPushed(RestorePreviousFilesJob::class);
+    }
+
+    public function test_restore_previous_files_queues_one_restore_of_the_latest_install(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $install = $this->failedSwitch($server);
+
+        Livewire::test(ModpacksPage::class)
+            ->assertSee(trans('modpacks-plus::strings.actions.restore'))
+            ->call('restorePreviousFiles')
+            ->assertNotified(trans('modpacks-plus::strings.restore.started'));
+
+        Queue::assertPushed(RestorePreviousFilesJob::class, fn (RestorePreviousFilesJob $job) => $job->installId === $install->id);
+        $this->assertNotNull($install->refresh()->restore_requested_at);
+
+        // A second click while it runs starts nothing.
+        Livewire::test(ModpacksPage::class)
+            ->assertDontSee(trans('modpacks-plus::strings.actions.restore'))
+            ->call('restorePreviousFiles')
+            ->assertNotified(trans('modpacks-plus::strings.restore.nothing'));
+        Queue::assertPushed(RestorePreviousFilesJob::class, 1);
+    }
+
+    public function test_nothing_to_restore_after_a_successful_install(): void
+    {
+        $server = $this->actingOn();
+        $install = $this->failedSwitch($server);
+        $install->forceFill(['status' => PackInstall::STATUS_INSTALLED, 'error' => null])->save();
+
+        Livewire::test(ModpacksPage::class)
+            ->assertDontSee(trans('modpacks-plus::strings.actions.restore'))
+            ->call('restorePreviousFiles')
+            ->assertNotified(trans('modpacks-plus::strings.restore.nothing'));
+
+        Queue::assertNotPushed(RestorePreviousFilesJob::class);
     }
 }

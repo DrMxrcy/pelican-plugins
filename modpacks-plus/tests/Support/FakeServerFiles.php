@@ -37,6 +37,9 @@ final class FakeServerFiles implements ServerFiles
     /** Runs before a delete, e.g. to make it fail. */
     public ?\Closure $beforeDelete = null;
 
+    /** @var array<int, string> paths the "node" refuses to move (simulated failures) */
+    public array $failMoves = [];
+
     /** @var array<int, string> worlds protected by the copy the engine got */
     private array $worlds = ['world'];
 
@@ -53,6 +56,7 @@ final class FakeServerFiles implements ServerFiles
         $copy->calls = &$this->calls;
         $copy->violations = &$this->violations;
         $copy->remote = &$this->remote;
+        $copy->failMoves = &$this->failMoves;
 
         return $copy;
     }
@@ -146,7 +150,7 @@ final class FakeServerFiles implements ServerFiles
     /** Calls that change the server. */
     public function writeCalls(): int
     {
-        return count(array_filter($this->calls, fn ($call) => in_array($call[0], ['createDirectory', 'rename', 'pull', 'write', 'delete'], true)));
+        return count(array_filter($this->calls, fn ($call) => in_array($call[0], ['createDirectory', 'rename', 'movePreserved', 'pull', 'write', 'delete'], true)));
     }
 
     public function list(Server $server, string $directory): ?array
@@ -204,6 +208,11 @@ final class FakeServerFiles implements ServerFiles
         $this->checkTarget($from);
         $this->checkTarget($to);
 
+        $this->move($server, $from, $to);
+    }
+
+    private function move(Server $server, string $from, string $to): void
+    {
         if ($this->stat($server, $to) !== null) {
             throw new RuntimeException("fake daemon: $to exists");
         }
@@ -232,6 +241,27 @@ final class FakeServerFiles implements ServerFiles
                 unset($this->dirs[$path]);
             }
         }
+    }
+
+    public function movePreserved(Server $server, string $from, string $to): void
+    {
+        $this->calls[] = ['movePreserved', [$from, $to]];
+        $this->check($from);
+        $this->check($to);
+
+        $inside = fn (string $path) => str_starts_with($path, '.modpacks-plus/') && substr_count($path, '/') >= 2;
+        $touchesOwn = fn (string $path) => $path === '.modpacks-plus' || str_starts_with($path, '.modpacks-plus/');
+        if ($inside($from) === $inside($to) || (!$inside($from) && $touchesOwn($from)) || (!$inside($to) && $touchesOwn($to))) {
+            $this->violations[] = "preserved move outside the own folder: $from -> $to";
+
+            throw new RuntimeException("fake daemon: refused $from -> $to");
+        }
+
+        if (in_array($from, $this->failMoves, true)) {
+            throw new RuntimeException("fake daemon: move of $from failed");
+        }
+
+        $this->move($server, $from, $to);
     }
 
     public function pull(Server $server, string $url, string $directory, string $filename, int $timeoutSeconds): void

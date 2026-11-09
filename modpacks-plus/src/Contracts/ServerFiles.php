@@ -12,6 +12,8 @@ use App\Models\Server;
  *   player lists, server.properties), except inside this plugin's `.modpacks-plus/`;
  * - pulling anything but an allowlisted cdn.modrinth.com URL (the node follows
  *   redirects on its own, so it only gets URLs Modrinth vouched for).
+ * The one way a protected path moves at all is movePreserved(): into this plugin's own
+ * folder and back, never replacing anything (loader switches and restores).
  */
 interface ServerFiles
 {
@@ -37,6 +39,13 @@ interface ServerFiles
 
     /** Moves $from to $to (both relative to the root). Never replaces an existing target. */
     public function rename(Server $server, string $from, string $to): void;
+
+    /**
+     * Moves a path between the server root and the plugin's own `.modpacks-plus/<folder>/…`
+     * (either direction), protected or not. Exactly one side must be inside the own folder,
+     * and the target must not exist (nothing is ever replaced).
+     */
+    public function movePreserved(Server $server, string $from, string $to): void;
 
     /** Has the node download a cdn.modrinth.com $url into $directory/$filename and waits for it (foreground). */
     public function pull(Server $server, string $url, string $directory, string $filename, int $timeoutSeconds): void;

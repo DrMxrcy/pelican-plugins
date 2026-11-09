@@ -11,6 +11,7 @@ use App\Models\ServerVariable;
 use App\Models\User;
 use App\Services\Backups\InitiateBackupService;
 use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
+use DrMxrcy\ModpacksPlus\Contracts\ServerPower;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\InstallStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -27,6 +28,8 @@ trait InstallScenario
 {
     protected FakeServerFiles $files;
 
+    protected FakeServerPower $power;
+
     protected MockInterface $backups;
 
     protected int $backupsCreated = 0;
@@ -41,6 +44,9 @@ trait InstallScenario
 
         $this->files = new FakeServerFiles();
         $this->app->instance(ServerFiles::class, $this->files);
+
+        $this->power = new FakeServerPower();
+        $this->app->instance(ServerPower::class, $this->power);
 
         $this->backupsCreated = 0;
         $this->backups = Mockery::mock(InitiateBackupService::class);

@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Jobs\Steps;
 
 use App\Models\Server;
 use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
+use DrMxrcy\ModpacksPlus\Contracts\ServerPower;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Exceptions\StaleJobException;
 use DrMxrcy\ModpacksPlus\Exceptions\StepFailedException;
@@ -40,6 +41,19 @@ abstract class InstallStep implements ShouldQueue
 
     /** Whether this step touches the server's files (and so waits out conflict states). */
     protected const TOUCHES_FILES = true;
+
+    /** Seconds between checks while waiting for the server to stop. */
+    public const STOP_POLL_SECONDS = 10;
+
+    /**
+     * Whether a cancel request ends the install at this step. A loader switch is not
+     * cancellable from the moment worlds start moving aside until they are back: a cancel
+     * asked for then waits for the first cancellable step after the restore.
+     */
+    public static function cancellableAt(PackInstall $install): bool
+    {
+        return true;
+    }
 
     public int $tries = 3;
 
@@ -82,7 +96,7 @@ abstract class InstallStep implements ShouldQueue
             return;
         }
 
-        if ($install->cancel_requested_at !== null) {
+        if ($install->cancel_requested_at !== null && static::cancellableAt($install)) {
             $engine->cancel($install, $this->seq);
 
             return;
@@ -137,7 +151,7 @@ abstract class InstallStep implements ShouldQueue
     {
         $install->setStepStatus(static::KEY, $skipped ? PackInstall::STEP_SKIPPED : PackInstall::STEP_DONE);
 
-        $next = InstallEngine::nextStep(static::KEY);
+        $next = InstallEngine::nextStepOf($install, static::KEY);
         if ($next === null) {
             $engine->complete($install, $this->seq);
 
@@ -168,6 +182,33 @@ abstract class InstallStep implements ShouldQueue
         $worlds = $this->current?->progressValue('worlds');
 
         return app(ServerFiles::class)->protecting(is_array($worlds) ? array_values(array_filter($worlds, 'is_string')) : []);
+    }
+
+    /**
+     * True when the server process is stopped. Otherwise asks the node to stop it (once per
+     * step) and returns false: the caller waits (StepResult::again) and checks again. An
+     * unreachable node (`missing`) is waited out too; the step deadline bounds the wait.
+     */
+    protected function ensureStopped(PackInstall $install, Server $server, InstallEngine $engine): bool
+    {
+        $power = app(ServerPower::class);
+        $state = $power->state($server);
+        if (in_array($state, ServerPower::STOPPED, true)) {
+            return true;
+        }
+
+        $key = 'stop_sent_'.static::KEY;
+        if (!$install->progressValue($key) && !in_array($state, ['missing', 'stopping'], true)) {
+            $install->setProgress($key, true);
+            $install->addLog('info', 'stopping_server', ['state' => $state]);
+            $engine->persist($install);
+            $power->stop($server);
+        } elseif (!$install->progressValue('stop_wait_logged_'.static::KEY)) {
+            $install->setProgress('stop_wait_logged_'.static::KEY, true);
+            $install->addLog('warning', 'waiting_stop', ['state' => $state]);
+        }
+
+        return false;
     }
 
     /** Creates a directory once per install (remembered in progress.dirs). */

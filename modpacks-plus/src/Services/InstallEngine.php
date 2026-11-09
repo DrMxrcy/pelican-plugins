@@ -7,12 +7,19 @@ use App\Models\User;
 use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
 use DrMxrcy\ModpacksPlus\Exceptions\StaleJobException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\AwaitReinstallStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\BackupStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\ChangeEggStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\DownloadStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\FinalizeStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\InstallStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\MoveAsideStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\OverridesStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\PrepareStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\PreserveStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\ReinstallStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\RestorePreservedStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\SnapshotStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
@@ -34,7 +41,7 @@ use Illuminate\Support\Facades\File;
  */
 class InstallEngine
 {
-    /** Step key => job class, in run order. */
+    /** Step key => job class, in the run order of a plain install. */
     public const STEPS = [
         PrepareStep::KEY => PrepareStep::class,
         BackupStep::KEY => BackupStep::class,
@@ -42,6 +49,36 @@ class InstallEngine
         DownloadStep::KEY => DownloadStep::class,
         OverridesStep::KEY => OverridesStep::class,
         FinalizeStep::KEY => FinalizeStep::class,
+    ];
+
+    /** The loader-switch steps (step key => job class). */
+    public const SWITCH_STEPS = [
+        SnapshotStep::KEY => SnapshotStep::class,
+        PreserveStep::KEY => PreserveStep::class,
+        ChangeEggStep::KEY => ChangeEggStep::class,
+        ReinstallStep::KEY => ReinstallStep::class,
+        AwaitReinstallStep::KEY => AwaitReinstallStep::class,
+        RestorePreservedStep::KEY => RestorePreservedStep::class,
+    ];
+
+    /**
+     * Run order of an install that switches the loader: old pack folders aside, then the
+     * snapshot, worlds and player files aside, egg change, reinstall and wait, files back,
+     * and the normal pack install.
+     */
+    public const SWITCH_ORDER = [
+        PrepareStep::KEY,
+        BackupStep::KEY,
+        MoveAsideStep::KEY,
+        SnapshotStep::KEY,
+        PreserveStep::KEY,
+        ChangeEggStep::KEY,
+        ReinstallStep::KEY,
+        AwaitReinstallStep::KEY,
+        RestorePreservedStep::KEY,
+        DownloadStep::KEY,
+        OverridesStep::KEY,
+        FinalizeStep::KEY,
     ];
 
     /** Minutes each step may take in total, waits and resumes included. */
@@ -52,6 +89,13 @@ class InstallEngine
         DownloadStep::KEY => 120,
         OverridesStep::KEY => 60,
         FinalizeStep::KEY => 10,
+        SnapshotStep::KEY => 10,
+        // Includes waiting for the server to stop.
+        PreserveStep::KEY => 20,
+        ChangeEggStep::KEY => 10,
+        ReinstallStep::KEY => 10,
+        AwaitReinstallStep::KEY => 20,
+        RestorePreservedStep::KEY => 20,
     ];
 
     /** A chain whose heartbeat is older than this is considered lost and resumed. */
@@ -62,9 +106,13 @@ class InstallEngine
     /**
      * Creates the install record and queues its first step.
      *
+     * A loader switch passes its target (the caller checked who may switch):
+     *
+     * @param  array{loader: string, minecraft: string, egg_id: int, egg_name: string}|null  $loaderSwitch
+     *
      * @throws InstallRefusedException
      */
-    public function start(Server $server, ?User $user, string $provider, string $packId, string $versionId, string $name, ?string $versionNumber = null, ?string $icon = null): PackInstall
+    public function start(Server $server, ?User $user, string $provider, string $packId, string $versionId, string $name, ?string $versionNumber = null, ?string $icon = null, ?array $loaderSwitch = null): PackInstall
     {
         // Waits re-dispatch themselves; the sync queue would run them inline, forever.
         if (config('queue.default') === 'sync') {
@@ -81,7 +129,13 @@ class InstallEngine
                 throw new InstallRefusedException('already_running');
             }
 
-            $first = array_key_first(self::STEPS);
+            // "Restore previous files" is moving files: never run a second set of moves next to it.
+            if (PackInstall::query()->where('server_id', $server->id)->latest('id')->first()?->isRestoring()) {
+                throw new InstallRefusedException('restore_running');
+            }
+
+            $order = $loaderSwitch !== null ? self::SWITCH_ORDER : array_keys(self::STEPS);
+            $first = $order[0];
             $install = PackInstall::query()->create([
                 'server_id' => $server->id,
                 'user_id' => $user?->id,
@@ -94,7 +148,13 @@ class InstallEngine
                 'status' => PackInstall::STATUS_INSTALLING,
                 'current_step' => $first,
                 'seq' => 1,
-                'steps' => array_map(fn (string $key) => ['key' => $key, 'status' => PackInstall::STEP_PENDING, 'started_at' => null, 'finished_at' => null], array_keys(self::STEPS)),
+                'steps' => array_map(fn (string $key) => ['key' => $key, 'status' => PackInstall::STEP_PENDING, 'started_at' => null, 'finished_at' => null], $order),
+                'loader_switch' => $loaderSwitch !== null ? [
+                    'loader' => $loaderSwitch['loader'],
+                    'minecraft' => $loaderSwitch['minecraft'],
+                    'egg_id' => $loaderSwitch['egg_id'],
+                    'egg_name' => mb_strimwidth($loaderSwitch['egg_name'], 0, 250, '…'),
+                ] : null,
                 'log' => [],
                 'progress' => [],
                 'step_started_at' => now(),
@@ -103,6 +163,9 @@ class InstallEngine
             ]);
 
             $install->addLog('info', 'started', ['name' => $install->name, 'version' => $install->version_number ?? $versionId]);
+            if ($loaderSwitch !== null) {
+                $install->addLog('info', 'switch_planned', ['loader' => $loaderSwitch['loader'], 'minecraft' => $loaderSwitch['minecraft'], 'egg' => $install->loader_switch['egg_name'] ?? '']);
+            }
             $install->save();
         } finally {
             $lock->release();
@@ -150,13 +213,31 @@ class InstallEngine
         return true;
     }
 
-    /** The step after $step, or null after the last one. */
+    /** The step after $step in a plain install, or null after the last one. */
     public static function nextStep(string $step): ?string
     {
         $keys = array_keys(self::STEPS);
         $index = array_search($step, $keys, true);
 
         return $index === false ? null : ($keys[$index + 1] ?? null);
+    }
+
+    /** The step after $step in this install's own step list, or null after the last one. */
+    public static function nextStepOf(PackInstall $install, string $step): ?string
+    {
+        $keys = array_values(array_map(fn (array $entry) => (string) $entry['key'], $install->steps ?? []));
+        if ($keys === []) {
+            return self::nextStep($step);
+        }
+        $index = array_search($step, $keys, true);
+
+        return $index === false ? null : ($keys[$index + 1] ?? null);
+    }
+
+    /** @return class-string<InstallStep>|null */
+    public static function stepClass(?string $step): ?string
+    {
+        return $step === null ? null : (self::STEPS[$step] ?? self::SWITCH_STEPS[$step] ?? null);
     }
 
     /**
@@ -216,7 +297,7 @@ class InstallEngine
             }
 
             // Keep in-memory progress/log of the job that ends it, on top of the fresh row.
-            foreach (['progress', 'log', 'steps', 'plan', 'backup_uuid', 'moved_aside_path'] as $attribute) {
+            foreach (['progress', 'log', 'steps', 'plan', 'backup_uuid', 'moved_aside_path', 'loader_switch', 'snapshot', 'preserved_path'] as $attribute) {
                 if ($install->isDirty($attribute)) {
                     $fresh->setAttribute($attribute, $install->getAttribute($attribute));
                 }
@@ -264,6 +345,17 @@ class InstallEngine
             'skipped_overrides' => $plan ? $plan->skippedOverrides : [],
             'skipped_client_overrides' => $plan ? $plan->skippedClientOverrides : [],
             'modrinth_metadata' => $install->progressValue('modrinth_metadata'),
+            'loader_switch' => $install->isLoaderSwitch() ? [
+                'loader' => $install->loader_switch['loader'] ?? null,
+                'minecraft' => $install->loader_switch['minecraft'] ?? null,
+                'egg_name' => $install->loader_switch['egg_name'] ?? null,
+                'image' => $install->loader_switch['image'] ?? null,
+                'egg_changed' => (bool) $install->progressValue('egg_changed', false),
+                'previous' => $install->snapshot,
+                'preserved_path' => $install->preserved_path,
+                'preserved' => $install->preservedEntries(),
+                'preserved_restored' => (bool) $install->progressValue('preserved_restored', false),
+            ] : null,
         ];
     }
 
@@ -284,7 +376,7 @@ class InstallEngine
             if ($install->step_deadline_at !== null && $install->step_deadline_at->isPast()) {
                 $this->fail($install, 'step_timeout', (string) $install->current_step);
                 $failed++;
-            } elseif ($stalled && $install->cancel_requested_at !== null) {
+            } elseif ($stalled && $install->cancel_requested_at !== null && self::cancellableNow($install)) {
                 $this->cancel($install);
                 $failed++;
             } elseif ($stalled && $install->resumes >= self::MAX_RESUMES) {
@@ -320,9 +412,17 @@ class InstallEngine
         return new PlanValidator(Caps::fromConfig(), is_array($worlds) ? array_values(array_filter($worlds, 'is_string')) : ['world']);
     }
 
+    /** Whether a cancel request may end this install at its current step. */
+    private static function cancellableNow(PackInstall $install): bool
+    {
+        $class = self::stepClass($install->current_step);
+
+        return $class === null || $class::cancellableAt($install);
+    }
+
     private function dispatch(PackInstall $install, int $delaySeconds = 0): void
     {
-        $class = self::STEPS[$install->current_step] ?? null;
+        $class = self::stepClass($install->current_step);
         if ($class === null) {
             return;
         }

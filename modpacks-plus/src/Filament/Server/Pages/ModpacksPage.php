@@ -8,6 +8,7 @@ use App\Traits\Filament\BlockAccessInConflict;
 use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
+use DrMxrcy\ModpacksPlus\Jobs\RestorePreviousFilesJob;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
@@ -239,6 +240,50 @@ class ModpacksPage extends Page implements HasTable
     }
 
     /**
+     * "Restore previous files" for this server's latest install when it ended failed or
+     * cancelled: queues RestorePreviousFilesJob, which moves the set-aside worlds, player
+     * files and old pack folders back (never overwriting). Same permissions as installing;
+     * which install and which files come from the database, never from the browser.
+     */
+    public function restorePreviousFiles(): void
+    {
+        abort_unless(static::canAccess() && static::canInstall(), 403);
+
+        $install = PackInstall::query()->where('server_id', $this->server()->id)->latest('id')->first();
+        if ($install === null || !$install->isRestorable() || $install->isRestoring()) {
+            Notification::make()->title(trans('modpacks-plus::strings.restore.nothing'))->warning()->send();
+
+            return;
+        }
+
+        if (config('queue.default') === 'sync') {
+            Notification::make()
+                ->title(trans('modpacks-plus::strings.install.refused'))
+                ->body(InstallProgress::reason('queue_required', ''))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        // Claimed atomically: two clicks (or two tabs) start one restore.
+        $claimed = PackInstall::query()
+            ->whereKey($install->id)
+            ->whereNull('restored_at')
+            ->where(fn ($query) => $query->whereNull('restore_requested_at')->orWhere('restore_requested_at', '<', now()->subMinutes(PackInstall::RESTORE_MINUTES)))
+            ->update(['restore_requested_at' => now()]);
+
+        if ($claimed !== 1) {
+            return;
+        }
+
+        dispatch(new RestorePreviousFilesJob($install->id));
+        $this->latestInstallLoaded = false;
+
+        Notification::make()->title(trans('modpacks-plus::strings.restore.started'))->success()->send();
+    }
+
+    /**
      * @param  array<string, mixed>|null  $filters
      * @return array<int, string>
      */
@@ -439,7 +484,7 @@ class ModpacksPage extends Page implements HasTable
                 'status' => trans('modpacks-plus::strings.status.'.($this->latestInstall()->status ?? 'installing')),
             ]))
                 ->key('install-progress')
-                ->poll(fn () => $this->activeInstall() !== null ? '3s' : null)
+                ->poll(fn () => $this->activeInstall() !== null || $this->latestInstall()?->isRestoring() ? '3s' : null)
                 ->visible(fn () => $this->latestInstall() !== null)
                 ->collapsible()
                 ->collapsed(fn () => $this->activeInstall() === null)
@@ -453,6 +498,17 @@ class ModpacksPage extends Page implements HasTable
                         ->requiresConfirmation()
                         ->modalDescription(trans('modpacks-plus::strings.install.cancel_body'))
                         ->action(fn () => $this->cancelInstall()),
+                    Action::make('restore_previous')
+                        ->label(trans('modpacks-plus::strings.actions.restore'))
+                        ->icon('tabler-restore')
+                        ->color('warning')
+                        ->authorize(fn () => static::canInstall())
+                        ->visible(fn () => static::canInstall() && $this->latestInstall()?->isRestorable() && !$this->latestInstall()->isRestoring())
+                        ->requiresConfirmation()
+                        ->modalHeading(trans('modpacks-plus::strings.restore.heading'))
+                        ->modalDescription(trans('modpacks-plus::strings.restore.body'))
+                        ->modalSubmitActionLabel(trans('modpacks-plus::strings.actions.restore'))
+                        ->action(fn () => $this->restorePreviousFiles()),
                 ])
                 ->schema([
                     Callout::make(fn () => trans('modpacks-plus::strings.status.failed'))

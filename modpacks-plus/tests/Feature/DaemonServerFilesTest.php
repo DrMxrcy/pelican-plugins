@@ -6,6 +6,7 @@ use App\Models\Server;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Services\DaemonServerFiles;
+use DrMxrcy\ModpacksPlus\Services\DaemonServerPower;
 use DrMxrcy\ModpacksPlus\Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -167,5 +168,79 @@ class DaemonServerFilesTest extends TestCase
             && $request['root'] === '/.modpacks-plus/staging/1/mods'
             && $request['file_name'] === 'a.jar'
             && $request['foreground'] === true);
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function refusedPreservedMoves(): array
+    {
+        return [
+            'both outside the own folder' => ['world', 'backups/world'],
+            'both inside' => ['.modpacks-plus/preserved-x/world', '.modpacks-plus/other/world'],
+            'the own folder itself out' => ['.modpacks-plus', 'elsewhere'],
+            'into the own folder root' => ['world', '.modpacks-plus'],
+            'top level of the own folder' => ['world', '.modpacks-plus/world'],
+            'own subfolder out' => ['.modpacks-plus/staging', 'staging'],
+            'over the own folder' => ['.modpacks-plus/preserved-x/world', '.modpacks-plus'],
+        ];
+    }
+
+    #[DataProvider('refusedPreservedMoves')]
+    public function test_preserved_moves_only_go_between_the_root_and_the_own_folder(string $from, string $to): void
+    {
+        $server = $this->server;
+
+        $this->assertRefused(fn () => $this->files()->movePreserved($server, $from, $to), 'protected_path');
+    }
+
+    #[DataProvider('unsafePaths')]
+    public function test_preserved_moves_refuse_paths_outside_the_root(string $path): void
+    {
+        $server = $this->server;
+
+        $this->assertRefused(fn () => $this->files()->movePreserved($server, $path, '.modpacks-plus/preserved-x/w'), 'unsafe_path');
+        $this->assertRefused(fn () => $this->files()->movePreserved($server, '.modpacks-plus/preserved-x/w', $path), 'unsafe_path');
+    }
+
+    public function test_preserved_moves_take_worlds_aside_and_back(): void
+    {
+        $this->files()->movePreserved($this->server, 'world', '.modpacks-plus/preserved-x/world');
+        $this->files()->movePreserved($this->server, '.modpacks-plus/preserved-x/ops.json', 'ops.json');
+
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), '/files/rename')
+            && $request['files'] === [['from' => 'world', 'to' => '.modpacks-plus/preserved-x/world']]);
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), '/files/rename')
+            && $request['files'] === [['from' => '.modpacks-plus/preserved-x/ops.json', 'to' => 'ops.json']]);
+    }
+
+    public function test_preserved_moves_never_replace_anything(): void
+    {
+        $node = $this->server->node;
+        Http::swap(new HttpFactory());
+        Http::fake([
+            '*/files/list-directory*' => Http::response([['name' => 'world', 'size' => 0, 'directory' => true]], 200, ['User-Agent' => "Pelican Wings/v1.0.0 (id:{$node->daemon_token_id})"]),
+            '*' => Http::response([], 200, ['User-Agent' => "Pelican Wings/v1.0.0 (id:{$node->daemon_token_id})"]),
+        ]);
+
+        try {
+            $this->files()->movePreserved($this->server, '.modpacks-plus/preserved-x/world', 'world');
+            $this->fail('expected a refusal to replace');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('Refusing to replace world', $exception->getMessage());
+        }
+
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/files/rename'));
+    }
+
+    public function test_server_power_reads_the_state_and_sends_stop(): void
+    {
+        $node = $this->server->node;
+        Http::swap(new HttpFactory());
+        Http::fake(['*' => Http::response(['state' => 'running'], 200, ['User-Agent' => "Pelican Wings/v1.0.0 (id:{$node->daemon_token_id})"])]);
+
+        $power = new DaemonServerPower();
+        $this->assertSame('running', $power->state($this->server));
+        $power->stop($this->server);
+
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), "/api/servers/{$this->server->uuid}/power") && $request['action'] === 'stop');
     }
 }

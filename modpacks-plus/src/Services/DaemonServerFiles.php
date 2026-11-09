@@ -153,6 +153,38 @@ class DaemonServerFiles implements ServerFiles
         $this->repository($server)->renameFiles('/', [['from' => $from, 'to' => $to]])->throw();
     }
 
+    public function movePreserved(Server $server, string $from, string $to): void
+    {
+        self::guardPreservedMove($from, $to);
+
+        if ($this->stat($server, $to) !== null) {
+            throw new RuntimeException("Refusing to replace $to");
+        }
+
+        $this->repository($server)->renameFiles('/', [['from' => $from, 'to' => $to]])->throw();
+    }
+
+    /**
+     * A move between the root and `.modpacks-plus/<folder>/…`: both paths safe, exactly one
+     * of them inside a subfolder of the own folder, the other not the own folder itself.
+     *
+     * @throws UnsafePlanException
+     */
+    public static function guardPreservedMove(string $from, string $to): void
+    {
+        self::guard($from);
+        self::guard($to);
+
+        $inside = fn (string $path) => str_starts_with($path, PlanValidator::OWN_FOLDER.'/') && substr_count($path, '/') >= 2;
+        $touchesOwn = fn (string $path) => $path === PlanValidator::OWN_FOLDER || str_starts_with($path, PlanValidator::OWN_FOLDER.'/');
+
+        $fromInside = $inside($from);
+        $toInside = $inside($to);
+        if ($fromInside === $toInside || (!$fromInside && $touchesOwn($from)) || (!$toInside && $touchesOwn($to))) {
+            throw new UnsafePlanException('protected_path', "$from -> $to");
+        }
+    }
+
     public function pull(Server $server, string $url, string $directory, string $filename, int $timeoutSeconds): void
     {
         $directory = self::guard($directory, allowRoot: true);
