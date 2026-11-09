@@ -1,0 +1,25 @@
+modpacks-plus/tests/Unit/EggVariableMapTest.php
+  s_1d8485e49bfacb::t_f1f764674d1992 1-150
+modpacks-plus/src/Support/EggVariableMap.php
+  s_1d8485e49bfacb::t_6b3f568482d1a8 1-220
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_f81d6ac66110c6 109-110
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_4c3f67577aaf8d 109-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bb481292a9fd3daf55b5912878673a73ae4ad022",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
