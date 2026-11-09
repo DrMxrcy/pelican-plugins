@@ -83,6 +83,8 @@ return [
         'reset_startup_hidden' => 'Startbefehl: wird auf den Standard des neuen Eggs gesetzt',
         'reset_image_hidden' => 'Docker-Image: wird auf eines gesetzt, das das neue Egg für diese Minecraft-Version anbietet',
         'reset_variables_count' => ':count Egg-Einstellungen werden auf die Standardwerte des neuen Eggs gesetzt oder entfallen',
+        'fresh_world' => 'Mit einer neuen Welt beginnen',
+        'fresh_world_help' => 'Aus (Standard): die Welt bleibt erhalten. An: der Server wird gestoppt und die Welt (mit Nether und End) nach .modpacks-plus/previous-<Datum>/ verschoben — nie gelöscht —, damit das neue Pack eine neue erzeugt. Ops, Whitelist, Banns und server.properties bleiben in jedem Fall.',
     ],
     'summary' => [
         'backup' => 'Backup: :uuid',
@@ -150,6 +152,7 @@ return [
             'unmergeable' => 'Die server.properties des Packs ließ sich nicht sicher zusammenführen; die des Servers blieb unverändert.',
             'kept' => 'Die server.properties des Servers wurde behalten.',
         ],
+        'fresh_world' => 'Neue Welt: die alte Welt (:paths) liegt in :path.',
     ],
     'reasons' => [
         'unsafe_level_name' => 'Der Weltordner (level-name in server.properties) ist kein Ordner im Server: :detail',
@@ -311,6 +314,7 @@ return [
         'properties_unchanged' => 'Die server.properties des Packs ändert auf diesem Server nichts.',
         'properties_merged' => 'Die server.properties des Packs wurde in die des Servers übernommen (bewahrte Schlüssel und Ports unverändert); die bisherige Datei liegt in :path.',
         'properties_kept' => 'Die zusammengeführte server.properties fehlte; die des Servers wurde aus :path zurückgelegt.',
+        'fresh_world' => 'Neue Welt: :path nach :to verschoben',
     ],
     'restore' => [
         'heading' => 'Vorherige Dateien wiederherstellen?',

@@ -83,6 +83,8 @@ return [
         'reset_startup_hidden' => 'Startup command: reset to the new egg\'s default',
         'reset_image_hidden' => 'Docker image: set to one the new egg offers for this Minecraft version',
         'reset_variables_count' => ':count egg settings reset to the new egg\'s defaults or dropped',
+        'fresh_world' => 'Start a fresh world',
+        'fresh_world_help' => 'Off (default): the world is kept. On: the server is stopped and the world (with its nether and end) is moved into .modpacks-plus/previous-<date>/ — never deleted — so the new pack starts a new one. Ops, whitelist, bans and server.properties are kept either way.',
     ],
     'summary' => [
         'backup' => 'Backup: :uuid',
@@ -150,6 +152,7 @@ return [
             'unmergeable' => 'The pack\'s server.properties could not be merged safely, so the server\'s own was left as it is.',
             'kept' => 'The server\'s own server.properties was kept.',
         ],
+        'fresh_world' => 'Fresh world: the old world (:paths) is in :path.',
     ],
     'reasons' => [
         'unsafe_level_name' => 'The world folder (level-name in server.properties) is not a folder inside the server: :detail',
@@ -311,6 +314,7 @@ return [
         'properties_unchanged' => 'The pack\'s server.properties changes nothing on this server.',
         'properties_merged' => 'Merged the pack\'s server.properties into the server\'s (kept keys and ports unchanged); the previous file is in :path.',
         'properties_kept' => 'The merged server.properties was missing, so the server\'s own was put back from :path.',
+        'fresh_world' => 'Fresh world: moved :path to :to',
     ],
     'restore' => [
         'heading' => 'Restore previous files?',

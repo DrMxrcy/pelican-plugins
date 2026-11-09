@@ -102,7 +102,10 @@ trait PackVersions
     /** @return array<string, string> worlds, player lists and server.properties as they are now */
     protected function playerData(): array
     {
-        return array_filter($this->files->files, fn (string $path) => preg_match('#^(world|world_nether|world_the_end)/|^(ops|whitelist|banned-players|banned-ips|usercache)\.json$|^server\.properties$#', $path) === 1, ARRAY_FILTER_USE_KEY);
+        $data = array_filter($this->files->files, fn (string $path) => preg_match('#^(world|world_nether|world_the_end)/|^(ops|whitelist|banned-players|banned-ips|usercache)\.json$|^server\.properties$#', $path) === 1, ARRAY_FILTER_USE_KEY);
+        ksort($data);
+
+        return $data;
     }
 
     protected function seedPlayerData(): void

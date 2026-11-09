@@ -30,6 +30,7 @@ use DrMxrcy\ModpacksPlus\Support\ServerTarget;
 use DrMxrcy\ModpacksPlus\Support\VersionMatch;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -310,7 +311,7 @@ class ModpacksPage extends Page implements HasTable
      * by anyone holding the page, so it re-checks every permission and re-reads the version
      * from Modrinth instead of trusting anything sent by the browser.
      */
-    public function installPack(string $packId, string $versionId, string $source = ModrinthPackProvider::ID): void
+    public function installPack(string $packId, string $versionId, string $source = ModrinthPackProvider::ID, bool $freshWorld = false): void
     {
         abort_unless(static::canAccess() && static::canInstall(), 403);
 
@@ -346,6 +347,8 @@ class ModpacksPage extends Page implements HasTable
                 (string) $project['title'],
                 $version['version_number'],
                 is_string($project['icon_url'] ?? null) ? $project['icon_url'] : null,
+                null,
+                ['fresh_world' => $freshWorld],
             );
         } catch (InstallRefusedException|PackUnavailableException $exception) {
             Notification::make()
@@ -371,7 +374,7 @@ class ModpacksPage extends Page implements HasTable
      * the version from Modrinth, and picks the egg on the server side. With no usable egg
      * nothing is created or changed and the message names the egg to import.
      */
-    public function switchLoaderAndInstall(string $packId, string $versionId, string $source = ModrinthPackProvider::ID): void
+    public function switchLoaderAndInstall(string $packId, string $versionId, string $source = ModrinthPackProvider::ID, bool $freshWorld = false): void
     {
         abort_unless(static::canAccess() && static::canInstall() && static::canSwitchLoader(), 403);
 
@@ -387,7 +390,7 @@ class ModpacksPage extends Page implements HasTable
             $version = $this->packVersion($provider, $packId, $versionId);
 
             if (VersionMatch::needs($version, ServerTarget::minecraftVersion($server), ServerTarget::loader($server)) === null) {
-                $this->installPack($packId, $versionId, $source);
+                $this->installPack($packId, $versionId, $source, $freshWorld);
 
                 return;
             }
@@ -410,6 +413,7 @@ class ModpacksPage extends Page implements HasTable
                 $version['version_number'],
                 is_string($project['icon_url'] ?? null) ? $project['icon_url'] : null,
                 ['loader' => $target['loader'], 'minecraft' => $target['minecraft'], 'egg_id' => $egg->id, 'egg_name' => $egg->name],
+                ['fresh_world' => $freshWorld],
             );
         } catch (InstallRefusedException|PackUnavailableException $exception) {
             Notification::make()
@@ -882,7 +886,8 @@ class ModpacksPage extends Page implements HasTable
             ->modalHeading(trans('modpacks-plus::strings.install.confirm_heading', ['name' => $title, 'version' => $version['version_number']]))
             ->modalDescription(fn () => $this->installDescription($source, $packId, $version))
             ->modalSubmitActionLabel(trans('modpacks-plus::strings.actions.install'))
-            ->action(fn () => $this->installPack($packId, $versionId, $source));
+            ->schema([self::freshWorldToggle()])
+            ->action(fn (array $data) => $this->installPack($packId, $versionId, $source, (bool) ($data['fresh_world'] ?? false)));
     }
 
     /**
@@ -1032,7 +1037,20 @@ class ModpacksPage extends Page implements HasTable
             ->modalHeading(trans('modpacks-plus::strings.install.switch_heading', ['name' => $title, 'version' => $version['version_number'], 'target' => $needs]))
             ->modalDescription(fn () => $this->switchDescription($target))
             ->modalSubmitActionLabel(trans('modpacks-plus::strings.install.switch_confirm'))
-            ->action(fn () => $this->switchLoaderAndInstall($packId, $versionId, $source));
+            ->schema([self::freshWorldToggle()])
+            ->action(fn (array $data) => $this->switchLoaderAndInstall($packId, $versionId, $source, (bool) ($data['fresh_world'] ?? false)));
+    }
+
+    /**
+     * "Start a fresh world" (plan 36): off by default, so the world is kept. On, the world is
+     * moved into `.modpacks-plus/previous-<date>/`, never deleted; the player lists stay.
+     */
+    private static function freshWorldToggle(): Toggle
+    {
+        return Toggle::make('fresh_world')
+            ->label(trans('modpacks-plus::strings.install.fresh_world'))
+            ->helperText(trans('modpacks-plus::strings.install.fresh_world_help'))
+            ->default(false);
     }
 
     /** Markdown from Modrinth (or CurseForge's description as plain text), with raw HTML stripped and unsafe links dropped. */
