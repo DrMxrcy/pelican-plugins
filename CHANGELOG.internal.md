@@ -2,6 +2,21 @@
 
 _Full work log — every item, including internal/dev work. The curated public changelog is CHANGELOG.md._
 
+## v0.6.0 — (in progress)
+
+### ✨ New
+- (pending) Modpack (.mrpack) import
+
+### ⚡ Improved
+- (pending) Upstream the server-side filter as a PR to pelican-dev/plugins
+
+## v0.5.0 — (in progress)
+
+### ✨ New
+- (pending) Persistent page banner when installed mods are incompatible with the current Minecraft version
+- (pending) Changelog preview in the update dialog
+- (pending) Pin a mod to its current version so no updates are offered
+
 ## v0.4.0 — (in progress)
 
 ### ✨ New

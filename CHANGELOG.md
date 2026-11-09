@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.0 — (in progress)
+
+_Plus behind-the-scenes performance and reliability work._
+
+## v0.5.0 — (in progress)
+
+_Plus behind-the-scenes performance and reliability work._
+
 ## v0.4.0 — (in progress)
 
 ### ✨ New
