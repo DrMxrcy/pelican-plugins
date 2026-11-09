@@ -1,0 +1,38 @@
+players-plus/src/Filament/Server/Concerns/ModeratesPlayers.php
+  s_1d8485e49bfacb::t_4aad45996eb9d7 185
+  s_1d8485e49bfacb::t_a7c275fed742bb 21,35-42,172-181,186-187
+players-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_bd6dd6378e88db 178
+players-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_5bf8e71d3c4cc7 178
+players-plus/src/Filament/Server/Pages/PlayersPage.php
+  s_1d8485e49bfacb::t_dfeb8ac57df88b 168-172,174
+players-plus/src/Services/ModerationService.php
+  s_1d8485e49bfacb::t_239cc9359854cb 92-101
+players-plus/src/Support/ConsoleText.php
+  s_1d8485e49bfacb::t_b93a9d99167c4a 37-39
+players-plus/tests/Feature/ModerationActionsTest.php
+  s_1d8485e49bfacb::t_1e5b3c3ba70d7f 14,27,31-32,335-361
+players-plus/tests/Feature/ModerationServiceTest.php
+  s_1d8485e49bfacb::t_2d8cb0b0c60838 7,20,22,220-231
+players-plus/tests/Unit/ConsoleTextTest.php
+  s_1d8485e49bfacb::t_1d65bac5f5f1a4 48-54,80,90
+players-plus/tests/Unit/ModerationCommandTest.php
+  s_1d8485e49bfacb::t_8023ed1b2d98ab 8,11,115-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7806f4ab50375f64a5088bdda680413f2021f4cf",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
