@@ -173,7 +173,13 @@ abstract class InstallStep implements ShouldQueue
     /** Whether this job used up its time budget and should hand over. */
     protected function outOfTime(): bool
     {
-        return microtime(true) - $this->startedAt > static::BUDGET_SECONDS;
+        return $this->elapsedSeconds() > static::BUDGET_SECONDS;
+    }
+
+    /** Seconds this job has been running. */
+    protected function elapsedSeconds(): float
+    {
+        return microtime(true) - $this->startedAt;
     }
 
     /** The server file operations, also refusing changes to this install's world folders. */

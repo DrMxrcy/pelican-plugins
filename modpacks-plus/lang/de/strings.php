@@ -226,6 +226,7 @@ return [
         'file_downloaded' => ':path heruntergeladen und geprüft',
         'file_verified' => ':path geprüft (bereits heruntergeladen)',
         'pull_retry' => 'Download von :path fehlgeschlagen (HTTP :status), neuer Versuch.',
+        'fetch_retry' => 'Das Panel konnte :path nicht laden (Server nicht erreichbar oder zu langsam), neuer Versuch.',
         'downloaded' => 'Alle :count Dateien heruntergeladen.',
         'overrides_applied' => ':count Overrides angewendet.',
         'installed' => ':name installiert.',

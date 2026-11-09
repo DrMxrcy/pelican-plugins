@@ -4,10 +4,10 @@ namespace DrMxrcy\ModpacksPlus\Jobs\Steps;
 
 use App\Models\Server;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
+use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Exceptions\StepFailedException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
-use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthClient;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
@@ -18,8 +18,11 @@ use Illuminate\Http\Client\RequestException;
  * Puts each server-side file in place, in batches:
  * - VERIFY_MODRINTH (cdn.modrinth.com, hash vouched for by Modrinth): the node pulls it;
  *   these are the only URLs the node ever gets, because it follows redirects on its own;
- * - VERIFY_PANEL (anything else): the panel fetches it (every redirect hop allowlisted,
- *   capped by max_panel_fetch_bytes), checks size and sha512/sha1, then writes it.
+ * - VERIFY_PANEL (anything else): the panel streams it to a temp file (every redirect hop
+ *   allowlisted, capped by max_panel_fetch_bytes while streaming, so hosts without
+ *   Content-Length such as dist.modpacks.ch are capped too), checks size and sha512/sha1,
+ *   then writes it (PanelDownload). A fetch only gets the time left in its job and only
+ *   starts with enough left; a host that fails or times out is retried in a fresh job.
  *
  * Every file first lands in `.modpacks-plus/staging/<install>/` and is renamed into its
  * place only once verified, so unverified bytes never sit in `mods/`. A file the install
@@ -57,6 +60,11 @@ class DownloadStep extends InstallStep
         while ($index < count($plan->files)) {
             if ($done >= $batch || $this->outOfTime()) {
                 // Hand over to a fresh job; cancel is checked before it continues.
+                return StepResult::again();
+            }
+
+            // Plan 32: a panel fetch only starts with time left in this job for it and the write.
+            if ($plan->files[$index]->verify === PlanFile::VERIFY_PANEL && PanelDownload::timeout($this->elapsedSeconds()) === null) {
                 return StepResult::again();
             }
 
@@ -152,7 +160,22 @@ class DownloadStep extends InstallStep
                 throw new StepFailedException('download_incomplete', $file->path);
             }
         } elseif ($file->verify === PlanFile::VERIFY_PANEL) {
-            $files->write($server, $staged, $this->fetchOnPanel($engine, $install, $validator, $file, $caps));
+            try {
+                $contents = PanelDownload::fetch(
+                    $file,
+                    $engine->workDir($install).'/files/'.bin2hex(random_bytes(8)),
+                    $validator,
+                    $caps,
+                    PanelDownload::timeout($this->elapsedSeconds()) ?? PanelDownload::MIN_FETCH_SECONDS,
+                );
+            } catch (PackUnavailableException) {
+                // The host failed or timed out: a fresh job tries again (attempts are counted above).
+                $install->addLog('warning', 'fetch_retry', ['path' => $file->path]);
+
+                return StepResult::again(10);
+            }
+
+            $files->write($server, $staged, $contents);
         } else {
             throw new UnsafePlanException('bad_hash', $file->path);
         }
@@ -162,34 +185,6 @@ class DownloadStep extends InstallStep
         $install->addLog('info', 'file_downloaded', ['path' => $file->path, 'verify' => (string) $file->verify]);
 
         return null;
-    }
-
-    /**
-     * Downloads a non-Modrinth file onto the panel (redirect-guarded, byte-capped) and
-     * returns its verified contents.
-     *
-     * @throws UnsafePlanException
-     */
-    private function fetchOnPanel(InstallEngine $engine, PackInstall $install, PlanValidator $validator, PlanFile $file, Caps $caps): string
-    {
-        $temp = $engine->workDir($install).'/files/'.bin2hex(random_bytes(8));
-        $limit = min($caps->maxPanelFetchBytes, max(0, $file->size));
-
-        try {
-            app(ModrinthClient::class)->download((string) $file->url, $temp, $limit, $validator, ModrinthClient::DOWNLOAD_TIMEOUT, 'panel_fetch_too_large');
-
-            clearstatcache(true, $temp);
-            if (filesize($temp) !== $file->size) {
-                throw new StepFailedException('download_incomplete', $file->path);
-            }
-
-            $contents = (string) file_get_contents($temp);
-            PlanValidator::assertContentMatches($file, $contents);
-
-            return $contents;
-        } finally {
-            @unlink($temp);
-        }
     }
 
     /** Removes a rejected staged file; if that fails the install still fails, with the leftover recorded. */

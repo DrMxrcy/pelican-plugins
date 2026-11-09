@@ -226,6 +226,7 @@ return [
         'file_downloaded' => 'Downloaded and verified :path',
         'file_verified' => 'Verified :path (already downloaded)',
         'pull_retry' => 'Download of :path failed (HTTP :status), retrying.',
+        'fetch_retry' => 'The panel could not download :path (host unavailable or too slow), retrying.',
         'downloaded' => 'All :count files downloaded.',
         'overrides_applied' => ':count overrides applied.',
         'installed' => ':name installed.',
