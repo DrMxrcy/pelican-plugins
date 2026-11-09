@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\DB;
  * - A gap in polling (or no earlier sample at all) ends open sessions at the last sample
  *   before the gap, so time nobody watched is never counted as playtime.
  *
- * Runs inside the poll job: no network access except what PlayerIdentity needs.
+ * Runs inside the poll job: no network access except PlayerIdentity's cached usercache read.
  */
 class SessionTracker
 {
@@ -33,6 +33,12 @@ class SessionTracker
 
     public function track(Server $server, Sample $sample): void
     {
+        // A name without a UUID needs usercache.json: read it (cached) before the transaction,
+        // so no database transaction stays open while the daemon answers.
+        if ($sample->status === SampleStatus::Online && in_array(null, array_column(self::entries($sample->players), 'uuid'), true)) {
+            $this->identity->usercache($server);
+        }
+
         DB::transaction(function () use ($server, $sample) {
             // Only the newest sample moves session state; a late, older one must not reopen or close anything.
             $newer = Sample::query()->where('server_id', $server->id)->where('polled_at', '>', $sample->polled_at)->exists();
