@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Filament\Server\Components;
 
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\ModrinthMetadataWriter;
+use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\HtmlString;
 
@@ -119,6 +120,17 @@ final class InstallProgress
             $lines[] = trans('modpacks-plus::strings.summary.skipped_client_overrides', ['paths' => implode(', ', array_map('strval', (array) $summary['skipped_client_overrides']))]);
         }
 
+        if (!empty($summary['server_pack'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.server_pack');
+        } elseif (is_array($summary['server_pack_fallback'] ?? null) && is_string($summary['server_pack_fallback']['reason'] ?? null)) {
+            $lines[] = trans('modpacks-plus::strings.summary.server_pack_fallback', [
+                'reason' => self::reason($summary['server_pack_fallback']['reason'], (string) ($summary['server_pack_fallback']['detail'] ?? '')),
+            ]);
+        }
+        if (!empty($summary['skipped_pack_files'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.skipped_pack_files', ['paths' => implode(', ', array_map('strval', (array) $summary['skipped_pack_files']))]);
+        }
+
         array_push($lines, ...self::metadataLines($summary['modrinth_metadata'] ?? null));
 
         if ($install->progressValue('restore_discarded')) {
@@ -148,7 +160,32 @@ final class InstallProgress
             $lines = array_merge($lines, self::switchLines($switch, $install, $showSetup));
         }
 
-        return new HtmlString('<ul>'.implode('', array_map(fn (string $line) => '<li>'.e($line).'</li>', $lines)).'</ul>');
+        return new HtmlString('<ul>'.implode('', array_map(fn (string $line) => '<li>'.e($line).'</li>', $lines)).'</ul>'.self::manualList($summary['manual_files'] ?? null));
+    }
+
+    /**
+     * Files the user downloads themselves (never fetched by the panel): each with a link to its
+     * page on the source's website. Entries are re-checked (PlanValidator::manualFile) and escaped.
+     */
+    public static function manualList(mixed $files): string
+    {
+        $items = [];
+        foreach (is_array($files) ? $files : [] as $file) {
+            $file = is_array($file) ? PlanValidator::manualFile($file) : null;
+            if ($file === null) {
+                continue;
+            }
+
+            $name = e($file['name']);
+            $reason = e(trans('modpacks-plus::strings.summary.manual_reasons.'.$file['reason']));
+            $items[] = '<li>'.($file['url'] !== null ? '<a href="'.e($file['url']).'" target="_blank" rel="noopener noreferrer" class="underline">'.$name.'</a>' : $name).' ('.$reason.')</li>';
+        }
+
+        if ($items === []) {
+            return '';
+        }
+
+        return '<p>'.e(trans('modpacks-plus::strings.summary.manual_files', ['count' => count($items)])).'</p><ul style="list-style: disc; padding-left: 1.25rem">'.implode('', $items).'</ul>';
     }
 
     /**

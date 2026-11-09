@@ -353,6 +353,10 @@ class InstallEngine
             'skipped_client_files' => $plan ? count($plan->skippedClientFiles) : 0,
             'skipped_overrides' => $plan ? $plan->skippedOverrides : [],
             'skipped_client_overrides' => $plan ? $plan->skippedClientOverrides : [],
+            'skipped_pack_files' => $plan ? $plan->skippedPackFiles : [],
+            'manual_files' => $plan ? $plan->manualFiles : [],
+            'server_pack' => $plan?->serverPack !== null,
+            'server_pack_fallback' => $plan?->serverPackFallback,
             'modrinth_metadata' => $install->progressValue('modrinth_metadata'),
             'loader_switch' => $install->isLoaderSwitch() ? [
                 'loader' => $install->loader_switch['loader'] ?? null,
@@ -418,7 +422,7 @@ class InstallEngine
     {
         $worlds = $install->progressValue('worlds');
 
-        return new PlanValidator(Caps::fromConfig(), is_array($worlds) ? array_values(array_filter($worlds, 'is_string')) : ['world']);
+        return new PlanValidator(Caps::fromConfig(), is_array($worlds) ? array_values(array_filter($worlds, 'is_string')) : ['world'], PlanValidator::hostsFor($install->provider));
     }
 
     /** Whether a cancel request may end this install at its current step. */

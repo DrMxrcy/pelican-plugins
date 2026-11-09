@@ -95,6 +95,15 @@ return [
         'restore_discarded' => 'Restore discarded: the set-aside files stay in :path.',
         'restore_incomplete' => 'Restored :restored, could not restore :failed: :paths. They are still in :path; use "Restore previous files" again, or discard.',
         'preserved_unexpected' => 'Not part of the switch and left in :path: :paths',
+        'server_pack' => 'Installed from the pack\'s server pack; its start scripts and loader installer were not used (the egg installs the loader).',
+        'server_pack_fallback' => 'The pack\'s server pack was not used, so the server files were built from its manifest: :reason',
+        'skipped_pack_files' => 'Server-pack start scripts, installers and bundled Java not written: :paths',
+        'manual_files' => 'Download manually (:count), then upload with the file manager:',
+        'manual_reasons' => [
+            'distribution_disabled' => 'the author doesn\'t allow other apps to download it, and it isn\'t on Modrinth',
+            'datapack' => 'a data pack: put it into the world\'s datapacks folder',
+            'unsupported_type' => 'a kind of file the installer doesn\'t place',
+        ],
     ],
     'reasons' => [
         'unsafe_level_name' => 'The world folder (level-name in server.properties) is not a folder inside the server: :detail',
@@ -156,6 +165,8 @@ return [
         'curseforge_unavailable' => 'CurseForge could not be reached. Try again later. (:detail)',
         'curseforge_not_found' => 'Not found on CurseForge: :detail',
         'curseforge_key_rejected' => 'CurseForge rejected the API key. An admin checks it in the Modpacks Plus settings. (:detail)',
+        'curseforge_no_download' => 'CurseForge offers no download for this pack file (its author turned third-party downloads off): :detail',
+        'server_pack_unusable' => 'The server pack is missing, not marked as a server pack, has no download or no mods/ folder (:detail)',
     ],
     'steps' => [
         'prepare' => 'Check the pack',
@@ -225,6 +236,9 @@ return [
         'restore_reinstall_pending' => 'Restore waiting: the reinstall may still be running (up to :minutes minutes after it was requested).',
         'restore_discarded' => 'Pending restore discarded; the files stay in :path.',
         'restore_incomplete' => 'Restored :restored, could not restore :failed (:paths); they are still in :path. Ask for the restore again once the conflict is gone.',
+        'server_pack' => 'Using the server pack :name.',
+        'server_pack_fallback' => 'The server pack can\'t be used (:reason); building from the manifest.',
+        'manual_download' => 'Download manually: :name',
     ],
     'restore' => [
         'heading' => 'Restore previous files?',

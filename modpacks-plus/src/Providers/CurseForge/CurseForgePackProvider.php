@@ -4,10 +4,14 @@ namespace DrMxrcy\ModpacksPlus\Providers\CurseForge;
 
 use DrMxrcy\ModpacksPlus\Contracts\PackProvider;
 use DrMxrcy\ModpacksPlus\Data\InstallPlan;
+use DrMxrcy\ModpacksPlus\Data\OverrideEntry;
 use DrMxrcy\ModpacksPlus\Data\PackArchive;
+use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
+use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Support\Caps;
+use DrMxrcy\ModpacksPlus\Support\PackArchiveReader;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use Illuminate\Support\Facades\Cache;
 
@@ -62,6 +66,28 @@ class CurseForgePackProvider implements PackProvider
 
     private const MAX_BODY_CHARS = 20000;
 
+    private const MANIFEST_FILE = 'manifest.json';
+
+    private const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
+
+    /** Ids per batch request (POST /mods/files, POST /mods). */
+    private const RESOLVE_CHUNK = 100;
+
+    /** CurseForge class ids => server folder. */
+    public const CLASS_FOLDERS = [6 => 'mods', 12 => 'resourcepacks', 6552 => 'shaderpacks'];
+
+    /** Classes only a game client uses (never written). */
+    private const CLIENT_CLASSES = [12, 6552];
+
+    /** Data packs belong inside a world, which an install never writes: listed for the user. */
+    public const CLASS_DATAPACKS = 6945;
+
+    /** A server pack failing one of these falls back to the manifest build instead of failing the install. */
+    private const SERVER_PACK_FALLBACK_REASONS = ['archive_too_large', 'too_many_entries', 'file_too_large', 'override_too_large', 'total_too_large', 'too_many_files'];
+
+    /** Top-level folders a server pack itself has (so a lone one is not a wrapper folder). */
+    private const SERVER_FOLDERS = ['mods', 'config', 'defaultconfigs', 'kubejs', 'scripts', 'resources', 'datapacks'];
+
     public function __construct(
         private readonly CurseForgeClient $client,
         private readonly ModrinthPackProvider $modrinth,
@@ -76,11 +102,6 @@ class CurseForgePackProvider implements PackProvider
     public function client(): CurseForgeClient
     {
         return $this->client;
-    }
-
-    public function caps(): Caps
-    {
-        return $this->caps;
     }
 
     /** CurseForge ids are positive integers. */
@@ -266,9 +287,364 @@ class CurseForgePackProvider implements PackProvider
         $this->modrinth->fetchArchive($archive, $path, $validator);
     }
 
+    /**
+     * Server pack first (the file's serverPackFileId, from the API only), else the client pack
+     * built from manifest.json. Either way the pack's own (client) zip is read for the target:
+     * its manifest names the Minecraft version and loader version, which the egg installs
+     * (plan 35); a server pack's bundled start scripts and installers are never run or written.
+     *
+     * A server pack too large for the caps, missing, not flagged as a server pack, without a
+     * download or without mods/ is skipped (the manifest build is checked the same way and
+     * the summary says why). Anything hostile in it (paths, hashes) fails the install.
+     */
     public function resolvePlan(string $packId, string $versionId, PlanValidator $validator, string $workDir): InstallPlan
     {
-        throw new PackUnavailableException('curseforge_unavailable', 'not supported yet');
+        $file = $this->packFile($packId, $versionId);
+        $mod = $this->mod($packId);
+
+        $archive = $this->archiveOf($file);
+        if ($archive === null) {
+            throw new PackUnavailableException('curseforge_no_download', is_string($file['fileName'] ?? null) ? $file['fileName'] : $versionId);
+        }
+
+        $version = $this->normaliseVersion($file);
+        $plan = new InstallPlan(
+            provider: self::ID,
+            packId: $packId,
+            versionId: $versionId,
+            packName: is_string($mod['name'] ?? null) && $mod['name'] !== '' ? $mod['name'] : $version['name'],
+            versionNumber: $version['version_number'],
+            minecraftVersion: $version['game_versions'][0] ?? '',
+            loader: $version['loaders'][0] ?? '',
+            loaderVersion: null,
+            archive: $archive,
+        );
+
+        // URL, declared size and hash format are checked before anything is downloaded.
+        $validator->validate($plan);
+
+        $path = rtrim($workDir, '/').'/'.PackArchive::WORK_FILE;
+        $this->fetchArchive($archive, $path, $validator);
+
+        $reader = PackArchiveReader::open($path, $validator, $this->caps);
+        try {
+            if (!$reader->has(self::MANIFEST_FILE)) {
+                throw new PackUnavailableException('bad_index', 'missing '.self::MANIFEST_FILE);
+            }
+
+            $manifest = self::manifest(json_decode($reader->read(self::MANIFEST_FILE, self::MAX_MANIFEST_BYTES), true), $this->caps);
+            $overrides = $reader->overrides($validator);
+        } finally {
+            $reader->close();
+        }
+
+        $plan = $plan->with([
+            'minecraftVersion' => $manifest['minecraft'],
+            'loader' => $manifest['loader'],
+            'loaderVersion' => $manifest['loader_version'],
+        ]);
+
+        $fallback = null;
+        $serverPackId = self::intId($file['serverPackFileId'] ?? null);
+        if ($serverPackId !== null) {
+            try {
+                return $this->serverPackPlan($plan, $packId, $serverPackId, $validator, $workDir);
+            } catch (UnsafePlanException $exception) {
+                if (!in_array($exception->reason, self::SERVER_PACK_FALLBACK_REASONS, true)) {
+                    throw $exception;
+                }
+                $fallback = ['reason' => $exception->reason, 'detail' => $exception->detail];
+            } catch (PackUnavailableException $exception) {
+                if ($exception->reason !== 'server_pack_unusable') {
+                    throw $exception;
+                }
+                $fallback = ['reason' => $exception->reason, 'detail' => $exception->detail];
+            }
+            @unlink(rtrim($workDir, '/').'/'.PackArchive::SERVER_PACK_WORK_FILE);
+        }
+
+        return $this->manifestPlan($plan->with(['overrides' => $overrides, 'serverPackFallback' => $fallback]), $manifest['files'], $validator);
+    }
+
+    /**
+     * The server pack as the plan's override source: every file under its root folder is
+     * written like an override (same path, protected-path, client-only, size and metadata
+     * rules), its start scripts, installers and bundled Java are skipped.
+     *
+     * @throws UnsafePlanException
+     * @throws PackUnavailableException `server_pack_unusable` when the manifest build should be used instead
+     */
+    private function serverPackPlan(InstallPlan $plan, string $packId, int $serverPackId, PlanValidator $validator, string $workDir): InstallPlan
+    {
+        try {
+            $response = $this->client->get('mods/'.$packId.'/files/'.$serverPackId);
+        } catch (PackUnavailableException $exception) {
+            if ($exception->reason !== 'curseforge_not_found') {
+                throw $exception;
+            }
+
+            throw new PackUnavailableException('server_pack_unusable', (string) $serverPackId);
+        }
+
+        $file = is_array($response['data'] ?? null) ? $response['data'] : [];
+        if (self::intId($file['id'] ?? null) !== $serverPackId || (string) self::intId($file['modId'] ?? null) !== $packId || empty($file['isServerPack'])) {
+            throw new PackUnavailableException('server_pack_unusable', (string) $serverPackId);
+        }
+
+        $serverPack = $this->archiveOf($file) ?? throw new PackUnavailableException('server_pack_unusable', (string) $serverPackId);
+
+        // Size and hash format first, then download (size and sha1 checked) and read safely.
+        $plan = $validator->validate($plan->with(['serverPack' => $serverPack, 'serverPackRoot' => '']));
+
+        $path = rtrim($workDir, '/').'/'.PackArchive::SERVER_PACK_WORK_FILE;
+        $this->fetchArchive($serverPack, $path, $validator);
+
+        $reader = PackArchiveReader::open($path, $validator, $this->caps);
+        try {
+            $root = self::serverPackRoot($reader->names());
+            $overrides = [];
+            foreach ($reader->names() as $name) {
+                $target = $validator->overrideTarget($name, $root);
+                if ($target !== null) {
+                    $overrides[] = new OverrideEntry($name, $target, (int) $reader->size($name));
+                }
+            }
+        } finally {
+            $reader->close();
+        }
+
+        if (!array_filter($overrides, fn (OverrideEntry $entry) => str_starts_with($entry->path, 'mods/'))) {
+            throw new PackUnavailableException('server_pack_unusable', 'no mods/');
+        }
+
+        return $validator->validate($plan->with(['serverPackRoot' => $root, 'overrides' => $overrides, 'files' => []]));
+    }
+
+    /**
+     * The folder a server pack keeps its files in: its only top-level folder when everything
+     * is inside one (a common `PackName-Server/` wrapper), else the zip root.
+     *
+     * @param  array<int, string>  $names
+     */
+    public static function serverPackRoot(array $names): string
+    {
+        $tops = [];
+        foreach ($names as $name) {
+            $name = rtrim($name, '/');
+            if (!str_contains($name, '/') && !in_array($name.'/', $names, true)) {
+                return ''; // a file at the zip root
+            }
+            $tops[explode('/', $name)[0]] = true;
+        }
+
+        if (count($tops) !== 1) {
+            return '';
+        }
+
+        $top = (string) array_key_first($tops);
+
+        return in_array(strtolower($top), self::SERVER_FOLDERS, true) ? '' : $top.'/';
+    }
+
+    /**
+     * The client pack: manifest files resolved in batches and placed by class, files
+     * CurseForge may not hand out (or that belong in a world) listed for manual download.
+     *
+     * @param  array<int, array{project: int, file: int}>  $entries
+     *
+     * @throws UnsafePlanException
+     * @throws PackUnavailableException
+     */
+    private function manifestPlan(InstallPlan $plan, array $entries, PlanValidator $validator): InstallPlan
+    {
+        $files = $this->resolveFiles(array_column($entries, 'file'));
+        $mods = $this->resolveMods(array_values(array_unique(array_column($entries, 'project'))));
+
+        $candidates = [];
+        $manual = [];
+        foreach ($entries as $entry) {
+            $file = $files[$entry['file']] ?? null;
+            $mod = $mods[$entry['project']] ?? null;
+            if ($file === null || $mod === null || self::intId($file['modId'] ?? null) !== $entry['project']) {
+                throw new PackUnavailableException('curseforge_not_found', $entry['project'].'/'.$entry['file']);
+            }
+
+            $name = is_string($file['fileName'] ?? null) ? $file['fileName'] : '';
+            if (!self::isSafeFileName($name)) {
+                throw new UnsafePlanException('unsafe_path', $name);
+            }
+
+            $display = is_string($file['displayName'] ?? null) && $file['displayName'] !== '' ? $file['displayName'] : $name;
+            $page = self::websiteUrl($mod['links']['websiteUrl'] ?? null);
+            $link = $page !== null ? $page.'/files/'.$entry['file'] : null;
+            $classId = is_int($mod['classId'] ?? null) ? $mod['classId'] : 0;
+
+            $folder = self::CLASS_FOLDERS[$classId] ?? null;
+            if ($folder === null) {
+                $manual[] = ['name' => $display, 'url' => $link, 'reason' => $classId === self::CLASS_DATAPACKS ? 'datapack' : 'unsupported_type'];
+
+                continue;
+            }
+
+            $url = $this->fileUrl($file, $mod, $entry['file'], $name);
+            $candidates[] = [
+                'path' => $folder.'/'.$name,
+                'urls' => $url !== null ? [$url] : [],
+                'size' => is_int($file['fileLength'] ?? null) ? $file['fileLength'] : -1,
+                'hashes' => self::hashes($file),
+                // Resource and shader packs only matter to game clients.
+                'side' => in_array($classId, self::CLIENT_CLASSES, true) ? 'unsupported' : 'unknown',
+                'manual' => ['name' => $display, 'url' => $link, 'reason' => 'distribution_disabled'],
+            ];
+        }
+
+        $planFiles = [];
+        foreach ($candidates as $candidate) {
+            if ($candidate['urls'] === [] && $candidate['side'] !== 'unsupported') {
+                $manual[] = $candidate['manual'];
+
+                continue;
+            }
+
+            $planFiles[] = PlanFile::fromArray($candidate);
+        }
+
+        $plan = $validator->validate($plan->with(['files' => $planFiles, 'manualFiles' => $manual]));
+
+        // Files on cdn.modrinth.com whose sha512 Modrinth vouches for at that URL may be pulled by
+        // the node; everything else is fetched, redirect-checked and hashed by the panel.
+        return $validator->validate($this->modrinth->assignVerification($plan));
+    }
+
+    /**
+     * Where the panel may download a pack file from CurseForge, or null when it must not:
+     * never when the author turned third-party downloads off (allowModDistribution false),
+     * else the API's downloadUrl (rebuilt), else the edge.forgecdn.net URL CurseForge documents
+     * for an id and name, and only when the author explicitly allows distribution.
+     *
+     * @param  array<mixed>  $file
+     * @param  array<mixed>  $mod
+     */
+    private function fileUrl(array $file, array $mod, int $fileId, string $name): ?string
+    {
+        $allowed = $mod['allowModDistribution'] ?? null;
+        if ($allowed === false) {
+            return null;
+        }
+
+        $url = self::downloadUrl($file['downloadUrl'] ?? null);
+        if ($url === null && $allowed === true && ($file['downloadUrl'] ?? null) === null) {
+            $url = self::constructedUrl($fileId, $name);
+        }
+
+        return $url;
+    }
+
+    /**
+     * Files by id, fetched in batches.
+     *
+     * @param  array<int, int>  $ids
+     * @return array<int, array<mixed>>
+     *
+     * @throws PackUnavailableException
+     */
+    private function resolveFiles(array $ids): array
+    {
+        $files = [];
+        foreach (array_chunk(array_values(array_unique($ids)), self::RESOLVE_CHUNK) as $chunk) {
+            $response = $this->client->post('mods/files', ['fileIds' => $chunk]);
+            foreach (is_array($response['data'] ?? null) ? $response['data'] : [] as $file) {
+                $id = is_array($file) ? self::intId($file['id'] ?? null) : null;
+                if ($id !== null && in_array($id, $chunk, true)) {
+                    $files[$id] = $file;
+                }
+            }
+        }
+
+        return $files;
+    }
+
+    /**
+     * Mods (projects) by id, fetched in batches.
+     *
+     * @param  array<int, int>  $ids
+     * @return array<int, array<mixed>>
+     *
+     * @throws PackUnavailableException
+     */
+    private function resolveMods(array $ids): array
+    {
+        $mods = [];
+        foreach (array_chunk($ids, self::RESOLVE_CHUNK) as $chunk) {
+            $response = $this->client->post('mods', ['modIds' => $chunk]);
+            foreach (is_array($response['data'] ?? null) ? $response['data'] : [] as $mod) {
+                $id = is_array($mod) ? self::intId($mod['id'] ?? null) : null;
+                if ($id !== null && in_array($id, $chunk, true) && (int) ($mod['gameId'] ?? 0) === self::GAME_MINECRAFT) {
+                    $mods[$id] = $mod;
+                }
+            }
+        }
+
+        return $mods;
+    }
+
+    /**
+     * The parts of a CurseForge manifest.json the install uses, strictly checked.
+     * Optional files (`required: false`) are left out, as the CurseForge app does by default.
+     *
+     * @return array{minecraft: string, loader: string, loader_version: string, files: array<int, array{project: int, file: int}>}
+     *
+     * @throws PackUnavailableException
+     * @throws UnsafePlanException
+     */
+    public static function manifest(mixed $manifest, Caps $caps): array
+    {
+        if (!is_array($manifest) || ($manifest['manifestType'] ?? null) !== 'minecraftModpack' || ($manifest['manifestVersion'] ?? null) !== 1) {
+            throw new PackUnavailableException('bad_index', self::MANIFEST_FILE);
+        }
+
+        $minecraft = is_array($manifest['minecraft'] ?? null) ? $manifest['minecraft'] : [];
+        $version = $minecraft['version'] ?? null;
+        if (!is_string($version) || !preg_match('/^[A-Za-z0-9.\-_+]{1,64}$/', $version)) {
+            throw new PackUnavailableException('bad_index', 'minecraft.version');
+        }
+
+        $loaders = array_values(array_filter(is_array($minecraft['modLoaders'] ?? null) ? $minecraft['modLoaders'] : [], 'is_array'));
+        $primary = array_values(array_filter($loaders, fn (array $loader) => ($loader['primary'] ?? false) === true));
+        $chosen = count($primary) === 1 ? $primary[0] : (count($loaders) === 1 ? $loaders[0] : null);
+        if ($chosen === null || !is_string($chosen['id'] ?? null)
+            || !preg_match('/^(forge|neoforge|fabric|quilt)-([0-9A-Za-z.+\-_]{1,64})$/', $chosen['id'], $match)) {
+            throw new PackUnavailableException('bad_index', 'minecraft.modLoaders');
+        }
+
+        if (($manifest['overrides'] ?? 'overrides') !== 'overrides') {
+            throw new PackUnavailableException('bad_index', 'overrides');
+        }
+
+        $list = $manifest['files'] ?? [];
+        if (!is_array($list) || !array_is_list($list)) {
+            throw new PackUnavailableException('bad_index', 'files');
+        }
+        if (count($list) > $caps->maxFiles) {
+            throw new UnsafePlanException('too_many_files', (string) count($list));
+        }
+
+        $files = [];
+        $seen = [];
+        foreach ($list as $entry) {
+            $project = is_array($entry) ? self::intId($entry['projectID'] ?? null) : null;
+            $file = is_array($entry) ? self::intId($entry['fileID'] ?? null) : null;
+            if ($project === null || $file === null) {
+                throw new PackUnavailableException('bad_index', 'files');
+            }
+            if (($entry['required'] ?? true) === false || isset($seen[$file])) {
+                continue;
+            }
+            $seen[$file] = true;
+            $files[] = ['project' => $project, 'file' => $file];
+        }
+
+        return ['minecraft' => $version, 'loader' => $match[1], 'loader_version' => $match[2], 'files' => $files];
     }
 
     /**

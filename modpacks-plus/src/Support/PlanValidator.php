@@ -33,6 +33,28 @@ final class PlanValidator
         'gitlab.com',
     ];
 
+    /**
+     * CurseForge plans (plan 31): the CurseForge CDN, plus cdn.modrinth.com for files matched
+     * on Modrinth by hash. Not configurable either. Only cdn.modrinth.com is ever handed to the
+     * node; forgecdn files are always fetched, redirect-checked and hashed by the panel.
+     */
+    public const CURSEFORGE_HOSTS = [
+        'cdn.modrinth.com',
+        'edge.forgecdn.net',
+        'mediafilez.forgecdn.net',
+    ];
+
+    /** Why a pack file is listed for the user to download instead of installed. */
+    public const MANUAL_REASONS = ['distribution_disabled', 'datapack', 'unsupported_type'];
+
+    /**
+     * Server-pack entries that start a server or install a loader (top-level scripts and jars,
+     * the installer's output, bundled Java). Never written: the egg installs the loader (plan 35).
+     */
+    public const SERVER_PACK_LAUNCHER_FOLDERS = ['libraries', 'versions', '.fabric', '.quilt', 'jre', 'jdk', 'java', 'runtime'];
+
+    public const SERVER_PACK_LAUNCHER_FILES = ['eula.txt', 'user_jvm_args.txt', 'unix_args.txt', 'win_args.txt', 'variables.txt', 'server-setup-config.yaml', 'server-setup-config.yml'];
+
     /** Top-level files a pack may never write (player data and server identity). */
     public const PROTECTED_FILES = [
         'ops.json',
@@ -65,17 +87,23 @@ final class PlanValidator
     /** @var array<string, true> lowercase normalised paths that are never written, moved or deleted */
     private array $protectedPaths = [];
 
+    /** @var array<int, string> exact hosts downloads may come from (HTTPS only) */
+    private readonly array $allowedHosts;
+
     /**
      * @param  array<int, string>  $worlds  world folders relative to the server root: the
      *                                      `level-name` (may be nested, e.g. `saves/world`) and
      *                                      any folder holding `level.dat`
+     * @param  array<int, string>  $allowedHosts  the provider's download hosts (hostsFor())
      *
      * @throws UnsafePlanException `unsafe_level_name` when a world path is empty or would resolve
      *                             outside the server root: the world can't be located, so
      *                             nothing may run (fail closed)
      */
-    public function __construct(private readonly Caps $caps, array $worlds = ['world'])
+    public function __construct(private readonly Caps $caps, array $worlds = ['world'], array $allowedHosts = self::ALLOWED_HOSTS)
     {
+        $this->allowedHosts = array_values($allowedHosts);
+
         foreach (self::PROTECTED_FILES as $file) {
             $this->protectedPaths[$file] = true;
         }
@@ -93,6 +121,20 @@ final class PlanValidator
                 $this->protectedPaths[strtolower($world.$suffix)] = true;
             }
         }
+    }
+
+    /**
+     * Download hosts for a provider's plans; an unknown provider gets none (nothing downloads).
+     *
+     * @return array<int, string>
+     */
+    public static function hostsFor(string $provider): array
+    {
+        return match ($provider) {
+            'modrinth' => self::ALLOWED_HOSTS,
+            'curseforge' => self::CURSEFORGE_HOSTS,
+            default => [],
+        };
     }
 
     /**
@@ -164,6 +206,47 @@ final class PlanValidator
         return $stack !== [];
     }
 
+    /** A server pack's root inside its zip: '' (the zip root) or one plain folder name plus `/`. */
+    public static function isServerPackRoot(string $root): bool
+    {
+        return $root === '' || (str_ends_with($root, '/') && !str_contains(substr($root, 0, -1), '/') && self::isSafeRelativePath(substr($root, 0, -1)));
+    }
+
+    /** Whether a server-pack target starts a server or installs a loader (never written). */
+    public static function isServerPackLauncherFile(string $path): bool
+    {
+        $segments = explode('/', strtolower($path));
+
+        if (count($segments) === 1) {
+            return (bool) preg_match('/\.(sh|bat|cmd|ps1|command|jar|exe)$/', $segments[0])
+                || in_array($segments[0], self::SERVER_PACK_LAUNCHER_FILES, true);
+        }
+
+        return in_array($segments[0], self::SERVER_PACK_LAUNCHER_FOLDERS, true);
+    }
+
+    /**
+     * A "download manually" entry with every field checked: a printable name, a link only to
+     * the CurseForge website (shown, never fetched) and a known reason. Null when unusable.
+     *
+     * @param  array<mixed>  $entry
+     * @return array{name: string, url: ?string, reason: string}|null
+     */
+    public static function manualFile(array $entry): ?array
+    {
+        $name = is_string($entry['name'] ?? null) ? UnsafePlanException::clean($entry['name']) : '';
+        $url = $entry['url'] ?? null;
+        $reason = $entry['reason'] ?? null;
+
+        if ($name === '' || !in_array($reason, self::MANUAL_REASONS, true)) {
+            return null;
+        }
+
+        $url = is_string($url) && preg_match('#^https://www\.curseforge\.com/minecraft/[A-Za-z0-9/_.\-]{1,200}$#', $url) && !str_contains($url, '..') ? $url : null;
+
+        return ['name' => $name, 'url' => $url, 'reason' => $reason];
+    }
+
     /** Whether a normalised override target is something only a game client uses (top level only). */
     public static function isClientOnlyOverride(string $path): bool
     {
@@ -231,7 +314,7 @@ final class PlanValidator
         }
 
         $host = $parts['host'] ?? '';
-        if (($parts['scheme'] ?? '') !== 'https' || !in_array($host, self::ALLOWED_HOSTS, true)) {
+        if (($parts['scheme'] ?? '') !== 'https' || !in_array($host, $this->allowedHosts, true)) {
             return false;
         }
 
@@ -275,13 +358,18 @@ final class PlanValidator
 
     /**
      * The server path an archive entry is written to: the part after `overrides/` or
-     * `server-overrides/`. Null for directories and entries that are not applied
-     * (client-overrides/, the index). Hostile names throw.
+     * `server-overrides/`, or for a server pack the part after its root folder ($root: ''
+     * or `<folder>/`). Null for directories and entries that are not applied
+     * (client-overrides/, the index, anything outside the root). Hostile names throw.
      *
      * @throws UnsafePlanException
      */
-    public function overrideTarget(string $entry): ?string
+    public function overrideTarget(string $entry, ?string $root = null): ?string
     {
+        if ($root !== null && !self::isServerPackRoot($root)) {
+            throw new UnsafePlanException('unsafe_path', $root);
+        }
+
         if (str_ends_with($entry, '/')) {
             $this->normalisePath(substr($entry, 0, -1));
 
@@ -290,7 +378,7 @@ final class PlanValidator
 
         $name = $this->normalisePath($entry);
 
-        foreach (self::OVERRIDE_PREFIXES as $prefix) {
+        foreach ($root === null ? self::OVERRIDE_PREFIXES : [$root] as $prefix) {
             if (str_starts_with($name, $prefix)) {
                 $target = substr($name, strlen($prefix));
 
@@ -312,6 +400,10 @@ final class PlanValidator
     {
         foreach (array_filter([$plan->archive, $plan->serverPack]) as $archive) {
             $this->validateArchive($archive);
+        }
+
+        if ($plan->serverPack !== null && !self::isServerPackRoot($plan->serverPackRoot ?? '')) {
+            throw new UnsafePlanException('unsafe_path', (string) $plan->serverPackRoot);
         }
 
         $files = [];
@@ -371,13 +463,22 @@ final class PlanValidator
         $overrides = [];
         $skippedOverrides = $plan->skippedOverrides;
         $skippedClient = $plan->skippedClientOverrides;
+        $skippedPack = $plan->skippedPackFiles;
         $targets = [];
+        $root = $plan->overrideRoot();
 
         foreach ($plan->overrides as $override) {
             $path = $this->normalisePath($override->path);
 
-            if ($this->overrideTarget($override->entry) !== $path) {
+            if ($this->overrideTarget($override->entry, $root) !== $path) {
                 throw new UnsafePlanException('unsafe_path', $override->entry);
+            }
+
+            // A server pack's own start scripts, installers and bundled Java: the egg installs the loader.
+            if ($root !== null && self::isServerPackLauncherFile($path)) {
+                $skippedPack[] = $path;
+
+                continue;
             }
 
             if (isset($targets[strtolower($path)])) {
@@ -413,12 +514,25 @@ final class PlanValidator
             $overrides[] = new OverrideEntry($override->entry, $path, $override->size);
         }
 
+        $manual = [];
+        foreach ($plan->manualFiles as $entry) {
+            $entry = self::manualFile($entry);
+            if ($entry !== null) {
+                $manual[] = $entry;
+            }
+        }
+        if (count($files) + count($manual) > $this->caps->maxFiles) {
+            throw new UnsafePlanException('too_many_files', (string) (count($files) + count($manual)));
+        }
+
         $validated = $plan->with([
             'files' => $files,
             'overrides' => $overrides,
             'skippedClientFiles' => array_values(array_unique($skipped)),
             'skippedOverrides' => array_values(array_unique($skippedOverrides)),
             'skippedClientOverrides' => array_values(array_unique($skippedClient)),
+            'skippedPackFiles' => array_values(array_unique($skippedPack)),
+            'manualFiles' => $manual,
         ]);
 
         if ($validated->totalBytes() > $this->caps->maxTotalBytes) {

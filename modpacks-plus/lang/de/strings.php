@@ -95,6 +95,15 @@ return [
         'restore_discarded' => 'Wiederherstellung verworfen: Die beiseitegelegten Dateien bleiben in :path.',
         'restore_incomplete' => 'Wiederhergestellt: :restored, nicht wiederherstellbar: :failed (:paths). Sie liegen weiter in :path; "Vorherige Dateien wiederherstellen" erneut nutzen oder verwerfen.',
         'preserved_unexpected' => 'Gehört nicht zum Wechsel und bleibt in :path: :paths',
+        'server_pack' => 'Aus dem Server-Pack des Packs installiert; seine Startskripte und sein Loader-Installer wurden nicht verwendet (das Egg installiert den Loader).',
+        'server_pack_fallback' => 'Das Server-Pack des Packs wurde nicht verwendet, die Serverdateien wurden aus seinem Manifest erstellt: :reason',
+        'skipped_pack_files' => 'Nicht geschriebene Startskripte, Installer und mitgeliefertes Java des Server-Packs: :paths',
+        'manual_files' => 'Manuell herunterladen (:count) und mit dem Dateimanager hochladen:',
+        'manual_reasons' => [
+            'distribution_disabled' => 'der Autor erlaubt anderen Apps keinen Download, und auf Modrinth gibt es sie nicht',
+            'datapack' => 'ein Datenpaket: in den datapacks-Ordner der Welt legen',
+            'unsupported_type' => 'eine Dateiart, die der Installer nicht ablegt',
+        ],
     ],
     'reasons' => [
         'unsafe_level_name' => 'Der Weltordner (level-name in server.properties) ist kein Ordner im Server: :detail',
@@ -156,6 +165,8 @@ return [
         'curseforge_unavailable' => 'CurseForge ist nicht erreichbar. Versuche es später erneut. (:detail)',
         'curseforge_not_found' => 'Auf CurseForge nicht gefunden: :detail',
         'curseforge_key_rejected' => 'CurseForge hat den API-Schlüssel abgelehnt. Ein Admin prüft ihn in den Modpacks-Plus-Einstellungen. (:detail)',
+        'curseforge_no_download' => 'CurseForge bietet für diese Pack-Datei keinen Download an (der Autor hat Downloads durch Dritte abgeschaltet): :detail',
+        'server_pack_unusable' => 'Das Server-Pack fehlt, ist nicht als Server-Pack markiert, hat keinen Download oder keinen mods/-Ordner (:detail)',
     ],
     'steps' => [
         'prepare' => 'Pack prüfen',
@@ -225,6 +236,9 @@ return [
         'restore_reinstall_pending' => 'Wiederherstellung wartet: Die Neuinstallation läuft möglicherweise noch (bis :minutes Minuten nach der Anfrage).',
         'restore_discarded' => 'Ausstehende Wiederherstellung verworfen; die Dateien bleiben in :path.',
         'restore_incomplete' => 'Wiederhergestellt: :restored, nicht wiederherstellbar: :failed (:paths); sie liegen weiter in :path. Die Wiederherstellung erneut anstoßen, sobald der Konflikt behoben ist.',
+        'server_pack' => 'Verwende das Server-Pack :name.',
+        'server_pack_fallback' => 'Das Server-Pack kann nicht verwendet werden (:reason); Aufbau aus dem Manifest.',
+        'manual_download' => 'Manuell herunterladen: :name',
     ],
     'restore' => [
         'heading' => 'Vorherige Dateien wiederherstellen?',

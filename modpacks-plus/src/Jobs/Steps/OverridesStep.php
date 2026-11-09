@@ -3,18 +3,19 @@
 namespace DrMxrcy\ModpacksPlus\Jobs\Steps;
 
 use App\Models\Server;
+use DrMxrcy\ModpacksPlus\Data\PackArchive;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Exceptions\StepFailedException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
-use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Services\PackProviders;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PackArchiveReader;
 
 /**
- * Writes `overrides/` then `server-overrides/` entries to the server, one file at a
+ * Writes `overrides/` then `server-overrides/` entries (or, for a server pack, the files
+ * under its root folder) to the server, one file at a
  * time through the daemon (never a daemon-side unzip). Before writing, the archive's
  * sha512 is checked again (re-downloaded if the panel copy is gone) and every entry
  * name is re-checked; each entry's target is derived again and must equal the plan's.
@@ -36,16 +37,16 @@ class OverridesStep extends InstallStep
             return $this->finished($install, count($plan->overrides));
         }
 
-        if ($plan->archive === null) {
+        $archive = $plan->overrideArchive();
+        if ($archive === null) {
             throw new StepFailedException('unexpected', 'no archive');
         }
 
-        $path = $engine->workDir($install).'/pack.mrpack';
-        $provider = app(PackProviders::class)->get($install->provider);
-        if (!$provider instanceof ModrinthPackProvider) {
-            throw new StepFailedException('unexpected', $install->provider);
-        }
-        $provider->fetchArchive($plan->archive, $path, $validator);
+        // Any provider: the archive is re-checked against the plan's size and hash, re-downloaded
+        // (allowlisted, redirect-checked) if the panel copy is gone.
+        $path = $engine->workDir($install).'/'.($plan->serverPack !== null ? PackArchive::SERVER_PACK_WORK_FILE : PackArchive::WORK_FILE);
+        app(PackProviders::class)->get($install->provider)->fetchArchive($archive, $path, $validator);
+        $root = $plan->overrideRoot();
 
         $reader = PackArchiveReader::open($path, $validator, $caps);
         // Exactly the paths the download step wrote. Case-sensitive on purpose: server
@@ -61,7 +62,7 @@ class OverridesStep extends InstallStep
 
                 $entry = $plan->overrides[$index];
 
-                if ($validator->overrideTarget($entry->entry) !== $entry->path) {
+                if ($validator->overrideTarget($entry->entry, $root) !== $entry->path) {
                     throw new UnsafePlanException('unsafe_path', $entry->entry);
                 }
 

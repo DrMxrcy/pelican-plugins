@@ -50,7 +50,7 @@ class PrepareStep extends InstallStep
         }
 
         $worlds = $this->worlds($server);
-        $validator = new PlanValidator(Caps::fromConfig(), $worlds);
+        $validator = new PlanValidator(Caps::fromConfig(), $worlds, PlanValidator::hostsFor($install->provider));
 
         $plan = app(PackProviders::class)
             ->get($install->provider)
@@ -71,6 +71,14 @@ class PrepareStep extends InstallStep
         ]);
         foreach ($plan->skippedOverrides as $path) {
             $install->addLog('warning', 'override_protected', ['path' => $path]);
+        }
+        if ($plan->serverPack !== null) {
+            $install->addLog('info', 'server_pack', ['name' => $plan->serverPack->filename]);
+        } elseif ($plan->serverPackFallback !== null) {
+            $install->addLog('warning', 'server_pack_fallback', ['reason' => $plan->serverPackFallback['reason']]);
+        }
+        foreach ($plan->manualFiles as $file) {
+            $install->addLog('warning', 'manual_download', ['name' => $file['name']]);
         }
 
         return StepResult::done();

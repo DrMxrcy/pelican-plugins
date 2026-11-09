@@ -2,6 +2,8 @@
 
 namespace DrMxrcy\ModpacksPlus\Data;
 
+use DrMxrcy\ModpacksPlus\Support\PlanValidator;
+
 /**
  * A provider-neutral description of what installing one pack version does: the
  * target Minecraft version and loader, the files the node downloads, the archive
@@ -17,6 +19,12 @@ final class InstallPlan
      * @param  array<int, string>  $skippedClientFiles  paths dropped because the server doesn't need them
      * @param  array<int, string>  $skippedOverrides  override targets dropped because they are protected
      * @param  array<int, string>  $skippedClientOverrides  override targets dropped because only clients use them
+     * @param  array<int, array{name: string, url: ?string, reason: string}>  $manualFiles  files the user downloads
+     *                                                                                      (never fetched), with a link
+     *                                                                                      to the source's website
+     * @param  array<int, string>  $skippedPackFiles  server-pack start scripts, installers and bundled Java not written
+     * @param  string|null  $serverPackRoot  the folder inside $serverPack its files are under ('' = the zip root)
+     * @param  array{reason: string, detail: string}|null  $serverPackFallback  why a server pack was not used
      */
     public function __construct(
         public readonly string $provider,
@@ -34,7 +42,26 @@ final class InstallPlan
         public readonly array $skippedClientFiles = [],
         public readonly array $skippedOverrides = [],
         public readonly array $skippedClientOverrides = [],
+        public readonly array $manualFiles = [],
+        public readonly array $skippedPackFiles = [],
+        public readonly ?string $serverPackRoot = null,
+        public readonly ?array $serverPackFallback = null,
     ) {}
+
+    /**
+     * Where override entries come from: null = the archive's `overrides/` and
+     * `server-overrides/`; a string = the server pack's root folder ('' = its zip root).
+     */
+    public function overrideRoot(): ?string
+    {
+        return $this->serverPack !== null ? ($this->serverPackRoot ?? '') : null;
+    }
+
+    /** The archive override entries are read from: the server pack when there is one. */
+    public function overrideArchive(): ?PackArchive
+    {
+        return $this->serverPack ?? $this->archive;
+    }
 
     /** @param  array<string, mixed>  $changes */
     public function with(array $changes): self
@@ -55,6 +82,10 @@ final class InstallPlan
             'skippedClientFiles' => $this->skippedClientFiles,
             'skippedOverrides' => $this->skippedOverrides,
             'skippedClientOverrides' => $this->skippedClientOverrides,
+            'manualFiles' => $this->manualFiles,
+            'skippedPackFiles' => $this->skippedPackFiles,
+            'serverPackRoot' => $this->serverPackRoot,
+            'serverPackFallback' => $this->serverPackFallback,
         ], $changes);
 
         return new self(...$data);
@@ -93,6 +124,10 @@ final class InstallPlan
             'skipped_client_files' => $this->skippedClientFiles,
             'skipped_overrides' => $this->skippedOverrides,
             'skipped_client_overrides' => $this->skippedClientOverrides,
+            'manual_files' => $this->manualFiles,
+            'skipped_pack_files' => $this->skippedPackFiles,
+            'server_pack_root' => $this->serverPackRoot,
+            'server_pack_fallback' => $this->serverPackFallback,
         ];
     }
 
@@ -118,6 +153,12 @@ final class InstallPlan
             skippedClientFiles: array_values(array_filter($list('skipped_client_files'), 'is_string')),
             skippedOverrides: array_values(array_filter($list('skipped_overrides'), 'is_string')),
             skippedClientOverrides: array_values(array_filter($list('skipped_client_overrides'), 'is_string')),
+            manualFiles: array_values(array_filter(array_map(fn ($entry) => is_array($entry) ? PlanValidator::manualFile($entry) : null, $list('manual_files')))),
+            skippedPackFiles: array_values(array_filter($list('skipped_pack_files'), 'is_string')),
+            serverPackRoot: is_string($data['server_pack_root'] ?? null) ? $data['server_pack_root'] : null,
+            serverPackFallback: is_array($data['server_pack_fallback'] ?? null) && is_string($data['server_pack_fallback']['reason'] ?? null)
+                ? ['reason' => $data['server_pack_fallback']['reason'], 'detail' => is_string($data['server_pack_fallback']['detail'] ?? null) ? $data['server_pack_fallback']['detail'] : '']
+                : null,
         );
     }
 }
