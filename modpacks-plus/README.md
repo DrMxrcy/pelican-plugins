@@ -1,13 +1,14 @@
 # Modpacks Plus
 
-Browse [Modrinth](https://modrinth.com) and [CurseForge](https://www.curseforge.com) modpacks and install one onto a Minecraft server, switching
+Browse [Modrinth](https://modrinth.com), [CurseForge](https://www.curseforge.com), [FTB](https://www.feed-the-beast.com) and [ATLauncher](https://atlauncher.com) modpacks and install one onto a Minecraft server, switching
 the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft version when they differ.
 
 ## What it does
 
-- A **Modpacks** server page with a **Modrinth** and a **CurseForge** source: search modpacks filtered by
-  the server's Minecraft version and loader, with categories and sort; a pack detail view (description,
-  gallery, versions). See *CurseForge* below for the API key and the opt-in mirror.
+- A **Modpacks** server page with **Modrinth**, **CurseForge**, **FTB** and **ATLauncher** sources: search
+  modpacks filtered by the server's Minecraft version and loader, with categories and sort; a pack detail
+  view (description, gallery, versions). See *CurseForge* below for the API key and the opt-in mirror, and
+  *FTB and ATLauncher* for those sources.
 - Versions for another Minecraft version or loader offer **Switch to &lt;loader&gt; &lt;version&gt; and install**
   (admins, or everyone with the install permissions when the setting allows it; see *Loader switching*).
 - An install runs as chained short queue jobs:
@@ -37,7 +38,9 @@ Checked before anything is written to the server; archive entries are checked ag
   aimed at one rejects the pack; an override aimed at one is skipped and listed in the summary.
 - Downloads must be HTTPS from the pack's provider hosts (no credentials, no custom port): Modrinth packs
   `cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`, `objects.githubusercontent.com` or
-  `gitlab.com`; CurseForge packs `edge.forgecdn.net`, `mediafilez.forgecdn.net` or `cdn.modrinth.com`. The first allowlisted
+  `gitlab.com`; CurseForge packs `edge.forgecdn.net`, `mediafilez.forgecdn.net` or `cdn.modrinth.com`; FTB packs
+  `dist.modpacks.ch`, the two CurseForge hosts or `cdn.modrinth.com`; ATLauncher packs `download.nodecdn.net`, the
+  two CurseForge hosts or `cdn.modrinth.com`. The first allowlisted
   URL of a file is used; a file without one rejects the pack.
 - **Downloads.** The node (Wings) follows redirects on its own pulls, so it is only ever asked to pull
   files on `cdn.modrinth.com` whose sha512 Modrinth's own hash lookup knows at exactly that URL; their
@@ -104,6 +107,31 @@ Checked before anything is written to the server; archive entries are checked ag
 - **Also on Modrinth.** A CurseForge pack whose title (case-insensitive) and loader match a Modrinth
   modpack shows "Also on Modrinth — install from there", which lists it in the Modrinth tab. A suggestion
   only: titles can collide.
+
+## FTB and ATLauncher
+
+- **FTB** (`https://api.modpacks.ch/public`, public packs only). A pack version is a list of files, each a
+  download: FTB's own files come from `dist.modpacks.ch` (which sends no Content-Length, so the node can't
+  pull them): the panel streams each one with the byte cap enforced while streaming and checks FTB's sha1.
+  `clientonly` and `optional` files are left out; top-level scripts, jars and dotfiles, client-only folders
+  and anything aimed at a world, player list, `server.properties` or `.modpacks-plus/` are listed, never
+  written. Mods FTB takes from CurseForge follow the *CurseForge* rules: Modrinth first (by sha1), else the
+  URL CurseForge's API builds for that file id (never when the author disallows it); FTB's own URL for them
+  is never used. Without a CurseForge key or the mirror they are listed as **needs CurseForge key** and the
+  rest of the pack installs. If FTB and CurseForge disagree about a file's sha1 or size, the install stops.
+- **ATLauncher** (`https://api.atlauncher.com/v1` for the pack list, each version's `Configs.json` and
+  `Configs.zip` from `https://download.nodecdn.net/containers/atl`, as the ATLauncher app reads them). Mods
+  marked `server: false`, optional mods and resource/shader packs are left out; data packs, other kinds
+  and "download in the browser" mods are listed. ATLauncher only gives an md5 for most mods, which is
+  never used: a mod is checked against ATLauncher's sha1 when it has one, else CurseForge's sha1 for the
+  CurseForge file it names (needs a key or the mirror, else **needs CurseForge key**). Mods with no sha1
+  anywhere are listed (**no usable hash**), never downloaded. Mods ATLauncher hosts are fetched from its
+  CDN by the panel; links to the CurseForge CDN follow the *CurseForge* rules; other hosts are listed.
+  `Configs.zip` (its sha1 is required) is applied from its zip root like a server pack: no top-level
+  scripts, jars or dotfiles, no client-only or protected paths.
+- Both sources are read with the plugin's own User-Agent (`DrMxrcy/modpacks-plus/<version>`), never a
+  browser's; answers are capped at 8 MB, never decompressed and never redirected. FTB and ATLauncher files
+  are only ever fetched by the panel (never the node), except Modrinth-verified `cdn.modrinth.com` files.
 
 ## Modrinth Plus
 
@@ -215,6 +243,15 @@ direct calls get 403.
   the install (fail closed), even when it isn't next to `level-name`.
 - CurseForge searches are not throttled by the plugin: each search, page or filter change on the
   CurseForge tab is one request against the admin's API key quota (or the mirror's).
+- FTB lists every config, script and resource file separately: many FTB packs have more than 1000
+  files and are refused by the default `max_files` cap (raise `MODPACKS_PLUS_MAX_FILES` to install them;
+  each file is one panel download, so they take a while). Some ATLauncher configs archives are larger
+  than the 100 MB `max_archive_bytes` default.
+- FTB and ATLauncher have no loader or category filter: the FTB tab lists every pack (the detail view
+  says what a version needs), the ATLauncher tab filters by Minecraft version only, and only the newest
+  ten ATLauncher versions show their loader.
+- Without CurseForge set up, most ATLauncher mods (md5 only) are listed for manual download instead of
+  installed.
 
 ## Settings
 

@@ -16,7 +16,11 @@ return [
         'sources' => [
             'modrinth' => 'Modrinth',
             'curseforge' => 'CurseForge',
+            'ftb' => 'FTB',
+            'atlauncher' => 'ATLauncher',
         ],
+        'ftb_curseforge' => 'FTB packs take many mods from CurseForge. Those found on Modrinth install from there; the rest need CurseForge set up (an admin adds a key or turns on the mirror) and are otherwise listed as "needs CurseForge key" for you to download.',
+        'atlauncher_curseforge' => 'ATLauncher only gives an md5 for most mods, which is not used to verify downloads. Mods are checked against CurseForge\'s sha1 instead, so without CurseForge set up (an admin adds a key or turns on the mirror) they are listed as "needs CurseForge key"; mods with no sha1 anywhere are never downloaded.',
     ],
     'filters' => [
         'sort' => 'Sort',

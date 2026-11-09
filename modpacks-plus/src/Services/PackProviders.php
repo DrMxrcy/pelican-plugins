@@ -16,7 +16,7 @@ use DrMxrcy\ModpacksPlus\Support\Caps;
 class PackProviders
 {
     /** Provider ids in the order the Modpacks page lists them. */
-    public const IDS = [ModrinthPackProvider::ID, CurseForgePackProvider::ID];
+    public const IDS = [ModrinthPackProvider::ID, CurseForgePackProvider::ID, FtbPackProvider::ID, AtLauncherPackProvider::ID];
 
     /** @throws PackUnavailableException */
     public function get(string $id): PackProvider

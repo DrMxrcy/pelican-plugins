@@ -3,7 +3,7 @@
     "name": "Modpacks Plus",
     "author": "DrMxrcy",
     "version": "0.1.0",
-    "description": "Browse Modrinth and CurseForge modpacks and install one onto a Minecraft server safely: backup first, path, host and hash checks, live progress and cancel",
+    "description": "Browse Modrinth, CurseForge, FTB and ATLauncher modpacks and install one onto a Minecraft server safely: backup first, path, host and hash checks, live progress and cancel",
     "category": "plugin",
     "url": "https://github.com/DrMxrcy/pelican-plugins/tree/main/modpacks-plus",
     "update_url": "https://github.com/DrMxrcy/pelican-plugins/releases/download/modpacks-plus-latest/update.json",

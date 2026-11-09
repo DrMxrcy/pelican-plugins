@@ -12,8 +12,10 @@ use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
 use DrMxrcy\ModpacksPlus\Jobs\RestorePreviousFilesJob;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
+use DrMxrcy\ModpacksPlus\Providers\AtLauncher\AtLauncherPackProvider;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgePackProvider;
+use DrMxrcy\ModpacksPlus\Providers\Ftb\FtbPackProvider;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Services\JavaImagePicker;
@@ -49,7 +51,7 @@ use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 
 /**
- * Browse Modrinth and CurseForge modpacks and install one onto this server, switching the server's
+ * Browse Modrinth, CurseForge, FTB and ATLauncher modpacks and install one onto this server, switching the server's
  * loader egg first when the pack needs another loader or Minecraft version.
  *
  * Permissions: viewing needs file.read; installing, cancelling and restoring need
@@ -59,7 +61,7 @@ use Illuminate\Support\Str;
  * methods (installPack, switchLoaderAndInstall, cancelInstall, restorePreviousFiles)
  * check them themselves: they are callable from the browser no matter which buttons are shown.
  *
- * The source (Modrinth or CurseForge) is a public property the browser can set to anything:
+ * The source (Modrinth, CurseForge, FTB or ATLauncher) is a public property the browser can set to anything:
  * it is only ever used through source(), which falls back to Modrinth for unknown values.
  * CurseForge without an API key or the opt-in mirror makes no API call at all.
  */
@@ -246,7 +248,12 @@ class ModpacksPage extends Page implements HasTable
     {
         return array_map(fn (string $source) => Action::make('source_'.$source)
             ->label(trans('modpacks-plus::strings.page.sources.'.$source))
-            ->icon($source === ModrinthPackProvider::ID ? 'tabler-box' : 'tabler-flame')
+            ->icon(match ($source) {
+                ModrinthPackProvider::ID => 'tabler-box',
+                CurseForgePackProvider::ID => 'tabler-flame',
+                FtbPackProvider::ID => 'tabler-hammer',
+                default => 'tabler-rocket',
+            })
             ->color(fn () => $this->source() === $source ? 'primary' : 'gray')
             ->action(fn () => $this->setSource($source)), PackProviders::IDS);
     }
@@ -933,6 +940,15 @@ class ModpacksPage extends Page implements HasTable
                 ->icon('tabler-info-circle')
                 ->color('info')
                 ->visible(fn () => $this->source() === CurseForgePackProvider::ID && CurseForgeClient::fromConfig()->mode() === CurseForgeClient::MODE_MIRROR),
+            // Plan 32: CurseForge files inside FTB / ATLauncher packs need CurseForge (or Modrinth).
+            Callout::make(trans('modpacks-plus::strings.page.ftb_curseforge'))
+                ->icon('tabler-info-circle')
+                ->color('info')
+                ->visible(fn () => $this->source() === FtbPackProvider::ID && !CurseForgeClient::fromConfig()->configured()),
+            Callout::make(trans('modpacks-plus::strings.page.atlauncher_curseforge'))
+                ->icon('tabler-info-circle')
+                ->color('info')
+                ->visible(fn () => $this->source() === AtLauncherPackProvider::ID && !CurseForgeClient::fromConfig()->configured()),
             Callout::make(trans('modpacks-plus::strings.page.unsupported'))
                 ->description(trans('modpacks-plus::strings.reasons.server_not_supported'))
                 ->icon('tabler-alert-triangle')
