@@ -211,4 +211,25 @@ class CompatibilityCheckTest extends TestCase
 
         $this->check()->assertMountedActionModalSee(trans('modrinth-plus::strings.compatibility.status.incompatible'));
     }
+
+    /** Plan 18: pinned projects are still listed, labelled as pinned, without "use the update button". */
+    public function test_pinned_projects_are_listed_and_labelled(): void
+    {
+        $this->account();
+        $this->withLoader();
+        MinecraftModrinth::shouldReceive('getInstalledModsMetadata')->andReturn([
+            ['project_id' => 'sodium', 'project_slug' => 'sodium', 'project_title' => 'Title of sodium', 'version_id' => 'v1', 'version_number' => '1.0.0', 'filename' => 'sodium.jar', 'installed_at' => '2026-01-01T00:00:00+00:00', 'pinned' => true],
+            ['project_id' => 'gone', 'project_slug' => 'gone', 'project_title' => 'Title of gone', 'version_id' => 'v1', 'version_number' => '1.0.0', 'filename' => 'gone.jar', 'installed_at' => '2026-01-01T00:00:00+00:00'],
+        ]);
+        MinecraftModrinth::shouldReceive('getProjectVersionsBulk')->andReturn([
+            'sodium' => [$this->version('v9', '9.9.9')],
+            'gone' => [],
+        ]);
+
+        $this->check()
+            ->assertMountedActionModalSee(trans('modrinth-plus::strings.compatibility.summary', ['count' => 2, 'total' => 2]))
+            ->assertMountedActionModalSee(trans('modrinth-plus::strings.compatibility.pinned_label', ['name' => 'Title of sodium']))
+            ->assertMountedActionModalSee(trans('modrinth-plus::strings.compatibility.details.needs_update_pinned', ['installed' => '1.0.0', 'newest' => '9.9.9']))
+            ->assertMountedActionModalDontSee(trans('modrinth-plus::strings.compatibility.pinned_label', ['name' => 'Title of gone']));
+    }
 }

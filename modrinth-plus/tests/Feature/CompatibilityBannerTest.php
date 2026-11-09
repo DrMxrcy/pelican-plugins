@@ -458,4 +458,30 @@ class CompatibilityBannerTest extends TestCase
 
         $this->page()->assertSee($this->heading(2))->assertSee($this->description());
     }
+
+    /** Plan 18: pinned projects still count, and the banner says how many are pinned. */
+    public function test_banner_counts_pinned_projects_and_says_how_many_are_pinned(): void
+    {
+        $this->account();
+        $this->fakeModrinth();
+        $this->install(['ok' => 'ok1', 'old' => 'old1', 'gone' => 'g1']);
+        $this->installed[1]['pinned'] = true;
+
+        $this->page()
+            ->assertSet('incompatibleCount', 2)
+            ->assertSet('incompatiblePinnedCount', 1)
+            ->assertSee($this->heading(2))
+            ->assertSee(trans_choice('modrinth-plus::strings.compatibility.banner.pinned', 1, ['count' => 1]));
+    }
+
+    public function test_banner_says_nothing_about_pins_when_none_are_pinned(): void
+    {
+        $this->account();
+        $this->fakeModrinth();
+        $this->install(['ok' => 'ok1', 'old' => 'old1', 'gone' => 'g1']);
+
+        $this->page()
+            ->assertSet('incompatiblePinnedCount', 0)
+            ->assertDontSee(trans_choice('modrinth-plus::strings.compatibility.banner.pinned', 1, ['count' => 1]));
+    }
 }

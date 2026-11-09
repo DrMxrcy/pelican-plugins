@@ -99,7 +99,9 @@ return [
         'banner' => [
             'heading' => ':count installed project doesn\'t support Minecraft :version|:count installed projects don\'t support Minecraft :version',
             'description' => 'Installed versions without a build for this Minecraft version and :loader may fail to load. Check compatibility to see which ones and whether an update helps.',
+            'pinned' => ':count of them is pinned, so no update is offered for it until it is unpinned.|:count of them are pinned, so no update is offered for them until they are unpinned.',
         ],
+        'pinned_label' => ':name (pinned)',
         'status' => [
             'needs_update' => 'Update needed',
             'incompatible' => 'Incompatible',
@@ -107,6 +109,7 @@ return [
         ],
         'details' => [
             'needs_update' => 'The installed version :installed is not built for this Minecraft version, but :newest is. Use the update button in the Installed tab.',
+            'needs_update_pinned' => 'The installed version :installed is not built for this Minecraft version, but :newest is. This project is pinned: unpin it in the Installed tab to update it.',
             'incompatible' => 'No version of this project supports this Minecraft version and loader yet (installed: :installed).',
             'unknown' => 'Modrinth could not be reached for this project. Try again later.',
             'unknown_loader' => 'The server\'s loader is unknown, so compatibility cannot be checked.',
@@ -151,11 +154,25 @@ return [
         'uninstall_failed_body' => 'An error occurred during uninstallation. Please try again or contact support if the issue persists.',
     ],
 
+    'pin' => [
+        'pin_tooltip' => 'Pin: keep this version, no updates are offered',
+        'unpin_tooltip' => 'Unpin: offer updates again',
+        'badge' => 'Pinned',
+        'badge_tooltip' => 'Kept at this version: no update is offered and "Update all" skips it. Installing a specific version still works.',
+        'pinned' => 'Pinned',
+        'pinned_body' => ':name stays at its current version until you unpin it.',
+        'unpinned' => 'Unpinned',
+        'unpinned_body' => 'Updates are offered for :name again.',
+        'failed' => 'Could not change the pin',
+        'failed_body' => 'The installed list could not be read or saved, so nothing was changed for :name. Try again later.',
+    ],
+
     'update_all' => [
         'action' => 'Update all (:count)',
-        'tooltip' => 'Update every installed project that has a newer compatible version. Client-only projects are skipped.',
+        'tooltip' => 'Update every installed project that has a newer compatible version. Client-only and pinned projects are skipped.',
         'heading' => 'Update all',
         'description' => 'These :count projects will be updated to their newest compatible version: :list. Client-only projects and projects no longer on Modrinth are skipped.',
+        'skipped_pinned' => 'Skipped, pinned: :list.',
         'entry' => ':name (:old → :new)',
         'success_title' => 'Updates installed',
         'partial_title' => 'Some updates failed',

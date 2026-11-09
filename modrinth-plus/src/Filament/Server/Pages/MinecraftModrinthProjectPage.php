@@ -61,7 +61,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     /** Table record key of a "Not on Modrinth" row: this prefix plus the jar's file name. */
     public const NOT_ON_MODRINTH_KEY_PREFIX = 'file:';
 
-    /** @var array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}>|null */
+    /** @var array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}>|null */
     protected ?array $installedModsMetadata = null;
 
     /** @var array<string, array<int, mixed>> Cache for version data by project_id */
@@ -70,6 +70,9 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     /** @var array<int, array<string, mixed>>|null What "Update all" would update, for this request only. */
     protected ?array $updateAllCandidates = null;
 
+    /** @var array<int, array<string, mixed>>|null Every installed project on Modrinth (all pages), for this request only. */
+    protected ?array $installedProjects = null;
+
     /**
      * Installed projects without a build for the server's Minecraft version + loader, for the
      * banner at the top of the page; null until loadCompatibilityBanner() ran. Locked: only the
@@ -77,6 +80,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
      */
     #[Locked]
     public ?int $incompatibleCount = null;
+
+    /** How many of those are pinned (plan 18); the banner says so. Locked like the count. */
+    #[Locked]
+    public int $incompatiblePinnedCount = 0;
 
     /** Whether this request already asked the browser to reload the banner (once is enough). */
     protected bool $compatibilityBannerQueued = false;
@@ -118,6 +125,12 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     public static function canUninstall(): bool
     {
         return static::userCan(SubuserPermission::FileDelete);
+    }
+
+    /** Pinning and unpinning rewrite the metadata file, which already exists for an installed project. */
+    public static function canPin(): bool
+    {
+        return static::userCan(SubuserPermission::FileUpdate);
     }
 
     /**
@@ -340,7 +353,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         ];
     }
 
-    /** @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}> */
+    /** @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}> */
     protected function getInstalledModsMetadata(): array
     {
         if ($this->installedModsMetadata === null) {
@@ -353,7 +366,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         return $this->installedModsMetadata;
     }
 
-    /** @return array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}|null */
+    /** @return array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}|null */
     protected function getInstalledMod(string $projectId): ?array
     {
         $installedMods = $this->getInstalledModsMetadata();
@@ -412,6 +425,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $this->installedModsMetadata = null;
         $this->versionsCache = [];
         $this->updateAllCandidates = null;
+        $this->installedProjects = null;
 
         // The installed projects may have changed: work the banner out again, after this request.
         $server = Filament::getTenant();
@@ -707,12 +721,39 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     }
 
     /**
-     * The installed project has a newer compatible version than the one on disk, going by the
-     * versions cached for this render. Says nothing about client-only projects.
+     * An update is offered: the project is not pinned and has a newer compatible version.
+     * Says nothing about client-only projects.
      *
      * @param  array<string, mixed>  $record
      */
     protected function isUpdateAvailable(array $record): bool
+    {
+        return !$this->isPinned($record) && $this->hasNewerVersion($record);
+    }
+
+    /**
+     * The installed project is pinned (plan 18): it keeps its version until it is unpinned.
+     *
+     * @param  array<string, mixed>  $record
+     */
+    protected function isPinned(array $record): bool
+    {
+        if ($this->isNotOnModrinthRecord($record)) {
+            return false;
+        }
+
+        $installedMod = $this->getInstalledMod($record['project_id']);
+
+        return $installedMod !== null && MinecraftModrinthService::isPinned($installedMod);
+    }
+
+    /**
+     * The installed project has a newer compatible version than the one on disk, going by the
+     * versions cached for this render, pinned or not.
+     *
+     * @param  array<string, mixed>  $record
+     */
+    protected function hasNewerVersion(array $record): bool
     {
         $installedMod = $this->getInstalledMod($record['project_id']);
 
@@ -1310,19 +1351,29 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->description(function (array $record) {
                         $description = (strlen($record['description']) > 120) ? substr($record['description'], 0, 120).'...' : $record['description'];
 
+                        $badges = [];
+
                         if ($this->isNotOnModrinthRecord($record)) {
-                            $badge = $this->renderBadge('gray', 'tabler-file-unknown', 'scan.badge');
-                        } elseif (!static::usesClientOnlyFilter()) {
-                            return $description;
-                        } elseif (Sides::playersNeedIt($record)) {
-                            $badge = $this->renderBadge('warning', 'tabler-users', 'sides.players_need_it');
-                        } elseif ($this->activeTab === 'installed' && Sides::isClientOnly($record)) {
-                            $badge = $this->renderBadge('danger', 'tabler-alert-triangle', 'client_only.badge');
+                            $badges[] = $this->renderBadge('gray', 'tabler-file-unknown', 'scan.badge');
                         } else {
+                            if ($this->isPinned($record)) {
+                                $badges[] = $this->renderBadge('info', 'tabler-pin', 'pin.badge');
+                            }
+
+                            if (!static::usesClientOnlyFilter()) {
+                                // Datapacks: no side badges.
+                            } elseif (Sides::playersNeedIt($record)) {
+                                $badges[] = $this->renderBadge('warning', 'tabler-users', 'sides.players_need_it');
+                            } elseif ($this->activeTab === 'installed' && Sides::isClientOnly($record)) {
+                                $badges[] = $this->renderBadge('danger', 'tabler-alert-triangle', 'client_only.badge');
+                            }
+                        }
+
+                        if ($badges === []) {
                             return $description;
                         }
 
-                        return new HtmlString($badge.' '.e($description));
+                        return new HtmlString(implode(' ', $badges).' '.e($description));
                     }),
                 TextColumn::make('author')
                     ->url(fn ($state) => "https://modrinth.com/user/$state", true)
@@ -1520,6 +1571,8 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->action(function (array $record) {
                         abort_unless(static::canUpdate(), 403);
                         abort_if(static::usesClientOnlyFilter() && Sides::isClientOnly($record), 403);
+                        // Pinned: no update until it is unpinned (installing a chosen version still works).
+                        abort_if($this->isPinned($record), 403);
 
                         if (!$this->ensureProjectFolder()) {
                             return;
@@ -1569,12 +1622,14 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                         $versions = $this->getCachedVersions($record['project_id']);
 
-                        if (empty($versions)) {
+                        if (empty($versions) || MinecraftModrinthService::isPinned($installedMod)) {
                             return true;
                         }
 
                         return $installedMod['version_id'] === $versions[0]['id'];
                     }),
+                $this->makePinAction(true),
+                $this->makePinAction(false),
                 Action::make('uninstall')
                     ->iconButton()
                     ->icon('tabler-trash')
@@ -1670,8 +1725,36 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
      */
     protected function updateAllCandidates(): array
     {
-        if ($this->updateAllCandidates !== null) {
-            return $this->updateAllCandidates;
+        return $this->updateAllCandidates ??= array_values(array_filter(
+            $this->installedProjects(),
+            fn (array $project) => $this->isUpdateAvailable($project),
+        ));
+    }
+
+    /**
+     * Installed projects "Update all" leaves alone only because they are pinned: they have a
+     * newer compatible version and would otherwise be candidates. Listed in its confirmation.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function pinnedUpdateAllSkips(): array
+    {
+        return array_values(array_filter(
+            $this->installedProjects(),
+            fn (array $project) => $this->isPinned($project) && $this->hasNewerVersion($project),
+        ));
+    }
+
+    /**
+     * Every installed project on Modrinth that could ever be updated (not client-only, still on
+     * Modrinth), across every page of the Installed tab, with its versions primed.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function installedProjects(): array
+    {
+        if ($this->installedProjects !== null) {
+            return $this->installedProjects;
         }
 
         $installedMods = $this->getInstalledModsMetadata();
@@ -1688,11 +1771,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
         $this->primeVersionsCache(array_column($projects, 'project_id'));
 
-        return $this->updateAllCandidates = array_values(array_filter(
+        return $this->installedProjects = array_values(array_filter(
             $projects,
             fn (array $project) => empty($project['unavailable'])
-                && !(static::usesClientOnlyFilter() && Sides::isClientOnly($project))
-                && $this->isUpdateAvailable($project),
+                && !(static::usesClientOnlyFilter() && Sides::isClientOnly($project)),
         ));
     }
 
@@ -1722,7 +1804,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                 $candidates = $this->updateAllCandidates();
                 $unknown = trans('modrinth-plus::strings.page.unknown');
 
-                return trans('modrinth-plus::strings.update_all.description', [
+                $description = trans('modrinth-plus::strings.update_all.description', [
                     'count' => count($candidates),
                     'list' => implode(', ', array_map(fn (array $record) => trans('modrinth-plus::strings.update_all.entry', [
                         'name' => $record['title'],
@@ -1730,6 +1812,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         'new' => $this->getCachedVersions($record['project_id'])[0]['version_number'] ?? $unknown,
                     ]), $candidates)),
                 ]);
+
+                $skipped = $this->pinnedUpdateAllSkipsLine();
+
+                return $skipped === null ? $description : "$description $skipped";
             })
             ->action(fn () => $this->updateAll());
     }
@@ -1748,6 +1834,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         // Worked out again from the server and Modrinth: the modal may have been open a while.
         $this->forgetInstalledState(false);
         $candidates = $this->updateAllCandidates();
+        $skippedPinned = $this->pinnedUpdateAllSkipsLine();
 
         if ($candidates === []) {
             Notification::make()
@@ -1796,6 +1883,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             $lines[] = trans('modrinth-plus::strings.update_all.failed', ['list' => implode(', ', $failed)]);
         }
 
+        if ($skippedPinned !== null) {
+            $lines[] = $skippedPinned;
+        }
+
         $notification = Notification::make()->body(implode(' ', $lines));
 
         match (true) {
@@ -1807,6 +1898,62 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $notification->send();
 
         $this->notifyDependencyProblems($dependencies);
+    }
+
+    /** "Skipped, pinned: …" for "Update all", or null when no pinned project has an update. */
+    protected function pinnedUpdateAllSkipsLine(): ?string
+    {
+        $skipped = $this->pinnedUpdateAllSkips();
+
+        return $skipped === [] ? null : trans('modrinth-plus::strings.update_all.skipped_pinned', [
+            'list' => implode(', ', array_column($skipped, 'title')),
+        ]);
+    }
+
+    /**
+     * "Pin" (or "Unpin") on an installed row. Writes only the `pinned` key of the project's
+     * metadata entry (see MinecraftModrinthService::setPinned()); a failed read or write
+     * changes nothing and says so.
+     */
+    protected function makePinAction(bool $pin): Action
+    {
+        return Action::make($pin ? 'pin' : 'unpin')
+            ->iconButton()
+            ->icon($pin ? 'tabler-pin' : 'tabler-pinned-off')
+            ->color('gray')
+            ->tooltip(trans($pin ? 'modrinth-plus::strings.pin.pin_tooltip' : 'modrinth-plus::strings.pin.unpin_tooltip'))
+            ->visible(fn (array $record) => $this->activeTab === 'installed'
+                && !$this->isNotOnModrinthRecord($record)
+                && !is_null($this->getInstalledMod($record['project_id']))
+                && $this->isPinned($record) !== $pin)
+            ->authorize(fn () => static::canPin())
+            ->action(function (array $record) use ($pin) {
+                abort_unless(static::canPin(), 403);
+
+                /** @var Server $server */
+                $server = Filament::getTenant();
+
+                $saved = !$this->isNotOnModrinthRecord($record)
+                    && MinecraftModrinth::setPinned($server, static::$modrinthProjectType, $record['project_id'], $pin);
+
+                $this->forgetInstalledState();
+
+                if (!$saved) {
+                    Notification::make()
+                        ->title(trans('modrinth-plus::strings.pin.failed'))
+                        ->body(trans('modrinth-plus::strings.pin.failed_body', ['name' => $record['title']]))
+                        ->danger()
+                        ->send();
+
+                    return;
+                }
+
+                Notification::make()
+                    ->title(trans($pin ? 'modrinth-plus::strings.pin.pinned' : 'modrinth-plus::strings.pin.unpinned'))
+                    ->body(trans($pin ? 'modrinth-plus::strings.pin.pinned_body' : 'modrinth-plus::strings.pin.unpinned_body', ['name' => $record['title']]))
+                    ->success()
+                    ->send();
+            });
     }
 
     protected function getHeaderActions(): array
@@ -1985,6 +2132,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     {
         if (!static::userCan(SubuserPermission::FileRead) || !static::$modrinthProjectType) {
             $this->incompatibleCount = null;
+            $this->incompatiblePinnedCount = 0;
 
             return;
         }
@@ -2001,6 +2149,8 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         }
 
         $this->incompatibleCount = $summary['incompatible'] ?? 0;
+        // A summary cached before plan 18 has no `pinned`.
+        $this->incompatiblePinnedCount = $summary['pinned'] ?? 0;
     }
 
     /** The banner above the table; its button opens the "Check compatibility" modal. */
@@ -2011,9 +2161,17 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             'version' => MinecraftModrinth::getMinecraftVersion($server) ?? trans('modrinth-plus::strings.page.unknown'),
         ]))
             ->key('compatibility_banner')
-            ->description(fn () => trans('modrinth-plus::strings.compatibility.banner.description', [
-                'loader' => MinecraftModrinth::getLoaderFromServer($server, static::$modrinthProjectType)['display_name'] ?? trans('modrinth-plus::strings.page.unknown'),
-            ]))
+            ->description(function () use ($server) {
+                $description = trans('modrinth-plus::strings.compatibility.banner.description', [
+                    'loader' => MinecraftModrinth::getLoaderFromServer($server, static::$modrinthProjectType)['display_name'] ?? trans('modrinth-plus::strings.page.unknown'),
+                ]);
+
+                if ($this->incompatiblePinnedCount < 1) {
+                    return $description;
+                }
+
+                return $description.' '.trans_choice('modrinth-plus::strings.compatibility.banner.pinned', $this->incompatiblePinnedCount, ['count' => $this->incompatiblePinnedCount]);
+            })
             ->icon('tabler-alert-triangle')
             ->color('warning')
             ->visible(fn () => ($this->incompatibleCount ?? 0) > 0 && static::userCan(SubuserPermission::FileRead))
@@ -2049,6 +2207,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $versions = $loaderKnown ? MinecraftModrinth::getProjectVersionsBulk(array_column($installedMods, 'project_id'), $server, static::$modrinthProjectType) : [];
 
         $problems = Compatibility::problems(Compatibility::report($installedMods, $versions, $loaderKnown));
+        $pinnedIds = array_column(array_filter($installedMods, fn (array $mod) => MinecraftModrinthService::isPinned($mod)), 'project_id');
 
         if ($problems === []) {
             return [
@@ -2067,8 +2226,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         ];
 
         foreach ($problems as $index => $row) {
+            $pinned = in_array($row['project_id'], $pinnedIds, true);
+
             $details = match ($row['status']) {
-                Compatibility::NEEDS_UPDATE => trans('modrinth-plus::strings.compatibility.details.needs_update', [
+                Compatibility::NEEDS_UPDATE => trans($pinned ? 'modrinth-plus::strings.compatibility.details.needs_update_pinned' : 'modrinth-plus::strings.compatibility.details.needs_update', [
                     'installed' => $row['installed_version'],
                     'newest' => $row['newest_version'] ?? trans('modrinth-plus::strings.page.unknown'),
                 ]),
@@ -2078,7 +2239,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
             // Titles come from the metadata file on the server: plain strings, so Blade escapes them.
             $entries[] = TextEntry::make('compatibility_' . $index)
-                ->label($row['title'])
+                ->label($pinned ? trans('modrinth-plus::strings.compatibility.pinned_label', ['name' => $row['title']]) : $row['title'])
                 ->state(trans('modrinth-plus::strings.compatibility.status.' . $row['status']))
                 ->badge()
                 ->color(match ($row['status']) {

@@ -715,7 +715,9 @@ class MinecraftModrinthService
      * Null when it cannot be worked out: the loader is unknown, or the metadata file could not
      * be read. Asks Modrinth only through getProjectVersionsBulk().
      *
-     * @return array{incompatible: int, unknown: int, total: int}|null
+     * `pinned` is how many of the `incompatible` ones are pinned.
+     *
+     * @return array{incompatible: int, unknown: int, total: int, pinned: int}|null
      */
     public function getCompatibilitySummary(Server $server, ModrinthProjectType $modrinthProjectType): ?array
     {
@@ -738,17 +740,25 @@ class MinecraftModrinthService
 
             $cached = cache()->get($key);
             if (is_array($cached) && ($cached['fingerprint'] ?? null) === $fingerprint && is_array($cached['summary'] ?? null)) {
-                /** @var array{incompatible: int, unknown: int, total: int} */
+                /** @var array{incompatible: int, unknown: int, total: int, pinned: int} */
                 return $cached['summary'];
             }
 
             $versions = $installedMods === [] ? [] : $this->getProjectVersionsBulk(array_column($installedMods, 'project_id'), $server, $modrinthProjectType);
-            $statuses = array_count_values(array_column(Compatibility::report($installedMods, $versions, true), 'status'));
+            $report = Compatibility::report($installedMods, $versions, true);
+            $statuses = array_count_values(array_column($report, 'status'));
+
+            // Pinned projects still count (pinning doesn't make them compatible); the banner
+            // says how many of them are pinned.
+            $pinnedIds = array_column(array_filter($installedMods, fn (array $mod) => self::isPinned($mod)), 'project_id');
+            $pinnedProblems = array_filter($report, fn (array $row) => in_array($row['status'], [Compatibility::INCOMPATIBLE, Compatibility::NEEDS_UPDATE], true)
+                && in_array($row['project_id'], $pinnedIds, true));
 
             $summary = [
                 'incompatible' => ($statuses[Compatibility::INCOMPATIBLE] ?? 0) + ($statuses[Compatibility::NEEDS_UPDATE] ?? 0),
                 'unknown' => $statuses[Compatibility::UNKNOWN] ?? 0,
                 'total' => count($installedMods),
+                'pinned' => count($pinnedProblems),
             ];
 
             cache()->put(
@@ -778,13 +788,13 @@ class MinecraftModrinthService
 
     /**
      * What the cached summary was worked out for: Minecraft version, loader and the installed
-     * version of every project (order-independent).
+     * version of every project and whether it is pinned (order-independent).
      *
-     * @param  array<int, array{project_id: string, version_id: string}>  $installedMods
+     * @param  array<int, array{project_id: string, version_id: string, pinned?: bool}>  $installedMods
      */
     protected static function compatibilityFingerprint(?string $minecraftVersion, string $loader, array $installedMods): string
     {
-        $installed = array_map(fn (array $mod) => $mod['project_id'] . '@' . $mod['version_id'], $installedMods);
+        $installed = array_map(fn (array $mod) => $mod['project_id'] . '@' . $mod['version_id'] . (self::isPinned($mod) ? '#pinned' : ''), $installedMods);
         sort($installed);
 
         return hash('sha256', json_encode([$minecraftVersion, $loader, $installed], JSON_THROW_ON_ERROR));

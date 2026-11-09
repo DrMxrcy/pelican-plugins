@@ -99,7 +99,9 @@ return [
         'banner' => [
             'heading' => ':count installiertes Projekt unterstützt Minecraft :version nicht|:count installierte Projekte unterstützen Minecraft :version nicht',
             'description' => 'Installierte Versionen ohne Build für diese Minecraft-Version und :loader laden eventuell nicht. Prüfe die Kompatibilität, um zu sehen, welche betroffen sind und ob ein Update hilft.',
+            'pinned' => ':count davon ist angepinnt, daher wird dafür kein Update angeboten, bis es gelöst wird.|:count davon sind angepinnt, daher wird dafür kein Update angeboten, bis sie gelöst werden.',
         ],
+        'pinned_label' => ':name (angepinnt)',
         'status' => [
             'needs_update' => 'Update nötig',
             'incompatible' => 'Inkompatibel',
@@ -107,6 +109,7 @@ return [
         ],
         'details' => [
             'needs_update' => 'Die installierte Version :installed ist nicht für diese Minecraft-Version gebaut, :newest aber schon. Nutze den Update-Button im Tab „Installiert“.',
+            'needs_update_pinned' => 'Die installierte Version :installed ist nicht für diese Minecraft-Version gebaut, :newest aber schon. Dieses Projekt ist angepinnt: Löse es im Tab „Installiert“, um es zu aktualisieren.',
             'incompatible' => 'Keine Version dieses Projekts unterstützt diese Minecraft-Version und diesen Loader bisher (installiert: :installed).',
             'unknown' => 'Modrinth war für dieses Projekt nicht erreichbar. Versuche es später erneut.',
             'unknown_loader' => 'Der Loader des Servers ist unbekannt, daher kann die Kompatibilität nicht geprüft werden.',
@@ -151,11 +154,25 @@ return [
         'uninstall_failed_body' => 'Bei der Deinstallation ist ein Fehler aufgetreten. Bitte versuche es erneut oder wende dich an den Support, wenn das Problem weiterhin besteht.',
     ],
 
+    'pin' => [
+        'pin_tooltip' => 'Anpinnen: diese Version behalten, keine Updates anbieten',
+        'unpin_tooltip' => 'Lösen: wieder Updates anbieten',
+        'badge' => 'Angepinnt',
+        'badge_tooltip' => 'Bleibt bei dieser Version: Es wird kein Update angeboten und „Alle aktualisieren“ überspringt es. Eine bestimmte Version zu installieren geht weiterhin.',
+        'pinned' => 'Angepinnt',
+        'pinned_body' => ':name bleibt bei der aktuellen Version, bis du es löst.',
+        'unpinned' => 'Gelöst',
+        'unpinned_body' => 'Für :name werden wieder Updates angeboten.',
+        'failed' => 'Anpinnen konnte nicht geändert werden',
+        'failed_body' => 'Die Liste der installierten Projekte konnte nicht gelesen oder gespeichert werden, daher wurde für :name nichts geändert. Versuche es später erneut.',
+    ],
+
     'update_all' => [
         'action' => 'Alle aktualisieren (:count)',
-        'tooltip' => 'Aktualisiert jedes installierte Projekt, für das es eine neuere kompatible Version gibt. Reine Client-Projekte werden übersprungen.',
+        'tooltip' => 'Aktualisiert jedes installierte Projekt, für das es eine neuere kompatible Version gibt. Reine Client-Projekte und angepinnte Projekte werden übersprungen.',
         'heading' => 'Alle aktualisieren',
         'description' => 'Diese :count Projekte werden auf ihre neueste kompatible Version aktualisiert: :list. Reine Client-Projekte und Projekte, die nicht mehr auf Modrinth sind, werden übersprungen.',
+        'skipped_pinned' => 'Übersprungen, angepinnt: :list.',
         'entry' => ':name (:old → :new)',
         'success_title' => 'Aktualisierungen installiert',
         'partial_title' => 'Einige Aktualisierungen sind fehlgeschlagen',

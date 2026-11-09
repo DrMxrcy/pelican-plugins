@@ -101,7 +101,7 @@ class CompatibilitySummaryTest extends TestCase
 
         $summary = $this->service()->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod);
 
-        $this->assertSame(['incompatible' => 2, 'unknown' => 1, 'total' => 4], $summary);
+        $this->assertSame(['incompatible' => 2, 'unknown' => 1, 'total' => 4, 'pinned' => 0], $summary);
     }
 
     public function test_everything_compatible_counts_zero(): void
@@ -109,7 +109,7 @@ class CompatibilitySummaryTest extends TestCase
         $this->fakeModrinth();
         $this->install(['ok' => 'ok1']);
 
-        $this->assertSame(['incompatible' => 0, 'unknown' => 0, 'total' => 1], $this->service()->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
+        $this->assertSame(['incompatible' => 0, 'unknown' => 0, 'total' => 1, 'pinned' => 0], $this->service()->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
     }
 
     public function test_modrinth_unreachable_counts_nothing_as_incompatible(): void
@@ -117,7 +117,7 @@ class CompatibilitySummaryTest extends TestCase
         Http::fake(['api.modrinth.com/*' => Http::failedConnection()]);
         $this->install(['gone' => 'g1', 'old' => 'old1']);
 
-        $this->assertSame(['incompatible' => 0, 'unknown' => 2, 'total' => 2], $this->service()->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
+        $this->assertSame(['incompatible' => 0, 'unknown' => 2, 'total' => 2, 'pinned' => 0], $this->service()->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
     }
 
     public function test_second_call_is_served_from_cache(): void
@@ -177,11 +177,11 @@ class CompatibilitySummaryTest extends TestCase
 
         // install
         $this->install(['old' => 'old2', 'gone' => 'g1']);
-        $this->assertSame(['incompatible' => 1, 'unknown' => 0, 'total' => 2], $service->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
+        $this->assertSame(['incompatible' => 1, 'unknown' => 0, 'total' => 2, 'pinned' => 0], $service->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
 
         // uninstall
         $this->install(['old' => 'old2']);
-        $this->assertSame(['incompatible' => 0, 'unknown' => 0, 'total' => 1], $service->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
+        $this->assertSame(['incompatible' => 0, 'unknown' => 0, 'total' => 1, 'pinned' => 0], $service->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
     }
 
     public function test_cache_is_per_server_and_project_type(): void
@@ -277,7 +277,37 @@ class CompatibilitySummaryTest extends TestCase
         Http::fake();
         $this->install([]);
 
-        $this->assertSame(['incompatible' => 0, 'unknown' => 0, 'total' => 0], $this->service()->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
+        $this->assertSame(['incompatible' => 0, 'unknown' => 0, 'total' => 0, 'pinned' => 0], $this->service()->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
         Http::assertNothingSent();
+    }
+
+    /** Plan 18: pinned projects still count; `pinned` says how many of them are pinned. */
+    public function test_pinned_projects_still_count_and_are_counted_separately(): void
+    {
+        $this->fakeModrinth();
+        $this->install(['ok' => 'ok1', 'old' => 'old1', 'gone' => 'g1', 'broken' => 'b1']);
+        foreach ($this->installed as $index => $mod) {
+            if (in_array($mod['project_id'], ['ok', 'old', 'broken'], true)) {
+                $this->installed[$index]['pinned'] = true;
+            }
+        }
+
+        // Only "old" is both pinned and a problem: "ok" is compatible, "broken" unknown.
+        $this->assertSame(['incompatible' => 2, 'unknown' => 1, 'total' => 4, 'pinned' => 1], $this->service()->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
+    }
+
+    public function test_pinning_or_unpinning_misses_the_cache(): void
+    {
+        $this->fakeModrinth();
+        $service = $this->service();
+        $this->install(['gone' => 'g1']);
+
+        $this->assertSame(['incompatible' => 1, 'unknown' => 0, 'total' => 1, 'pinned' => 0], $service->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
+
+        $this->installed[0]['pinned'] = true;
+        $this->assertSame(['incompatible' => 1, 'unknown' => 0, 'total' => 1, 'pinned' => 1], $service->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
+
+        unset($this->installed[0]['pinned']);
+        $this->assertSame(['incompatible' => 1, 'unknown' => 0, 'total' => 1, 'pinned' => 0], $service->getCompatibilitySummary($this->server(), ModrinthProjectType::Mod));
     }
 }
