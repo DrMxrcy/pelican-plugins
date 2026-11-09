@@ -570,6 +570,50 @@ class CurseForgePackProvider implements PackProvider
     }
 
     /**
+     * Plan 32: CurseForge files that another source's pack (FTB, ATLauncher) references by
+     * project and file id, read with this provider's rules: the file must belong to that
+     * project (Minecraft), its URL is the one built from its own id and name, and it gets no
+     * URL when the author turned third-party downloads off. The sha1 is CurseForge's (md5 is
+     * never used). Files CurseForge doesn't return, or with an unsafe name, are left out.
+     *
+     * @param  array<int, array{project: int, file: int}>  $entries
+     * @return array<int, array{name: string, size: int, sha1: ?string, url: ?string, link: ?string}> by file id
+     *
+     * @throws PackUnavailableException `curseforge_not_configured` without a key or the mirror (nothing is asked)
+     */
+    public function referencedFiles(array $entries): array
+    {
+        if (!$this->client->configured()) {
+            throw new PackUnavailableException('curseforge_not_configured');
+        }
+
+        $entries = array_values(array_filter($entries, fn (array $entry) => self::intId($entry['project']) !== null && self::intId($entry['file']) !== null));
+        $files = $this->resolveFiles(array_column($entries, 'file'));
+        $mods = $this->resolveMods(array_values(array_unique(array_column($entries, 'project'))));
+
+        $resolved = [];
+        foreach ($entries as $entry) {
+            $file = $files[$entry['file']] ?? null;
+            $mod = $mods[$entry['project']] ?? null;
+            $name = is_array($file) && is_string($file['fileName'] ?? null) ? $file['fileName'] : '';
+            if ($file === null || $mod === null || self::intId($file['modId'] ?? null) !== $entry['project'] || !self::isSafeFileName($name)) {
+                continue;
+            }
+
+            $page = self::websiteUrl($mod['links']['websiteUrl'] ?? null);
+            $resolved[$entry['file']] = [
+                'name' => $name,
+                'size' => is_int($file['fileLength'] ?? null) ? $file['fileLength'] : -1,
+                'sha1' => self::hashes($file)['sha1'] ?? null,
+                'url' => $this->fileUrl($file, $mod, $entry['file'], $name),
+                'link' => $page !== null ? $page.'/files/'.$entry['file'] : null,
+            ];
+        }
+
+        return $resolved;
+    }
+
+    /**
      * Where the panel may download a pack file from CurseForge, or null when it must not:
      * never when the author turned third-party downloads off (allowModDistribution false),
      * else the API's downloadUrl (rebuilt), else the edge.forgecdn.net URL CurseForge documents

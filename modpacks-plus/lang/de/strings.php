@@ -116,6 +116,9 @@ return [
             'datapack' => 'ein Datenpaket: in den datapacks-Ordner der Welt legen',
             'unsupported_type' => 'eine Dateiart, die der Installer nicht ablegt',
             'too_large' => 'zu groß, um vom Panel geladen und geprüft zu werden, und nicht auf Modrinth',
+            'curseforge_key_required' => 'braucht CurseForge-Schlüssel: eine CurseForge-Datei, die nicht auf Modrinth ist, und CurseForge ist nicht eingerichtet (ein Admin hinterlegt einen Schlüssel oder schaltet den Mirror ein)',
+            'no_usable_hash' => 'die Quelle nennt keinen sha1- oder sha512-Hash zum Prüfen (md5 wird nicht verwendet), daher wird sie nicht geladen',
+            'host_not_allowed' => 'liegt auf einem Server, von dem der Installer nicht lädt',
         ],
         'sources' => 'Dateien von Modrinth: :modrinth, von CurseForge: :curseforge, manuell herunterzuladen: :manual.',
     ],
@@ -183,6 +186,8 @@ return [
         'server_pack_mirror' => 'Das Server-Pack wurde nicht verwendet: über den öffentlichen Mirror werden Packs immer aus ihrem Manifest gebaut.',
         'server_pack_unusable' => 'Das Server-Pack fehlt, ist nicht als Server-Pack markiert, hat keinen Download oder keinen mods/-Ordner (:detail)',
         'curseforge_mirror_unavailable' => 'CurseForge nicht verfügbar – API-Schlüssel hinterlegen. Der öffentliche Mirror antwortet nicht oder ist gedrosselt (:detail).',
+        'ftb_unavailable' => 'FTB (modpacks.ch) ist nicht erreichbar. Später erneut versuchen. (:detail)',
+        'ftb_not_found' => 'Nicht auf FTB gefunden: :detail',
     ],
     'steps' => [
         'prepare' => 'Pack prüfen',

@@ -44,8 +44,21 @@ final class PlanValidator
         'mediafilez.forgecdn.net',
     ];
 
+    /**
+     * FTB plans (plan 32): FTB's own file host, the CurseForge CDN for the CurseForge files FTB
+     * packs reference (URLs built by CurseForgePackProvider), and cdn.modrinth.com for files
+     * matched on Modrinth by sha1. Only cdn.modrinth.com is ever handed to the node; the rest
+     * is fetched, redirect-checked and sha1-checked by the panel.
+     */
+    public const FTB_HOSTS = [
+        'cdn.modrinth.com',
+        'dist.modpacks.ch',
+        'edge.forgecdn.net',
+        'mediafilez.forgecdn.net',
+    ];
+
     /** Why a pack file is listed for the user to download instead of installed. */
-    public const MANUAL_REASONS = ['distribution_disabled', 'datapack', 'unsupported_type', 'too_large'];
+    public const MANUAL_REASONS = ['distribution_disabled', 'datapack', 'unsupported_type', 'too_large', 'curseforge_key_required', 'no_usable_hash', 'host_not_allowed'];
 
     /**
      * Server-pack entries that start a server or install a loader (top-level scripts and jars,
@@ -133,6 +146,7 @@ final class PlanValidator
         return match ($provider) {
             'modrinth' => self::ALLOWED_HOSTS,
             'curseforge' => self::CURSEFORGE_HOSTS,
+            'ftb' => self::FTB_HOSTS,
             default => [],
         };
     }

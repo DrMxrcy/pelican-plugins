@@ -54,7 +54,9 @@ class CurseForgePlanValidatorTest extends TestCase
     {
         $this->assertSame(['cdn.modrinth.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net'], PlanValidator::hostsFor('curseforge'));
         $this->assertSame(PlanValidator::ALLOWED_HOSTS, PlanValidator::hostsFor('modrinth'));
-        $this->assertSame([], PlanValidator::hostsFor('ftb'));
+        // Plan 32: FTB adds its own host; a provider without hosts gets none.
+        $this->assertSame(['cdn.modrinth.com', 'dist.modpacks.ch', 'edge.forgecdn.net', 'mediafilez.forgecdn.net'], PlanValidator::hostsFor('ftb'));
+        $this->assertSame([], PlanValidator::hostsFor('technic'));
 
         $curseforge = $this->validator('curseforge');
         $modrinth = $this->validator('modrinth');
