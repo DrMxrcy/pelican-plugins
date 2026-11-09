@@ -4,7 +4,6 @@ namespace DrMxrcy\PlayersPlus\Filament\Admin\Widgets;
 
 use DrMxrcy\PlayersPlus\Filament\Admin\Pages\PlayersOverviewPage;
 use DrMxrcy\PlayersPlus\Support\ActivityStats;
-use DrMxrcy\PlayersPlus\Support\Minecraft;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 
@@ -30,7 +29,7 @@ class PlayersOverviewStatsWidget extends StatsOverviewWidget
 
     protected function getStats(): array
     {
-        $totals = ActivityStats::acrossServers()->totals(Minecraft::serversQuery()->select('id'));
+        $totals = ActivityStats::acrossServers()->totals(PlayersOverviewPage::serversQuery()->select('id'));
 
         return [
             Stat::make(trans('players-plus::strings.overview.total_online'), (string) $totals['players'])

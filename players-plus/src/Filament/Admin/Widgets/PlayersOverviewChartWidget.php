@@ -5,7 +5,6 @@ namespace DrMxrcy\PlayersPlus\Filament\Admin\Widgets;
 use DrMxrcy\PlayersPlus\Filament\Admin\Pages\PlayersOverviewPage;
 use DrMxrcy\PlayersPlus\Support\ActivityStats;
 use DrMxrcy\PlayersPlus\Support\ActivityViewer;
-use DrMxrcy\PlayersPlus\Support\Minecraft;
 use Filament\Widgets\ChartWidget;
 
 /**
@@ -46,7 +45,7 @@ class PlayersOverviewChartWidget extends ChartWidget
 
     protected function getData(): array
     {
-        $series = ActivityStats::acrossServers(ActivityViewer::timezone())->combinedSeries(Minecraft::serversQuery()->select('id'));
+        $series = ActivityStats::acrossServers(ActivityViewer::timezone())->combinedSeries(PlayersOverviewPage::serversQuery()->select('id'));
 
         return [
             'datasets' => [

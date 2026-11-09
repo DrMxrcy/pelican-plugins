@@ -208,4 +208,10 @@ return [
         'chart_description' => 'Letzte 24 Stunden. Lücken bedeuten, dass kein Server online war oder abgefragt wurde.',
         'series' => 'Spieler online',
     ],
+
+    'poll_health' => [
+        'stale_title' => 'Die Spielerabfrage läuft nicht mehr',
+        'stale_body' => 'Die letzte Abfrage war :time, sie sollte aber alle :minutes Minute(n) laufen. Prüfe, ob der Queue-Worker und der Scheduler (Cron) des Panels laufen.',
+        'never_body' => 'Es hat noch keine Abfrage stattgefunden, sie sollte aber alle :minutes Minute(n) laufen. Wenn das so bleibt, prüfe, ob der Queue-Worker und der Scheduler (Cron) des Panels laufen.',
+    ],
 ];

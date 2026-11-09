@@ -7,6 +7,7 @@ use App\Enums\ConsoleWidgetPosition;
 use App\Filament\Server\Pages\Console;
 use App\Traits\EnvironmentWriterTrait;
 use DrMxrcy\PlayersPlus\Filament\Server\Widgets\OnlinePlayersWidget;
+use DrMxrcy\PlayersPlus\Support\PollHealth;
 use DrMxrcy\PlayersPlus\Support\Settings;
 use Filament\Contracts\Plugin;
 use Filament\Forms\Components\TextInput;
@@ -55,6 +56,8 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
     public function getSettingsForm(): array
     {
         return [
+            // Plan 34: polls stopped (queue worker or scheduler not running). Shown only then.
+            ...array_filter([PollHealth::callout()]),
             Toggle::make('enabled')
                 ->label(trans('players-plus::strings.settings.enabled'))
                 ->helperText(trans('players-plus::strings.settings.enabled_help')),

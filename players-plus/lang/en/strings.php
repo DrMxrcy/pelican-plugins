@@ -208,4 +208,10 @@ return [
         'chart_description' => 'Last 24 hours. Gaps mean no server was online or polled.',
         'series' => 'Players online',
     ],
+
+    'poll_health' => [
+        'stale_title' => 'Player polling has stopped',
+        'stale_body' => 'The last poll was :time, but polls should run every :minutes minute(s). Check that the panel\'s queue worker and scheduler (cron) are running.',
+        'never_body' => 'No poll has run yet, but polls should run every :minutes minute(s). If this stays, check that the panel\'s queue worker and scheduler (cron) are running.',
+    ],
 ];

@@ -19,6 +19,7 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Pagination\Paginator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -57,6 +58,23 @@ class PlayersOverviewPage extends Page implements HasTable
             && (user()?->can(self::PERMISSION) ?? false);
     }
 
+    /**
+     * The Minecraft servers this admin may see: limited to the nodes their roles allow, the same
+     * rule as the panel's own server list (ServerResource::getEloquentQuery). The node filter is
+     * a subquery, so it adds no query. No user: nothing.
+     *
+     * @return Builder<Server>
+     */
+    public static function serversQuery(): Builder
+    {
+        $user = user();
+        $query = Minecraft::serversQuery();
+
+        return $user === null
+            ? $query->whereRaw('1 = 0')
+            : $query->whereIn('node_id', $user->accessibleNodes()->select('id'));
+    }
+
     public static function getNavigationLabel(): string
     {
         return trans('players-plus::strings.overview.navigation');
@@ -85,7 +103,7 @@ class PlayersOverviewPage extends Page implements HasTable
         $none = trans('players-plus::strings.overview.none');
 
         return $table
-            ->query(fn () => Minecraft::serversQuery())
+            ->query(fn () => self::serversQuery())
             ->defaultSort('name')
             ->paginated([25, 50, 100])
             ->recordUrl(fn (Server $record) => self::playersUrl($record))
@@ -179,8 +197,10 @@ class PlayersOverviewPage extends Page implements HasTable
 
     public function content(Schema $schema): Schema
     {
-        return $schema->components([
+        return $schema->components(array_values(array_filter([
+            // Queue worker or scheduler not running: every number here is out of date.
+            PollHealth::callout(),
             EmbeddedTable::make(),
-        ]);
+        ])));
     }
 }

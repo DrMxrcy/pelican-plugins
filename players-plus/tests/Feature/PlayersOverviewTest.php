@@ -92,8 +92,11 @@ class PlayersOverviewTest extends TestCase
         Route::getRoutes()->refreshNameLookups();
     }
 
-    /** @param  list<string>  $permissions  null = root admin, [] = no role at all */
-    private function admin(?array $permissions = null): User
+    /**
+     * @param  list<string>  $permissions  null = root admin, [] = no role at all
+     * @param  list<Node>  $nodes  limit the role to these nodes (empty = every node)
+     */
+    private function admin(?array $permissions = null, array $nodes = []): User
     {
         /** @var User $user */
         $user = User::factory()->create();
@@ -105,6 +108,7 @@ class PlayersOverviewTest extends TestCase
             foreach ($permissions as $permission) {
                 $role->givePermissionTo(Permission::findOrCreate($permission, Role::DEFAULT_GUARD_NAME));
             }
+            $role->nodes()->sync(array_map(fn (Node $node) => $node->id, $nodes));
             $user->syncRoles($role);
         }
         $this->app->make(PermissionRegistrar::class)->forgetCachedPermissions();
@@ -113,7 +117,7 @@ class PlayersOverviewTest extends TestCase
     }
 
     /** @param  list<string>  $tags */
-    private function server(array $tags = ['minecraft'], string $name = ''): Server
+    private function server(array $tags = ['minecraft'], string $name = '', ?Node $node = null): Server
     {
         if ($this->owner === null || $this->node === null) {
             /** @var User $owner */
@@ -123,7 +127,7 @@ class PlayersOverviewTest extends TestCase
             [$this->owner, $this->node] = [$owner, $node];
         }
 
-        $server = $this->createServerModel(['owner_id' => $this->owner->id, 'node_id' => $this->node->id] + ($name === '' ? [] : ['name' => $name]));
+        $server = $this->createServerModel(['owner_id' => $this->owner->id, 'node_id' => ($node ?? $this->node)->id] + ($name === '' ? [] : ['name' => $name]));
         if ($tags === ['minecraft'] && $this->minecraftEgg !== null) {
             $egg = $this->minecraftEgg;
         } else {
@@ -284,7 +288,8 @@ class PlayersOverviewTest extends TestCase
         $thirty = $this->renderQueries();
 
         $this->assertSame(count($three), count($thirty), "3 servers:\n" . implode("\n", $three) . "\n\n30 servers:\n" . implode("\n", $thirty));
-        $this->assertCount(6, array_filter($three, fn (string $query) => str_contains($query, '"pp_')), implode("\n", $three));
+        // Four per-server metrics, totals, chart, and the stale-poll check (last poll).
+        $this->assertCount(7, array_filter($three, fn (string $query) => str_contains($query, '"pp_')), implode("\n", $three));
     }
 
     private function seedMany(int $count): void
@@ -304,12 +309,55 @@ class PlayersOverviewTest extends TestCase
         user()?->refresh();
         DB::flushQueryLog();
         DB::enableQueryLog();
-        // One full render: table page (count + rows), the four per-server metrics, totals, chart.
+        // One full render: table page (count + rows), the four per-server metrics, totals, chart, poll health.
         Livewire::test(PlayersOverviewPage::class)->assertOk();
         $queries = array_column(DB::getQueryLog(), 'query');
         DB::disableQueryLog();
 
         return $queries;
+    }
+
+    /** Admins limited to some nodes see only those nodes' servers, in the table, totals and chart. */
+    public function test_node_limited_admin_sees_only_their_nodes(): void
+    {
+        [$alpha, $bravo, $charlie, $echo] = $this->seedServers();
+        /** @var Node $otherNode */
+        $otherNode = Node::factory()->create();
+        $delta = $this->server(name: 'Delta', node: $otherNode);
+        $this->sample($delta, '2026-11-11 14:36:00', SampleStatus::Online, 40);
+        $this->sample($delta, '2026-11-11 14:00:00', SampleStatus::Online, 30);
+
+        // Root admin: every node. Alpha 7 + Delta 40 live; Alpha 14 + Bravo 4 + Delta 30 at 14:00.
+        $this->actingAs($this->admin());
+        Livewire::test(PlayersOverviewPage::class)
+            ->loadTable()
+            ->assertCanSeeTableRecords([$alpha, $bravo, $charlie, $delta]);
+        $this->assertSame('47', $this->stats()[trans('players-plus::strings.overview.total_online')]);
+        $this->assertSame('2', $this->stats()[trans('players-plus::strings.overview.servers_online')]);
+        $points = array_combine(($chart = $this->chartData())['labels'], $chart['datasets'][0]['data']);
+        $this->assertSame([48, 47], [$points['14:00'], $points['14:36']]);
+
+        // Limited to the other node: Delta only.
+        $this->actingAs($this->admin([PlayersOverviewPage::PERMISSION], [$otherNode]));
+        Livewire::test(PlayersOverviewPage::class)
+            ->loadTable()
+            ->assertCanSeeTableRecords([$delta])
+            ->assertCanNotSeeTableRecords([$alpha, $bravo, $charlie, $echo])
+            ->assertDontSee('Alpha');
+        $this->assertSame('40', $this->stats()[trans('players-plus::strings.overview.total_online')]);
+        $this->assertSame('1', $this->stats()[trans('players-plus::strings.overview.servers_online')]);
+        $points = array_combine(($chart = $this->chartData())['labels'], $chart['datasets'][0]['data']);
+        $this->assertSame([30, 40], [$points['14:00'], $points['14:36']]);
+
+        // Limited to the first node: Delta is gone.
+        /** @var Node $firstNode */
+        $firstNode = $this->node;
+        $this->actingAs($this->admin([PlayersOverviewPage::PERMISSION], [$firstNode]));
+        Livewire::test(PlayersOverviewPage::class)
+            ->loadTable()
+            ->assertCanSeeTableRecords([$alpha, $bravo, $charlie])
+            ->assertCanNotSeeTableRecords([$delta]);
+        $this->assertSame('7', $this->stats()[trans('players-plus::strings.overview.total_online')]);
     }
 
     public function test_root_admin_and_permitted_admin_can_open_it(): void
