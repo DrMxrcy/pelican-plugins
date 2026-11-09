@@ -78,27 +78,30 @@ class PanelDownloadTest extends TestCase
      *
      * @param  array<int, string>  $chunks
      */
-    private function streamingHandler(array $chunks, int &$sent): \Closure
+    private function streamingHandler(array $chunks, int &$sent, bool $reportProgress = true): \Closure
     {
-        return function (RequestInterface $request, array $options) use ($chunks, &$sent) {
+        return function (RequestInterface $request, array $options) use ($chunks, &$sent, $reportProgress) {
             $response = new Response(200, []);
             ($options['on_headers'] ?? fn () => null)($response);
 
-            $sink = fopen((string) $options['sink'], 'w');
+            // Like Guzzle's curl handler: the sink is the caller's stream, a failed write ends the transfer.
+            $sink = $options['sink'];
             $downloaded = 0;
             try {
                 foreach ($chunks as $chunk) {
-                    fwrite($sink, $chunk);
+                    $written = @fwrite($sink, $chunk);
+                    if ($written === false || $written < strlen($chunk)) {
+                        throw new \RuntimeException('sink write failed');
+                    }
                     $downloaded += strlen($chunk);
                     $sent = $downloaded;
-                    ($options['progress'] ?? fn () => null)(0, $downloaded, 0, 0);
+                    if ($reportProgress) {
+                        ($options['progress'] ?? fn () => null)(0, $downloaded, 0, 0);
+                    }
                 }
             } catch (\Throwable $exception) {
-                fclose($sink);
-
                 return Create::rejectionFor($exception);
             }
-            fclose($sink);
 
             return Create::promiseFor($response);
         };
@@ -119,9 +122,26 @@ class PanelDownloadTest extends TestCase
         }
 
         // Stopped at the first chunk past the cap, not after the whole body.
-        $this->assertSame(30, $sent);
+        $this->assertLessThanOrEqual(25, $sent);
         $this->assertFileDoesNotExist($temp);
         $this->assertSame([], File::files($this->dir.'/files'));
+    }
+
+    public function test_the_sink_itself_stops_at_the_cap_even_without_progress_callbacks(): void
+    {
+        $sent = 0;
+        $this->app->instance(ModrinthClient::class, new ModrinthClient($this->streamingHandler(array_fill(0, 100, str_repeat('x', 10)), $sent, false)));
+        $temp = $this->dir.'/files/quiet';
+
+        try {
+            PanelDownload::fetch($this->file(str_repeat('x', 25)), $temp, $this->validator(), new Caps(), 30);
+            $this->fail('An over-cap body was accepted');
+        } catch (UnsafePlanException $exception) {
+            $this->assertSame('panel_fetch_too_large', $exception->reason);
+        }
+
+        $this->assertLessThanOrEqual(25, $sent);
+        $this->assertFileDoesNotExist($temp);
     }
 
     public function test_a_file_over_the_panel_fetch_cap_is_never_requested(): void
@@ -291,10 +311,10 @@ class PanelDownloadTest extends TestCase
                 parent::__construct();
             }
 
-            public function download(string $url, string $destination, int $maxBytes, PlanValidator $validator, int $timeout = self::DOWNLOAD_TIMEOUT, string $tooLargeReason = 'archive_too_large'): void
+            public function download(string $url, string $destination, int $maxBytes, PlanValidator $validator, int $timeout = self::DOWNLOAD_TIMEOUT, string $tooLargeReason = 'archive_too_large', int $maxRedirects = self::MAX_REDIRECTS): void
             {
                 $this->timeouts[] = $timeout;
-                parent::download($url, $destination, $maxBytes, $validator, $timeout, $tooLargeReason);
+                parent::download($url, $destination, $maxBytes, $validator, $timeout, $tooLargeReason, $maxRedirects);
             }
         });
         $server = $this->ftbServer();

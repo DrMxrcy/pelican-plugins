@@ -16,7 +16,8 @@ use Throwable;
  * - `Accept-Encoding: identity`, never decoded (a small compressed body could inflate to
  *   gigabytes); an encoded answer is refused before its body is read;
  * - answers capped by Content-Length, while streaming and again before parsing;
- * - redirects never followed (the base decides the host, an answer can't move it);
+ * - redirects never followed (the base decides the host, an answer can't move it), so a
+ *   request is one hop, bounded by its timeout, itself bounded by the job's time (JobClock);
  * - paths are a list of plain segments (letters, digits, `.`, `_`, `+`, `-`; never `.`/`..`),
  *   so a pack-supplied id can't reach another path or host.
  *
@@ -39,6 +40,7 @@ final class JsonApiClient
         private readonly string $unavailable,
         private readonly string $notFound,
         private readonly int $maxResponseBytes = self::MAX_RESPONSE_BYTES,
+        private readonly mixed $handler = null,
     ) {}
 
     public function baseUrl(): string
@@ -69,10 +71,17 @@ final class JsonApiClient
         $url = $this->baseUrl.'/'.$path;
 
         try {
-            $response = Http::createPendingRequest()
+            $request = Http::createPendingRequest();
+            if ($this->handler !== null) {
+                // Tests: a Guzzle handler below the real redirect middleware.
+                $request->setHandler($this->handler);
+            }
+
+            $response = $request
                 ->withUserAgent(app(ModrinthClient::class)->userAgent())
                 ->acceptJson()
-                ->timeout($timeout)
+                // Never more than the running install job has left (JobClock).
+                ->timeout(JobClock::timeout($timeout))
                 ->connectTimeout(5)
                 ->withHeaders(['Accept-Encoding' => 'identity'])
                 ->withOptions(['allow_redirects' => false] + ModrinthClient::boundedOptions($this->maxResponseBytes))

@@ -11,6 +11,7 @@ use DrMxrcy\ModpacksPlus\Exceptions\StepFailedException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
+use DrMxrcy\ModpacksPlus\Support\JobClock;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -38,6 +39,9 @@ abstract class InstallStep implements ShouldQueue
      * ~60 s, below the queue's default retry_after of 90 s.
      */
     public const BUDGET_SECONDS = 25;
+
+    /** Fresh jobs a step gets after running out of time mid-request before the install fails. */
+    public const MAX_TIME_RETRIES = 5;
 
     /** Whether this step touches the server's files (and so waits out conflict states). */
     protected const TOUCHES_FILES = true;
@@ -82,9 +86,12 @@ abstract class InstallStep implements ShouldQueue
             return;
         }
 
+        // Every request this job makes gets at most the time it has left (plan 32 security review).
+        JobClock::start(PanelDownload::JOB_SECONDS);
         try {
             $this->run($engine);
         } finally {
+            JobClock::stop();
             $lock->release();
         }
     }
@@ -143,8 +150,27 @@ abstract class InstallStep implements ShouldQueue
         } catch (StaleJobException) {
             return;
         } catch (UnsafePlanException|PackUnavailableException|StepFailedException $exception) {
+            // A source that failed because this job ran out of time gets a fresh job (bounded).
+            if ($exception instanceof PackUnavailableException && JobClock::exhausted() && $this->retryForTime($install, $engine)) {
+                return;
+            }
             $engine->fail($install, $exception->reason, $exception->detail, $this->seq);
         }
+    }
+
+    /** Hands the step to a fresh job after it ran out of time, at most MAX_TIME_RETRIES times. */
+    private function retryForTime(PackInstall $install, InstallEngine $engine): bool
+    {
+        $key = 'time_retries_'.static::KEY;
+        $retries = (int) $install->progressValue($key, 0);
+        if ($retries >= self::MAX_TIME_RETRIES) {
+            return false;
+        }
+
+        $install->setProgress($key, $retries + 1);
+        $install->addLog('warning', 'time_retry', ['step' => static::KEY]);
+
+        return $engine->hop($install, static::KEY);
     }
 
     private function advance(PackInstall $install, InstallEngine $engine, bool $skipped): void

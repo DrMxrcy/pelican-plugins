@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Providers\CurseForge;
 
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthClient;
+use DrMxrcy\ModpacksPlus\Support\JobClock;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -157,7 +158,7 @@ final class CurseForgeClient
                 ->baseUrl($base)
                 ->withUserAgent('DrMxrcy/modpacks-plus/'.ModrinthClient::pluginVersion().' (github.com/DrMxrcy/pelican-plugins)')
                 ->acceptJson()
-                ->timeout($timeout)
+                ->timeout(JobClock::timeout($timeout))
                 ->connectTimeout(5)
                 // A redirect would carry the key header to wherever it points. Never inflate (a small
                 // compressed body could decode to gigabytes); stop reading past the cap.

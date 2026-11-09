@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 
 use App\Models\Server;
 use App\Tests\Traits\Integration\CreatesTestModels;
+use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\AtLauncher\AtLauncherPackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
@@ -103,6 +104,34 @@ class AtLauncherInstallTest extends TestCase
         // The CurseForge CDN was never used for an ATLauncher-hosted mod.
         Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'forgecdn.net'));
         $this->assertFalse($install->summary['server_pack'] ?? true);
+    }
+
+    public function test_without_curseforge_an_md5_only_atlauncher_mod_installs_from_atlaunchers_cdn(): void
+    {
+        config()->set('modpacks-plus.curseforge.api_key', null);
+        $server = $this->forgeServer();
+        $this->fakePack();
+
+        $install = $this->install($server);
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame('cf-bytes', $this->files->files['mods/cf-mod.jar'] ?? null);
+        $this->assertSame([], $this->files->callsOf('pull'));
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'curseforge.com'));
+        $this->assertSame(1, $install->summary['md5_verified'] ?? null);
+        $this->assertStringContainsString('md5', (string) InstallProgress::summary($install, true));
+    }
+
+    public function test_an_md5_mismatch_from_atlaunchers_cdn_is_never_written(): void
+    {
+        config()->set('modpacks-plus.curseforge.api_key', null);
+        $server = $this->forgeServer();
+        $this->fakePack(['cf-mod.jar' => 'cf-bytez']);
+
+        $install = $this->install($server);
+
+        $this->assertSame('hash_mismatch', $install->error);
+        $this->assertArrayNotHasKey('mods/cf-mod.jar', $this->files->files);
     }
 
     public function test_an_atlauncher_mod_that_does_not_match_curseforges_sha1_is_never_written(): void

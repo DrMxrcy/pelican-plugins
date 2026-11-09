@@ -25,11 +25,13 @@ use Illuminate\Support\Facades\Cache;
  *
  * - Mods the pack marks `server: false` are left out, as are optional ones; only `mods`
  *   are placed (client-side types are skipped, data packs and other kinds listed).
- * - ATLauncher gives only an md5 for most mods, which is never used. A mod is verified by
- *   its sha1: ATLauncher's own when it gives one, else CurseForge's for the CurseForge file
- *   the mod names (curse_id / curse_file_id; needs a CurseForge key or the mirror, else it
- *   is listed as "needs CurseForge key"). Modrinth-first applies to those sha1s. A mod with
- *   no usable hash is never downloaded: it is listed (`no_usable_hash`). See PackFileResolver.
+ * - ATLauncher gives only an md5 for most mods. A mod is verified by a sha1 where one exists:
+ *   ATLauncher's own, else CurseForge's for the CurseForge file the mod names (curse_id /
+ *   curse_file_id, when a CurseForge key or the mirror is set up); Modrinth-first applies to
+ *   those sha1s. With no sha1 anywhere, a mod ATLauncher serves from its own CDN
+ *   (`download: server`) is checked against ATLauncher's md5 (PlanFile::VERIFY_ATLAUNCHER_MD5,
+ *   parent ruling: ATLauncher writes both the manifest and the file, so its md5 adds no new
+ *   trust). md5 is never accepted for any other host; such a mod is listed. See PackFileResolver.
  * - Mods ATLauncher hosts (`download: server`) come from its CDN; `direct` links on the
  *   CurseForge CDN go through plan 31's rules, other hosts are listed; `browser` downloads
  *   are listed.
@@ -348,8 +350,10 @@ class AtLauncherPackProvider implements PackProvider
                 'display' => $name,
                 'url' => $url,
                 'size' => is_int($mod['filesize'] ?? null) && $mod['filesize'] >= 0 ? $mod['filesize'] : -1,
-                // ATLauncher's own sha1 when it has one; md5 is never used.
+                // ATLauncher's own sha1 when it has one. Its md5 is only used for a file served from
+                // its own CDN (`download: server`) when no sha1 exists anywhere (PackFileResolver).
                 'sha1' => $mod['sha1'] ?? null,
+                'md5' => $download === 'server' ? ($mod['md5'] ?? null) : null,
                 'side' => 'required',
                 'curseforge' => $reference,
                 'cf_hosted' => $reference !== null && $url !== null && in_array(parse_url($url, PHP_URL_HOST), CurseForgePackProvider::DOWNLOAD_HOSTS, true),
@@ -366,8 +370,14 @@ class AtLauncherPackProvider implements PackProvider
      */
     public static function cdnUrl(mixed $path): ?string
     {
-        if (!is_string($path) || $path === '' || strlen($path) > 1024 || str_starts_with($path, '/') || !PlanValidator::isSafeRelativePath($path)
-            || preg_match('/[?#]/', $path) || str_contains($path, '://')) {
+        // Older packs write `files//x.jar`: repeated slashes are collapsed (ATLauncher CDN paths only),
+        // then the usual path checks apply.
+        // No scheme, host, query or fragment (checked before collapsing, so `https://x` can't become a path).
+        if (!is_string($path) || $path === '' || strlen($path) > 1024 || str_starts_with($path, '/') || preg_match('/[?#:]/', $path)) {
+            return null;
+        }
+        $path = (string) preg_replace('#/{2,}#', '/', $path);
+        if (!PlanValidator::isSafeRelativePath($path)) {
             return null;
         }
 

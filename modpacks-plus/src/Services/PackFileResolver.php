@@ -22,15 +22,19 @@ use DrMxrcy\ModpacksPlus\Support\PlanValidator;
  *   it is listed as "needs CurseForge key" (`curseforge_key_required`);
  * - a file the source hosts itself is fetched from its own host only (else
  *   `host_not_allowed`), by the panel, and checked against the source's sha1;
- * - a file with no usable hash (no sha1 from the source, none from CurseForge; md5 is never
- *   used) is never downloaded: it is listed (`no_usable_hash`);
+ * - a file with no usable hash (no sha1 from the source, none from CurseForge) is never
+ *   downloaded: it is listed (`no_usable_hash`). The one exception: a file the source serves
+ *   from ATLauncher's own CDN and vouches for with an md5 (`md5`, ATLauncher only) is fetched
+ *   with no redirects and checked against that md5 (PlanFile::VERIFY_ATLAUNCHER_MD5);
+ * - a file CurseForge returns nothing for is listed (`not_on_curseforge`), one without a
+ *   usable size is listed (`no_usable_size`);
  * - a file only on CurseForge or the source's host and larger than max_panel_fetch_bytes is
  *   listed (`too_large`).
  *
  * When both the source and CurseForge give a sha1 (or a size) for a file and they differ,
  * the install stops (`hash_mismatch`): the sources disagree about the bytes.
  *
- * @phpstan-type Candidate array{path: string, display: string, url: ?string, size: int, sha1: ?string, side?: string, curseforge?: array{project: int, file: int}|null, cf_hosted?: bool, link?: ?string}
+ * @phpstan-type Candidate array{path: string, display: string, url: ?string, size: int, sha1: ?string, md5?: ?string, side?: string, curseforge?: array{project: int, file: int}|null, cf_hosted?: bool, link?: ?string}
  * @phpstan-type ManualFile array{name: string, url: ?string, reason: string}
  */
 class PackFileResolver
@@ -52,7 +56,7 @@ class PackFileResolver
     public function resolve(array $candidates, array $ownHosts): array
     {
         foreach ($candidates as $index => $candidate) {
-            $candidates[$index] = $candidate + ['side' => 'required', 'curseforge' => null, 'cf_hosted' => false, 'link' => null];
+            $candidates[$index] = $candidate + ['side' => 'required', 'curseforge' => null, 'cf_hosted' => false, 'link' => null, 'md5' => null];
             $candidates[$index]['sha1'] = self::sha1($candidate['sha1'], $candidate['path']);
         }
 
@@ -105,6 +109,12 @@ class PackFileResolver
                 continue;
             }
 
+            if ($candidate['size'] < 0) {
+                $manual[] = $manualEntry('no_usable_size');
+
+                continue;
+            }
+
             $match = $candidate['curseforge'] !== null && $sha1 !== null ? ($matches[$sha1] ?? null) : null;
             if ($match !== null && $match['size'] === $candidate['size']) {
                 if ($match['server_side'] === 'unsupported') {
@@ -122,8 +132,26 @@ class PackFileResolver
             }
 
             $ref = $candidate['curseforge'] !== null ? ($refs[$candidate['curseforge']['file']] ?? null) : null;
+            // CurseForge is set up but returned nothing for the file the pack names.
+            $missingRef = $candidate['curseforge'] !== null && $cfReady && ($candidate['cf_hosted'] || $sha1 === null) && $ref === null;
+
             if ($sha1 === null) {
-                $manual[] = $manualEntry($candidate['curseforge'] !== null && !$cfReady ? 'curseforge_key_required' : 'no_usable_hash', $ref['link'] ?? null);
+                $md5File = $candidate['cf_hosted'] ? null : $this->md5File($candidate);
+                if ($md5File !== null) {
+                    if ($candidate['size'] > $this->caps->maxPanelFetchBytes) {
+                        $manual[] = $manualEntry('too_large');
+                    } else {
+                        $files[] = $md5File;
+                    }
+
+                    continue;
+                }
+
+                $manual[] = $manualEntry(match (true) {
+                    $candidate['curseforge'] !== null && !$cfReady => 'curseforge_key_required',
+                    $missingRef => 'not_on_curseforge',
+                    default => 'no_usable_hash',
+                }, $ref['link'] ?? null);
 
                 continue;
             }
@@ -131,6 +159,11 @@ class PackFileResolver
             if ($candidate['cf_hosted']) {
                 if (!$cfReady) {
                     $manual[] = $manualEntry('curseforge_key_required');
+
+                    continue;
+                }
+                if ($missingRef) {
+                    $manual[] = $manualEntry('not_on_curseforge');
 
                     continue;
                 }
@@ -165,6 +198,36 @@ class PackFileResolver
         }
 
         return ['files' => $files, 'manual' => $manual, 'client_only' => $clientOnly];
+    }
+
+    /**
+     * The md5-checked plan file for a file served from ATLauncher's own CDN that has no sha1
+     * anywhere, or null when it isn't one (other host, no md5). A malformed md5 stops the install.
+     *
+     * @param  array<string, mixed>  $candidate
+     *
+     * @throws UnsafePlanException
+     */
+    private function md5File(array $candidate): ?PlanFile
+    {
+        $url = $candidate['url'] ?? null;
+        $md5 = $candidate['md5'] ?? null;
+        if (!is_string($url) || !str_starts_with($url, PlanValidator::ATLAUNCHER_MD5_PREFIX) || !self::onHosts($url, ['download.nodecdn.net'])
+            || $md5 === null || $md5 === '') {
+            return null;
+        }
+        if (!is_string($md5) || !preg_match('/^[0-9a-fA-F]{32}$/', $md5)) {
+            throw new UnsafePlanException('bad_hash', (string) $candidate['path']);
+        }
+
+        return PlanFile::fromArray([
+            'path' => $candidate['path'],
+            'urls' => [$url],
+            'size' => $candidate['size'],
+            'hashes' => ['md5' => strtolower($md5)],
+            'side' => $candidate['side'],
+            'verify' => PlanFile::VERIFY_ATLAUNCHER_MD5,
+        ]);
     }
 
     /**

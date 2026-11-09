@@ -49,6 +49,10 @@ Checked before anything is written to the server; archive entries are checked ag
   (sha512, else sha1) and only then written to the server. The `.mrpack` itself is fetched the same
   way and hashed (sha512) on the panel. A mismatch fails the install; nothing unverified is ever
   renamed out of `.modpacks-plus/staging/`.
+- **Job time.** Every install job has one ~55 s budget: each API request and download gets at most the time
+  left (a download's timeout is one deadline across its redirect hops, at most one hop), and a step whose
+  request failed because the time ran out continues in a fresh job (at most 5 times). The byte cap of a
+  panel download is also enforced on the file being written, not only by progress callbacks.
 - Caps (config / env): 1000 files, 256 MB per file, 100 MB archive, 4 GB total, 20 000 archive entries,
   32 MB per panel-fetched file (`max_panel_fetch_bytes`; such files are held in the worker's memory),
   16 MB per override file (`max_override_bytes`). A pack over a cap is refused before anything is written.
@@ -122,13 +126,21 @@ Checked before anything is written to the server; archive entries are checked ag
 - **ATLauncher** (`https://api.atlauncher.com/v1` for the pack list, each version's `Configs.json` and
   `Configs.zip` from `https://download.nodecdn.net/containers/atl`, as the ATLauncher app reads them). Mods
   marked `server: false`, optional mods and resource/shader packs are left out; data packs, other kinds
-  and "download in the browser" mods are listed. ATLauncher only gives an md5 for most mods, which is
-  never used: a mod is checked against ATLauncher's sha1 when it has one, else CurseForge's sha1 for the
-  CurseForge file it names (needs a key or the mirror, else **needs CurseForge key**). Mods with no sha1
-  anywhere are listed (**no usable hash**), never downloaded. Mods ATLauncher hosts are fetched from its
-  CDN by the panel; links to the CurseForge CDN follow the *CurseForge* rules; other hosts are listed.
+  and "download in the browser" mods are listed. ATLauncher only gives an md5 for most mods. A mod is
+  checked against a sha1 where one exists: ATLauncher's own, else CurseForge's for the CurseForge file it
+  names (with a key or the mirror; Modrinth-first then applies). **With no sha1 anywhere, a mod served from
+  ATLauncher's own CDN (`https://download.nodecdn.net/containers/atl/`, `download: server`) is checked
+  against ATLauncher's md5**: ATLauncher writes both the manifest and the file, so its md5 adds no trust
+  beyond ATLauncher itself. Such files are fetched with no redirects, recorded as `atlauncher-md5` and
+  counted in the summary. md5 is never accepted for any other host; such mods are listed (**no usable
+  hash**). Mods ATLauncher hosts are fetched from its CDN by the panel, even when CurseForge marks the mod
+  as not distributable (ATLauncher distributes its own copy); links to the CurseForge CDN follow the
+  *CurseForge* rules; other hosts are listed. Legacy `files//x.jar` paths are collapsed to one slash.
   `Configs.zip` (its sha1 is required) is applied from its zip root like a server pack: no top-level
   scripts, jars or dotfiles, no client-only or protected paths.
+- Files CurseForge returns nothing for are listed (**not on CurseForge**), files without a usable size
+  (**no usable size**). In every pack, top-level scripts, jars and dotfiles and launcher folders listed as
+  downloads are skipped and listed, never written.
 - Both sources are read with the plugin's own User-Agent (`DrMxrcy/modpacks-plus/<version>`), never a
   browser's; answers are capped at 8 MB, never decompressed and never redirected. FTB and ATLauncher files
   are only ever fetched by the panel (never the node), except Modrinth-verified `cdn.modrinth.com` files.
@@ -250,8 +262,10 @@ direct calls get 403.
 - FTB and ATLauncher have no loader or category filter: the FTB tab lists every pack (the detail view
   says what a version needs), the ATLauncher tab filters by Minecraft version only, and only the newest
   ten ATLauncher versions show their loader.
-- Without CurseForge set up, most ATLauncher mods (md5 only) are listed for manual download instead of
-  installed.
+- Without CurseForge set up, ATLauncher mods are only checked against ATLauncher's md5 (see *FTB and
+  ATLauncher*); md5 is a weak hash, so this trusts ATLauncher's CDN as much as its manifest.
+- FTB searches fetch each listed pack's details one by one (cached for 10 minutes), so the first page of
+  results can take a few seconds.
 
 ## Settings
 

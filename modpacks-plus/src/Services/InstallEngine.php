@@ -5,6 +5,7 @@ namespace DrMxrcy\ModpacksPlus\Services;
 use App\Models\Server;
 use App\Models\User;
 use DrMxrcy\ModpacksPlus\Data\InstallPlan;
+use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
 use DrMxrcy\ModpacksPlus\Exceptions\StaleJobException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
@@ -360,6 +361,8 @@ class InstallEngine
             'server_pack' => $plan?->serverPack !== null,
             'server_pack_fallback' => $plan?->serverPackFallback,
             'sources' => $plan !== null && $plan->provider === 'curseforge' && $plan->serverPack === null ? self::sources($plan) : null,
+            // Plan 32 security review: files checked only against ATLauncher's md5.
+            'md5_verified' => $plan !== null ? count(array_filter($plan->files, fn (PlanFile $file) => $file->verify === PlanFile::VERIFY_ATLAUNCHER_MD5)) : 0,
             'modrinth_metadata' => $install->progressValue('modrinth_metadata'),
             'loader_switch' => $install->isLoaderSwitch() ? [
                 'loader' => $install->loader_switch['loader'] ?? null,

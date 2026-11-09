@@ -337,6 +337,11 @@ class ModrinthPackProvider implements PackProvider
         }
 
         return $plan->with(['files' => array_map(function (PlanFile $file) use ($known) {
+            // Set by the ATLauncher provider and re-checked by the validator; never upgraded or downgraded here.
+            if ($file->verify === PlanFile::VERIFY_ATLAUNCHER_MD5) {
+                return $file;
+            }
+
             $sha512 = $file->hashes['sha512'] ?? null;
             $verified = $sha512 !== null && in_array($file->url, $known[$sha512] ?? [], true);
 

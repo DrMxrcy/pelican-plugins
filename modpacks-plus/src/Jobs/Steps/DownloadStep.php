@@ -64,7 +64,7 @@ class DownloadStep extends InstallStep
             }
 
             // Plan 32: a panel fetch only starts with time left in this job for it and the write.
-            if ($plan->files[$index]->verify === PlanFile::VERIFY_PANEL && PanelDownload::timeout($this->elapsedSeconds()) === null) {
+            if (in_array($plan->files[$index]->verify, PlanFile::PANEL_FETCHED, true) && PanelDownload::timeout($this->elapsedSeconds()) === null) {
                 return StepResult::again();
             }
 
@@ -159,7 +159,7 @@ class DownloadStep extends InstallStep
 
                 throw new StepFailedException('download_incomplete', $file->path);
             }
-        } elseif ($file->verify === PlanFile::VERIFY_PANEL) {
+        } elseif (in_array($file->verify, PlanFile::PANEL_FETCHED, true)) {
             try {
                 $contents = PanelDownload::fetch(
                     $file,

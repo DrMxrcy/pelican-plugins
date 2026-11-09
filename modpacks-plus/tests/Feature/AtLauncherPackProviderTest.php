@@ -220,19 +220,69 @@ class AtLauncherPackProviderTest extends TestCase
         $this->assertNull($plan->archive);
     }
 
-    public function test_md5_only_mods_need_curseforge_and_are_never_downloaded_without_a_sha1(): void
+    public function test_without_a_sha1_only_mods_on_atlaunchers_own_cdn_are_checked_by_md5(): void
     {
         $this->fake([
+            // Named on CurseForge, but CurseForge is not set up: ATLauncher's CDN and its md5.
             AtLauncher::mod('cf-mod.jar', 'cf-bytes', 301, 6000001),
             AtLauncher::mod('atl-only.jar', 'atl-bytes'),
+            // Older packs write files//: collapsed to one slash on ATLauncher's CDN only.
+            AtLauncher::mod('legacy.jar', 'legacy-bytes', null, null, ['url' => 'packs/'.AtLauncher::PACK.'/files//legacy.jar']),
+            // md5 for anything that is not a `download: server` file on ATLauncher's CDN: never.
+            AtLauncher::mod('reforged.jar', 'r-bytes', null, null, ['download' => 'direct', 'url' => 'https://download.nodecdn.net/containers/reforged/r.jar']),
+            AtLauncher::mod('github.jar', 'g-bytes', null, null, ['download' => 'direct', 'url' => 'https://github.com/o/r/releases/download/v1/g.jar']),
+            AtLauncher::mod('forge.jar', 'f-bytes', null, null, ['download' => 'direct', 'url' => CurseForge::url(6000009, 'forge.jar')]),
+            AtLauncher::mod('bad-md5.jar', 'b', null, null, ['md5' => '']),
         ]);
 
         $plan = $this->resolve();
 
-        $this->assertSame([], $plan->files);
-        $this->assertSame(['cf-mod' => 'curseforge_key_required', 'atl-only' => 'no_usable_hash'], self::reasons($plan->manualFiles));
-        $this->assertSame('https://www.curseforge.com/minecraft/mc-mods/cf-mod', $plan->manualFiles[0]['url']);
-        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/files/'));
+        $this->assertSame([
+            'mods/cf-mod.jar' => AtLauncher::fileUrl('cf-mod.jar'),
+            'mods/atl-only.jar' => AtLauncher::fileUrl('atl-only.jar'),
+            'mods/legacy.jar' => AtLauncher::fileUrl('legacy.jar'),
+        ], self::urls($plan->files));
+        foreach ($plan->files as $file) {
+            $this->assertSame(PlanFile::VERIFY_ATLAUNCHER_MD5, $file->verify);
+            $this->assertSame(['md5'], array_keys($file->hashes));
+        }
+        $this->assertSame(md5('cf-bytes'), $plan->files[0]->hashes['md5']);
+        $this->assertSame(['reforged' => 'no_usable_hash', 'github' => 'no_usable_hash', 'forge' => 'no_usable_hash', 'bad-md5' => 'no_usable_hash'], self::reasons($plan->manualFiles));
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/files/') || str_contains($request->url(), 'curseforge.com'));
+    }
+
+    public function test_a_malformed_atlauncher_md5_stops_the_install(): void
+    {
+        $this->fake([AtLauncher::mod('a.jar', 'a', null, null, ['md5' => 'sha1:'.sha1('a')])]);
+
+        $this->expectExceptionObject(new UnsafePlanException('bad_hash', 'mods/a.jar'));
+        $this->resolve();
+    }
+
+    public function test_an_atlauncher_hosted_mod_is_fetched_from_atlauncher_even_when_curseforge_disallows_distribution(): void
+    {
+        // Ruling 7: allowModDistribution governs CurseForge's CDN; ATLauncher distributes its own copy.
+        config()->set('modpacks-plus.curseforge.api_key', CurseForge::KEY);
+        $this->fake([AtLauncher::mod('blocked.jar', 'blocked-bytes', 304, 6000004)], null, $this->curseForge(
+            [CurseForge::file(6000004, 304, 'blocked.jar', 'blocked-bytes', ['downloadUrl' => null])],
+            [CurseForge::modEntry(304, 'Blocked', false)],
+        ));
+
+        $plan = $this->resolve();
+
+        $this->assertSame(['mods/blocked.jar' => AtLauncher::fileUrl('blocked.jar')], self::urls($plan->files));
+        $this->assertSame(['sha1' => sha1('blocked-bytes')], $plan->files[0]->hashes);
+        $this->assertSame(PlanFile::VERIFY_PANEL, $plan->files[0]->verify);
+    }
+
+    public function test_a_file_curseforge_returns_nothing_for_is_listed_as_not_on_curseforge(): void
+    {
+        config()->set('modpacks-plus.curseforge.api_key', CurseForge::KEY);
+        $this->fake([
+            AtLauncher::mod('gone.jar', 'gone-bytes', 305, 6000005, ['download' => 'direct', 'url' => CurseForge::url(6000005, 'gone.jar'), 'sha1' => sha1('gone-bytes')]),
+        ], null, $this->curseForge([], []));
+
+        $this->assertSame(['gone' => 'not_on_curseforge'], self::reasons($this->resolve()->manualFiles));
     }
 
     public function test_with_curseforge_a_mod_is_checked_against_curseforges_sha1(): void
@@ -373,6 +423,9 @@ class AtLauncherPackProviderTest extends TestCase
         $this->assertSame([], $plan->files);
         $this->assertSame(['a' => 'host_not_allowed', 'b' => 'host_not_allowed', 'c' => 'host_not_allowed', 'd' => 'host_not_allowed'], self::reasons($plan->manualFiles));
         $this->assertSame('https://download.nodecdn.net/containers/atl/packs/A%20B/x%2By.jar', AtLauncherPackProvider::cdnUrl('packs/A B/x+y.jar'));
+        $this->assertSame('https://download.nodecdn.net/containers/atl/packs/X/files/a.jar', AtLauncherPackProvider::cdnUrl('packs/X/files//a.jar'));
+        $this->assertNull(AtLauncherPackProvider::cdnUrl('packs/X/files//../a.jar'));
+        $this->assertNull(AtLauncherPackProvider::cdnUrl('//evil.example/a.jar'));
     }
 
     /** @return array<string, array{array<string, mixed>}> */

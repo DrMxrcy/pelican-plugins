@@ -18,6 +18,18 @@ final class PlanFile
     public const VERIFY_PANEL = 'panel-fetch';
 
     /**
+     * Plan 32 security review: a file ATLauncher serves from its own CDN
+     * (https://download.nodecdn.net/containers/atl/, `download: server`) for which no sha1 or
+     * sha512 exists anywhere. Fetched by the panel exactly like VERIFY_PANEL (no redirects)
+     * and checked against ATLauncher's md5, which adds no trust beyond ATLauncher itself (it
+     * writes both the manifest and the file). Never accepted for any other host or verify value.
+     */
+    public const VERIFY_ATLAUNCHER_MD5 = 'atlauncher-md5';
+
+    /** Verify values whose file the panel fetches (never the node). */
+    public const PANEL_FETCHED = [self::VERIFY_PANEL, self::VERIFY_ATLAUNCHER_MD5];
+
+    /**
      * @param  array<int, string>  $urls  candidate download URLs, in the pack's order
      * @param  array<string, string>  $hashes  algorithm => lowercase hex digest (sha512, sha1)
      * @param  string  $side  the pack's env.server value: required, optional, unsupported or unknown

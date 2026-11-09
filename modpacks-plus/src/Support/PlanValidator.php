@@ -70,8 +70,11 @@ final class PlanValidator
         'mediafilez.forgecdn.net',
     ];
 
+    /** The only place an md5 is ever accepted (PlanFile::VERIFY_ATLAUNCHER_MD5). */
+    public const ATLAUNCHER_MD5_PREFIX = 'https://download.nodecdn.net/containers/atl/';
+
     /** Why a pack file is listed for the user to download instead of installed. */
-    public const MANUAL_REASONS = ['distribution_disabled', 'datapack', 'unsupported_type', 'too_large', 'curseforge_key_required', 'no_usable_hash', 'host_not_allowed'];
+    public const MANUAL_REASONS = ['distribution_disabled', 'datapack', 'unsupported_type', 'too_large', 'curseforge_key_required', 'no_usable_hash', 'host_not_allowed', 'not_on_curseforge', 'no_usable_size'];
 
     /**
      * Server-pack entries that start a server or install a loader (top-level scripts and jars,
@@ -442,6 +445,7 @@ final class PlanValidator
 
         $files = [];
         $skipped = $plan->skippedClientFiles;
+        $skippedPack = $plan->skippedPackFiles;
         $seen = [];
 
         foreach ($plan->files as $file) {
@@ -463,6 +467,14 @@ final class PlanValidator
                 throw new UnsafePlanException('protected_path', $path);
             }
 
+            // Plan 32 security review, every provider: top-level scripts, jars and dotfiles and the
+            // launcher folders are never downloaded (listed in the summary, not fatal).
+            if (self::isServerPackLauncherFile($path)) {
+                $skippedPack[] = $path;
+
+                continue;
+            }
+
             if (isset($seen[strtolower($path)])) {
                 throw new UnsafePlanException('duplicate_path', $path);
             }
@@ -472,18 +484,20 @@ final class PlanValidator
                 throw new UnsafePlanException('file_too_large', $path);
             }
 
-            $hashes = self::validHashes($file->hashes, $path);
-
             $url = $this->firstAllowedUrl($file->urls);
             if ($url === null) {
                 throw new UnsafePlanException('no_allowed_url', $path);
             }
 
+            $hashes = $file->verify === PlanFile::VERIFY_ATLAUNCHER_MD5
+                ? ['md5' => self::atlauncherMd5($file->hashes, $url, $path)]
+                : self::validHashes($file->hashes, $path);
+
             if ($file->verify === PlanFile::VERIFY_MODRINTH && parse_url($url, PHP_URL_HOST) !== 'cdn.modrinth.com') {
                 throw new UnsafePlanException('no_allowed_url', $path);
             }
 
-            if ($file->verify === PlanFile::VERIFY_PANEL && $file->size > $this->caps->maxPanelFetchBytes) {
+            if (in_array($file->verify, PlanFile::PANEL_FETCHED, true) && $file->size > $this->caps->maxPanelFetchBytes) {
                 throw new UnsafePlanException('panel_fetch_too_large', $path);
             }
 
@@ -497,7 +511,6 @@ final class PlanValidator
         $overrides = [];
         $skippedOverrides = $plan->skippedOverrides;
         $skippedClient = $plan->skippedClientOverrides;
-        $skippedPack = $plan->skippedPackFiles;
         $targets = [];
 
         foreach ($plan->overrides as $override) {
@@ -621,6 +634,43 @@ final class PlanValidator
     }
 
     /**
+     * The md5 of an ATLauncher-CDN file that has no sha1/sha512 (PlanFile::VERIFY_ATLAUNCHER_MD5).
+     * Refused (`bad_hash`) unless the URL is on ATLauncher's own CDN path, the md5 is well-formed
+     * and no stronger hash exists (then that one must be used instead).
+     *
+     * @param  array<string, string>  $hashes
+     *
+     * @throws UnsafePlanException
+     */
+    public static function atlauncherMd5(array $hashes, ?string $url, string $detail = ''): string
+    {
+        $md5 = strtolower($hashes['md5'] ?? '');
+        if ($url === null || !str_starts_with($url, self::ATLAUNCHER_MD5_PREFIX) || isset($hashes['sha1']) || isset($hashes['sha512'])
+            || !preg_match('/^[0-9a-f]{32}$/', $md5)) {
+            throw new UnsafePlanException('bad_hash', $detail);
+        }
+
+        return $md5;
+    }
+
+    /**
+     * The digest a downloaded file is checked against: ATLauncher's md5 only for a
+     * VERIFY_ATLAUNCHER_MD5 file on ATLauncher's CDN, else the strongest of sha512 / sha1.
+     *
+     * @return array{string, string} [algorithm, digest]
+     *
+     * @throws UnsafePlanException
+     */
+    public static function fileHash(PlanFile $file): array
+    {
+        if ($file->verify === PlanFile::VERIFY_ATLAUNCHER_MD5) {
+            return ['md5', self::atlauncherMd5($file->hashes, $file->url, $file->path)];
+        }
+
+        return self::preferredHash($file->hashes, $file->path);
+    }
+
+    /**
      * The strongest known digest: sha512, else sha1.
      *
      * @param  array<string, string>  $hashes
@@ -638,7 +688,7 @@ final class PlanValidator
     /** @throws UnsafePlanException */
     public static function assertContentMatches(PlanFile $file, string $contents): void
     {
-        [$algorithm, $expected] = self::preferredHash($file->hashes, $file->path);
+        [$algorithm, $expected] = self::fileHash($file);
 
         if (!hash_equals($expected, hash($algorithm, $contents))) {
             throw new UnsafePlanException('hash_mismatch', $file->path);

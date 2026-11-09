@@ -4,6 +4,8 @@ namespace DrMxrcy\ModpacksPlus\Providers\Modrinth;
 
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
+use DrMxrcy\ModpacksPlus\Support\ByteLimitFilter;
+use DrMxrcy\ModpacksPlus\Support\JobClock;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
@@ -22,7 +24,12 @@ class ModrinthClient
 {
     public const API_URL = 'https://api.modrinth.com/v2';
 
-    private const MAX_REDIRECTS = 3;
+    /**
+     * Redirect hops a panel download may follow (plan 32 security review: one is all the CDNs
+     * need — edge.forgecdn.net → mediafilez, github.com → objects.githubusercontent.com — and
+     * every extra hop is another request inside the same job budget).
+     */
+    public const MAX_REDIRECTS = 1;
 
     /** Largest Modrinth API answer read (header and while streaming). */
     public const MAX_API_BYTES = 16 * 1024 * 1024;
@@ -50,7 +57,7 @@ class ModrinthClient
             ->withUserAgent($this->userAgent())
             ->asJson()
             ->acceptJson()
-            ->timeout($timeout)
+            ->timeout(JobClock::timeout($timeout))
             ->connectTimeout(5)
             // Never inflate (a small compressed body could decode to gigabytes); cap what is read.
             ->withHeaders(['Accept-Encoding' => 'identity'])
@@ -108,13 +115,16 @@ class ModrinthClient
 
     /**
      * Streams $url into $destination (on the panel). Refuses non-allowlisted URLs and
-     * redirects, bodies over $maxBytes (by header and while streaming) and anything other
-     * than a 200. The partial file is removed on failure.
+     * redirects, bodies over $maxBytes (by header, while streaming and by a byte-limit filter
+     * on the file itself, so it doesn't depend on how often the handler reports progress) and
+     * anything other than a 200. At most $maxRedirects hops (0 = none). $timeout is one
+     * deadline shared by every hop (checked on each redirect and while streaming) and is never
+     * more than the running job has left (JobClock). The partial file is removed on failure.
      *
      * @throws UnsafePlanException
      * @throws PackUnavailableException
      */
-    public function download(string $url, string $destination, int $maxBytes, PlanValidator $validator, int $timeout = self::DOWNLOAD_TIMEOUT, string $tooLargeReason = 'archive_too_large'): void
+    public function download(string $url, string $destination, int $maxBytes, PlanValidator $validator, int $timeout = self::DOWNLOAD_TIMEOUT, string $tooLargeReason = 'archive_too_large', int $maxRedirects = self::MAX_REDIRECTS): void
     {
         if (!$validator->isAllowedUrl($url)) {
             throw new UnsafePlanException('no_allowed_url', $url);
@@ -125,7 +135,23 @@ class ModrinthClient
             throw new PackUnavailableException('download_failed', 'cannot create '.$directory);
         }
 
+        $timeout = JobClock::timeout($timeout);
+        $deadline = microtime(true) + $timeout;
+        $timedOut = function () use ($deadline, $url) {
+            if (microtime(true) > $deadline) {
+                throw new PackUnavailableException('download_failed', $url.' (timed out)');
+            }
+        };
+        $guard = self::redirectGuard($validator);
+
+        $sink = @fopen($destination, 'w+b');
+        if ($sink === false) {
+            throw new PackUnavailableException('download_failed', 'cannot write '.basename($destination));
+        }
+
         try {
+            $limit = ByteLimitFilter::attach($sink, $maxBytes);
+
             $request = Http::createPendingRequest();
             if ($this->downloadHandler !== null) {
                 $request->setHandler($this->downloadHandler);
@@ -135,16 +161,20 @@ class ModrinthClient
                 ->withUserAgent($this->userAgent())
                 ->withHeaders(['Accept-Encoding' => 'identity'])
                 ->timeout($timeout)
-                ->connectTimeout(5)
+                ->connectTimeout(min(5, $timeout))
                 ->withOptions([
                     // Never inflate: the byte cap is about what lands on the panel's disk.
                     'decode_content' => false,
-                    'allow_redirects' => [
-                        'max' => self::MAX_REDIRECTS,
+                    'allow_redirects' => $maxRedirects < 1 ? false : [
+                        'max' => $maxRedirects,
                         'strict' => true,
                         'referer' => false,
                         'protocols' => ['https'],
-                        'on_redirect' => self::redirectGuard($validator),
+                        'on_redirect' => function (RequestInterface $request, ResponseInterface $response, UriInterface $uri) use ($guard, $timedOut) {
+                            $guard($request, $response, $uri);
+                            // One deadline for the whole chain, not one timeout per hop.
+                            $timedOut();
+                        },
                     ],
                     'on_headers' => function (ResponseInterface $response) use ($maxBytes, $tooLargeReason, $url) {
                         $length = $response->getHeaderLine('Content-Length');
@@ -155,23 +185,35 @@ class ModrinthClient
                             throw new PackUnavailableException('download_failed', $url.' (encoded)');
                         }
                     },
-                    'progress' => function ($total, $downloaded) use ($maxBytes, $tooLargeReason, $url) {
+                    'progress' => function ($total, $downloaded) use ($maxBytes, $tooLargeReason, $url, $timedOut) {
                         if ($downloaded > $maxBytes) {
                             throw new UnsafePlanException($tooLargeReason, $url);
                         }
+                        $timedOut();
                     },
                 ])
-                ->sink($destination)
+                ->sink($sink)
                 ->get($url);
         } catch (Throwable $exception) {
+            self::close($sink);
             @unlink($destination);
 
             $unsafe = self::unsafeCause($exception);
             if ($unsafe !== null) {
                 throw $unsafe;
             }
+            if (isset($limit) && $limit->exceeded) {
+                throw new UnsafePlanException($tooLargeReason, $url);
+            }
 
             throw new PackUnavailableException('download_failed', $url, $exception);
+        }
+        self::close($sink);
+
+        if ($limit->exceeded) {
+            @unlink($destination);
+
+            throw new UnsafePlanException($tooLargeReason, $url);
         }
 
         if ($response->status() !== 200 || !self::isIdentityEncoding($response->header('Content-Encoding'))) {
@@ -185,6 +227,13 @@ class ModrinthClient
             @unlink($destination);
 
             throw new UnsafePlanException($tooLargeReason, $url);
+        }
+    }
+
+    private static function close(mixed $handle): void
+    {
+        if (is_resource($handle)) {
+            @fclose($handle);
         }
     }
 

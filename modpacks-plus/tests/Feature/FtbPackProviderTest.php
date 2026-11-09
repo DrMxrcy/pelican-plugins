@@ -365,6 +365,31 @@ class FtbPackProviderTest extends TestCase
         $this->assertSame(['big.jar' => 'too_large'], self::reasons($plan->manualFiles));
     }
 
+    public function test_a_file_without_a_usable_size_is_listed_not_fatal(): void
+    {
+        $this->fake([
+            Ftb::file('./config', 'ok.toml', 'ok'),
+            Ftb::file('./config', 'nosize.toml', 'n', 'config', ['size' => 'big']),
+            Ftb::file('./config', 'negative.toml', 'n', 'config', ['size' => -5]),
+        ]);
+
+        $plan = $this->resolve();
+
+        $this->assertSame(['config/ok.toml'], self::paths($plan->files));
+        $this->assertSame(['nosize.toml' => 'no_usable_size', 'negative.toml' => 'no_usable_size'], self::reasons($plan->manualFiles));
+    }
+
+    public function test_a_curseforge_file_curseforge_returns_nothing_for_is_listed_as_not_on_curseforge(): void
+    {
+        config()->set('modpacks-plus.curseforge.api_key', CurseForge::KEY);
+        $this->fake([Ftb::curseForgeMod('gone.jar', 'gone-bytes', 201, 5000001)], [
+            CurseForge::API.'mods/files' => Http::response(CurseForge::data([])),
+            CurseForge::API.'mods' => Http::response(CurseForge::data([])),
+        ]);
+
+        $this->assertSame([['name' => 'gone.jar', 'url' => null, 'reason' => 'not_on_curseforge']], $this->resolve()->manualFiles);
+    }
+
     public function test_unknown_file_types_are_listed_not_placed(): void
     {
         $this->fake([Ftb::file('./mods', 'x.zip', 'x', 'cf-extract')]);

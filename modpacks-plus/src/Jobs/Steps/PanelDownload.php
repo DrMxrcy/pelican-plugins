@@ -18,9 +18,11 @@ use DrMxrcy\ModpacksPlus\Support\PlanValidator;
  * - The body streams into a temp file on the panel (ModrinthClient::download: HTTPS on the
  *   provider's allowlist at every redirect hop, identity encoding, the plugin User-Agent),
  *   capped at min(max_panel_fetch_bytes, the declared size): by Content-Length when the
- *   host sends one, and by the streamed byte count always, so a host without
- *   Content-Length is cut off as soon as it goes over;
- * - the exact size and the strongest known hash (sha512, else sha1; md5 never) are checked
+ *   host sends one, by the streamed byte count, and by a byte-limit filter on the temp file
+ *   itself, so a host without Content-Length is cut off as soon as it goes over; one
+ *   deadline covers every redirect hop (at most one);
+ * - the exact size and the strongest known hash (sha512, else sha1; md5 only for an
+ *   ATLauncher-CDN file with nothing stronger, PlanFile::VERIFY_ATLAUNCHER_MD5) are checked
  *   on the temp file in chunks before it is read, and once more on the bytes read;
  * - only then are the bytes returned for the daemon write, so they never exceed
  *   max_panel_fetch_bytes (the existing limit for what the panel holds and writes);
@@ -67,15 +69,19 @@ final class PanelDownload
         }
 
         try {
-            app(ModrinthClient::class)->download((string) $file->url, $temp, $file->size, $validator, $timeout, 'panel_fetch_too_large');
+            // An md5-checked ATLauncher file is only ever taken from ATLauncher's CDN itself: no redirects.
+            $redirects = $file->verify === PlanFile::VERIFY_ATLAUNCHER_MD5 ? 0 : ModrinthClient::MAX_REDIRECTS;
+            app(ModrinthClient::class)->download((string) $file->url, $temp, $file->size, $validator, $timeout, 'panel_fetch_too_large', $redirects);
 
             clearstatcache(true, $temp);
             if (!is_file($temp) || filesize($temp) !== $file->size) {
                 throw new StepFailedException('download_incomplete', $file->path);
             }
 
-            [$algorithm] = PlanValidator::preferredHash($file->hashes, $file->path);
-            PlanValidator::assertDigestMatches($file->hashes, $algorithm, (string) hash_file($algorithm, $temp), $file->path);
+            [$algorithm, $expected] = PlanValidator::fileHash($file);
+            if (!hash_equals($expected, (string) hash_file($algorithm, $temp))) {
+                throw new UnsafePlanException('hash_mismatch', $file->path);
+            }
 
             $contents = file_get_contents($temp);
             if (!is_string($contents) || strlen($contents) !== $file->size) {

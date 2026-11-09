@@ -127,6 +127,9 @@ final class InstallProgress
                 'manual' => (int) ($summary['sources']['manual'] ?? 0),
             ]);
         }
+        if ((int) ($summary['md5_verified'] ?? 0) > 0) {
+            $lines[] = trans('modpacks-plus::strings.summary.md5_verified', ['count' => (int) $summary['md5_verified']]);
+        }
         if (!empty($summary['server_pack'])) {
             $lines[] = trans('modpacks-plus::strings.summary.server_pack');
         } elseif (is_array($summary['server_pack_fallback'] ?? null) && is_string($summary['server_pack_fallback']['reason'] ?? null)) {

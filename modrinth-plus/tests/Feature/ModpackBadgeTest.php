@@ -194,6 +194,21 @@ class ModpackBadgeTest extends TestCase
         $this->page()->assertDontSee(trans('modrinth-plus::strings.modpack.badge', ['name' => '']));
     }
 
+    public function test_ftb_and_atlauncher_pack_mods_show_the_badge_and_warning(): void
+    {
+        $this->account();
+        $this->fakeServer();
+
+        foreach (['ftb' => '100', 'atlauncher' => 'TestPack'] as $provider => $packId) {
+            $this->installed[0]['installed_as_modpack'] = ['provider' => $provider, 'pack_id' => $packId, 'version_id' => 'v1', 'pack_name' => self::PACK, 'version_number' => '1.0.0'];
+
+            $this->page()
+                ->assertSeeHtml($this->badge())
+                ->mountAction(TestAction::make('update')->table(self::ALPHA_ROW))
+                ->assertMountedActionModalSee(trans('modrinth-plus::strings.modpack.update_warning', ['name' => self::PACK]));
+        }
+    }
+
     public function test_the_badge_also_shows_on_the_all_tab(): void
     {
         $this->account();

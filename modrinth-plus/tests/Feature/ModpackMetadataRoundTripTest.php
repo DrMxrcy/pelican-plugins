@@ -142,6 +142,37 @@ class ModpackMetadataRoundTripTest extends TestCase
         $this->assertSame('someone else', json_decode((string) $this->file, true)['written_by']);
     }
 
+    /** @return array<string, array{array<string, mixed>}> */
+    public static function otherProviders(): array
+    {
+        return [
+            'ftb' => [['provider' => 'ftb', 'pack_id' => '100', 'version_id' => '2000', 'pack_name' => 'FTB Pack', 'version_number' => '1.0.0']],
+            'atlauncher' => [['provider' => 'atlauncher', 'pack_id' => 'TestPack', 'version_id' => 'v1.0.0', 'pack_name' => 'ATL Pack', 'version_number' => 'v1.0.0']],
+        ];
+    }
+
+    /**
+     * Modpacks Plus plan 32: FTB and ATLauncher packs tag their mods too; the provider is never
+     * checked here, the tag round-trips and names the pack.
+     *
+     * @param  array<string, mixed>  $tag
+     */
+    #[DataProvider('otherProviders')]
+    public function test_ftb_and_atlauncher_tags_are_read_and_kept(array $tag): void
+    {
+        $entry = ['installed_as_modpack' => $tag] + self::packEntry('sodium');
+        $this->file = json_encode(['installed_mods' => [$entry]], self::FLAGS);
+        $server = $this->server();
+
+        $installed = $this->service()->readInstalledModsMetadata($server, ModrinthProjectType::Mod) ?? [];
+        $this->assertSame($tag['pack_name'], MinecraftModrinthService::installedAsModpack($installed[0]));
+
+        $this->assertTrue($this->service()->saveModMetadata($server, ModrinthProjectType::Mod, 'sodium', 'sodium', 'Sodium', 'sodium-2', '2.0', 'sodium-2.jar'));
+        $this->assertTrue($this->service()->setPinned($server, ModrinthProjectType::Mod, 'sodium', true));
+
+        $this->assertSame($tag, $this->entries()['sodium']['installed_as_modpack']);
+    }
+
     public function test_uninstalling_a_pack_mod_removes_only_that_entry(): void
     {
         $this->file = json_encode(self::original(), self::FLAGS);
