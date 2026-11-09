@@ -2,6 +2,7 @@
 
 namespace DrMxrcy\PlayersPlus\Support;
 
+use Carbon\CarbonInterval;
 use DrMxrcy\PlayersPlus\Enums\SampleStatus;
 use DrMxrcy\PlayersPlus\Models\Sample;
 
@@ -52,6 +53,16 @@ final class PlayerList
         return $sample->status === SampleStatus::Online
             && $sample->source === 'ping'
             && (int) $sample->online > self::PING_SAMPLE_LIMIT;
+    }
+
+    /** Short, localized playtime such as "2h 30m"; at most two units. */
+    public static function duration(int $seconds): string
+    {
+        if ($seconds < 60) {
+            return CarbonInterval::minutes(0)->forHumans(['short' => true]);
+        }
+
+        return CarbonInterval::seconds(intdiv($seconds, 60) * 60)->cascade()->forHumans(['short' => true, 'parts' => 2]);
     }
 
     /** No sample for three poll intervals: the scheduler or the queue worker is probably not running. */

@@ -44,6 +44,22 @@ return [
         'stale_body' => 'The last check was :time. Check that the panel\'s queue worker and scheduler are running.',
     ],
 
+    'tabs' => [
+        'online' => 'Online',
+        'all' => 'All players',
+    ],
+
+    'all' => [
+        'heading' => 'All players',
+        'last_seen' => 'Last seen',
+        'online' => 'Online',
+        'playtime' => 'Playtime',
+        'sessions' => 'Sessions',
+        'first_seen' => 'First seen',
+        'empty' => 'No players seen yet',
+        'partial' => 'Partial list: Server List Ping shows at most 12 players. Set enable-query=true in server.properties for full tracking.',
+    ],
+
     'widget' => [
         'label' => 'Players online',
         'no_data' => 'No data yet',

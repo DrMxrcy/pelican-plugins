@@ -44,6 +44,22 @@ return [
         'stale_body' => 'Die letzte Prüfung war :time. Prüfe, ob Queue-Worker und Scheduler des Panels laufen.',
     ],
 
+    'tabs' => [
+        'online' => 'Online',
+        'all' => 'Alle Spieler',
+    ],
+
+    'all' => [
+        'heading' => 'Alle Spieler',
+        'last_seen' => 'Zuletzt gesehen',
+        'online' => 'Online',
+        'playtime' => 'Spielzeit',
+        'sessions' => 'Sitzungen',
+        'first_seen' => 'Zuerst gesehen',
+        'empty' => 'Noch keine Spieler gesehen',
+        'partial' => 'Unvollständige Liste: Server List Ping zeigt höchstens 12 Spieler. Setze enable-query=true in server.properties für vollständiges Tracking.',
+    ],
+
     'widget' => [
         'label' => 'Spieler online',
         'no_data' => 'Noch keine Daten',
