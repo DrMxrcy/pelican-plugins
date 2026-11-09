@@ -128,6 +128,16 @@ Known limits:
 - Old log lines are credited to whoever holds that name now when the log gives no UUID (an
   offline-mode server, or a name renamed since).
 
+## Admin overview
+
+Admin panel → **Players** lists every Minecraft server: status, online now, 24-hour peak,
+7-day average (while online), players seen in the last 7 days and the last poll, with a
+total-online card and a combined 24-hour chart. Each row opens that server's Players page.
+It reads stored data only, with one query per metric for the whole table page.
+
+Access: root admins, and roles with **Players Plus → View** (`view players-plus`) in
+Admin → Roles. The page does not exist in the server panel.
+
 ## Privacy
 
 Skin avatars are loaded from [mc-heads.net](https://mc-heads.net) by the viewer's browser

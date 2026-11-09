@@ -6,6 +6,7 @@ use DrMxrcy\PlayersPlus\Console\Commands\PollPlayersCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\PruneSamplesCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\RollupCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\ScanLogsCommand;
+use DrMxrcy\PlayersPlus\Filament\Admin\Pages\PlayersOverviewPage;
 use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayersPage;
 use DrMxrcy\PlayersPlus\Models\HourlyRollup;
 use DrMxrcy\PlayersPlus\Models\LogCursor;
@@ -90,6 +91,8 @@ class PluginResourcesTest extends TestCase
         $this->assertContains('pp_hourly', $tables);
 
         $this->assertStringStartsWith('players-plus', (string) PlayersPage::getSlug());
+        $this->assertStringStartsWith('players-plus', (string) PlayersOverviewPage::getSlug());
+        $this->assertStringEndsWith(' players-plus', PlayersOverviewPage::PERMISSION);
         $this->assertStringStartsWith('players-plus:', (new PollPlayersCommand())->getName());
         $this->assertStringStartsWith('players-plus:', (new PruneSamplesCommand())->getName());
         $this->assertStringStartsWith('players-plus:', (new RollupCommand())->getName());
