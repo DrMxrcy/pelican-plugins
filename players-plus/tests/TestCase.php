@@ -3,7 +3,10 @@
 namespace DrMxrcy\PlayersPlus\Tests;
 
 use App\Tests\TestCase as PanelTestCase;
+use Filament\Facades\Filament;
+use Filament\Pages\Page;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Route;
 
 /**
  * Laravel-booted base for players-plus tests.
@@ -42,5 +45,28 @@ abstract class TestCase extends PanelTestCase
         }
 
         $this->app->make('translator')->addNamespace(self::PLUGIN_ID, $root . '/lang');
+    }
+
+    /**
+     * Registers routes for plugin pages on the server panel, the way Filament does for a
+     * loaded plugin, so Page::getUrl() works in tests (the panel skips plugins in tests).
+     *
+     * @param  list<class-string<Page>>  $pages
+     */
+    protected function registerServerPageRoutes(array $pages): void
+    {
+        $panel = Filament::getPanel('server');
+        $prefix = $panel->getTenantRoutePrefix();
+        $attribute = $panel->getTenantSlugAttribute();
+        $tenant = (filled($prefix) ? "$prefix/" : '') . '{tenant' . (filled($attribute) ? ":$attribute" : '') . '}';
+
+        Route::name('filament.server.')->prefix($panel->getPath())->group(function () use ($pages, $panel, $tenant) {
+            Route::prefix($tenant)->group(function () use ($pages, $panel) {
+                foreach ($pages as $page) {
+                    $page::registerRoutes($panel);
+                }
+            });
+        });
+        Route::getRoutes()->refreshNameLookups();
     }
 }

@@ -5,6 +5,7 @@ namespace DrMxrcy\PlayersPlus\Tests\Feature;
 use App\Models\Server;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\PlayersPlus\Enums\SampleStatus;
+use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayerProfilePage;
 use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayersPage;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\PlayerSession;
@@ -35,6 +36,7 @@ class AllPlayersViewTest extends TestCase
         parent::setUp();
 
         Filament::setCurrentPanel('server');
+        $this->registerServerPageRoutes([PlayersPage::class, PlayerProfilePage::class]);
         $this->connector = new FakeConnector();
         $this->app->instance(Connector::class, $this->connector);
         Http::fake();

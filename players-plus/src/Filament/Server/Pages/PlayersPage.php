@@ -155,6 +155,7 @@ class PlayersPage extends Page implements HasTable
             ->description(fn () => ($sample = $this->sample()) !== null && PlayerList::isPartial($sample) ? trans('players-plus::strings.all.partial') : null)
             ->defaultSort('last_seen_at', 'desc')
             ->paginated([25, 50, 100])
+            ->recordUrl(fn (Player $record) => PlayerProfilePage::getUrl(['player' => $record->id]))
             ->poll('60s')
             ->columns([
                 ImageColumn::make('avatar')

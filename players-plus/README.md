@@ -2,7 +2,10 @@
 
 See who is online on your Minecraft servers, right in Pelican Panel.
 
-- **Players** page on every Minecraft server: who is online now, with skin avatars.
+- **Players** page on every Minecraft server: who is online now, with skin avatars, and
+  **All players** ever seen, with last seen, total playtime, sessions and first seen.
+- **Player profile**: name, UUID and past names, online status, total and last-7-days
+  playtime, every session, and vanilla stats (play time, deaths, kills, distance, jumps).
 - **Console widget**: online count (`3 / 20`) or "offline" next to the console.
 - Polls every running Minecraft server on a schedule (default every 2 minutes, 1 to 5).
   Pages only read the stored result; opening a page never contacts the game server.
@@ -34,6 +37,24 @@ same IP, and only after Ping answered. Each poll keeps at most 200 names.
 
 A server stopped in the panel is recorded as **offline** without being contacted. A running
 server that does not answer Ping is recorded as **unreachable**.
+
+## Sessions and playtime
+
+Each poll is compared with the players already online: a new name starts a session at the
+poll time, a missing name ends it at the poll time, and a server that goes offline or stops
+answering ends every session at the last poll that saw it online. Playtime is therefore
+accurate to one poll interval. A gap in polling (scheduler or worker down) is not counted.
+
+With Ping only, more than 12 players online means the list is partial: sessions of players
+who are just not in the sample stay open instead of ending. Enable Query for full tracking.
+
+Players are matched by UUID: from the Ping sample, else from the server's `usercache.json`
+(read through the daemon at most every 10 minutes, only when a name has no UUID), else by
+name until a UUID shows up. A new name on a known UUID is kept as a past name.
+
+Stats come from `<level-name>/stats/<uuid>.json`, read through the daemon when a profile is
+opened (cached 10 minutes), never during polls. Only users who may read the server's files
+see them.
 
 ## Privacy
 

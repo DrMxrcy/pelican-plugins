@@ -52,4 +52,34 @@ class Player extends Model
     {
         return $this->hasMany(PlayerSession::class);
     }
+
+    public function openSession(): ?PlayerSession
+    {
+        return $this->sessions()->whereNull('ended_at')->orderBy('started_at')->first();
+    }
+
+    /** Closed sessions plus the open one, counted up to $now. */
+    public function playtime(?Carbon $now = null): int
+    {
+        return $this->total_seconds + ($this->openSession()?->seconds($now) ?? 0);
+    }
+
+    /** Seconds online between $since and $now, from the sessions overlapping that window. */
+    public function playtimeSince(Carbon $since, ?Carbon $now = null): int
+    {
+        $now ??= now();
+        $seconds = 0;
+
+        $sessions = $this->sessions()
+            ->where(fn ($query) => $query->whereNull('ended_at')->orWhere('ended_at', '>', $since))
+            ->where('started_at', '<', $now)
+            ->get(['started_at', 'ended_at']);
+        foreach ($sessions as $session) {
+            $start = max($session->started_at->getTimestamp(), $since->getTimestamp());
+            $end = min(($session->ended_at ?? $now)->getTimestamp(), $now->getTimestamp());
+            $seconds += max(0, $end - $start);
+        }
+
+        return $seconds;
+    }
 }

@@ -1,0 +1,21 @@
+{
+    "stats": {
+        "minecraft:custom": {
+            "minecraft:play_time": 216000,
+            "minecraft:deaths": 7,
+            "minecraft:mob_kills": 152,
+            "minecraft:player_kills": 3,
+            "minecraft:walk_one_cm": 4523100,
+            "minecraft:jump": 2048,
+            "minecraft:leave_game": 12,
+            "create:wrench_uses": 99
+        },
+        "minecraft:mined": {
+            "minecraft:stone": 900
+        },
+        "somemod:custom_category": {
+            "somemod:thing": "not a number"
+        }
+    },
+    "DataVersion": 4189
+}
