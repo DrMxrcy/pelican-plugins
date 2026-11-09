@@ -22,6 +22,11 @@ use Illuminate\Support\Carbon;
  * @property string $version_id
  * @property string $name
  * @property string|null $version_number
+ * @property string|null $latest_version_id
+ * @property string|null $latest_version_number
+ * @property bool $update_available
+ * @property string|null $notified_version
+ * @property Carbon|null $update_checked_at
  * @property string|null $icon
  * @property string $status
  * @property string $mode
@@ -117,6 +122,8 @@ class PackInstall extends Model
             'finished_at' => 'datetime',
             'restore_requested_at' => 'datetime',
             'restored_at' => 'datetime',
+            'update_available' => 'boolean',
+            'update_checked_at' => 'datetime',
         ];
     }
 

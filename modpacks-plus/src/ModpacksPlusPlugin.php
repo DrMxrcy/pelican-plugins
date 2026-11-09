@@ -6,9 +6,12 @@ use App\Contracts\Plugins\HasPluginSettings;
 use App\Traits\EnvironmentWriterTrait;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
 use DrMxrcy\ModpacksPlus\Services\LoaderEggResolver;
+use DrMxrcy\ModpacksPlus\Services\PackUpdateChecker;
+use DrMxrcy\ModpacksPlus\Services\PropertiesPreserver;
 use DrMxrcy\ModpacksPlus\Support\EggVariableMap;
 use Filament\Contracts\Plugin;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
@@ -49,6 +52,8 @@ class ModpacksPlusPlugin implements HasPluginSettings, Plugin
             'curseforge_api_key' => null,
             'curseforge_api_key_remove' => false,
             'curseforge_mirror' => (bool) config('modpacks-plus.curseforge.mirror', false),
+            'update_check' => PackUpdateChecker::frequency(),
+            'preserved_properties' => implode(', ', PropertiesPreserver::keys(config('modpacks-plus.preserved_properties'))),
         ];
 
         foreach (EggVariableMap::loaders() as $loader) {
@@ -77,6 +82,20 @@ class ModpacksPlusPlugin implements HasPluginSettings, Plugin
             Toggle::make('allow_user_loader_switch')
                 ->label(trans('modpacks-plus::strings.settings.allow_user_loader_switch'))
                 ->helperText(trans('modpacks-plus::strings.settings.allow_user_loader_switch_help')),
+            Section::make(trans('modpacks-plus::strings.settings.pack_updates'))
+                ->schema([
+                    Select::make('update_check')
+                        ->label(trans('modpacks-plus::strings.settings.update_check'))
+                        ->helperText(trans('modpacks-plus::strings.settings.update_check_help'))
+                        ->options(collect(PackUpdateChecker::FREQUENCIES)->mapWithKeys(fn (string $frequency) => [$frequency => trans('modpacks-plus::strings.settings.update_check_'.$frequency)])->all())
+                        ->selectablePlaceholder(false)
+                        ->required(),
+                    Textarea::make('preserved_properties')
+                        ->label(trans('modpacks-plus::strings.settings.preserved_properties'))
+                        ->helperText(trans('modpacks-plus::strings.settings.preserved_properties_help'))
+                        ->rows(3)
+                        ->maxLength(2000),
+                ]),
             Section::make(trans('modpacks-plus::strings.settings.default_eggs'))
                 ->description(trans('modpacks-plus::strings.settings.default_eggs_help'))
                 ->schema($eggs),
@@ -117,6 +136,15 @@ class ModpacksPlusPlugin implements HasPluginSettings, Plugin
             'MODPACKS_PLUS_ALLOW_USER_LOADER_SWITCH' => !empty($data['allow_user_loader_switch']) ? 'true' : 'false',
             CurseForgeClient::MIRROR_ENV => !empty($data['curseforge_mirror']) ? 'true' : 'false',
         ];
+
+        // Plan 36. Only a known frequency, and only valid keys (letters, digits, . _ -) reach the
+        // .env file; a field the form didn't send keeps its saved value.
+        if (array_key_exists('update_check', $data)) {
+            $values['MODPACKS_PLUS_UPDATE_CHECK'] = is_string($data['update_check']) && in_array($data['update_check'], PackUpdateChecker::FREQUENCIES, true) ? $data['update_check'] : 'off';
+        }
+        if (array_key_exists('preserved_properties', $data)) {
+            $values['MODPACKS_PLUS_PRESERVED_PROPERTIES'] = implode(',', PropertiesPreserver::keys(is_string($data['preserved_properties']) ? $data['preserved_properties'] : ''));
+        }
 
         $resolver = new LoaderEggResolver();
         foreach (EggVariableMap::loaders() as $loader) {

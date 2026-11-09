@@ -77,10 +77,7 @@ class MoveAsideStep extends InstallStep
         }
 
         if ($freshWorld) {
-            $result = $this->moveWorld($install, $server, $engine, $aside);
-            if ($result !== null) {
-                return $result;
-            }
+            $this->moveWorld($install, $server, $engine, $aside);
         }
 
         return StepResult::done();
@@ -136,7 +133,7 @@ class MoveAsideStep extends InstallStep
     }
 
     /** "Start a fresh world": the world and its other dimensions aside, the player lists stay. */
-    private function moveWorld(PackInstall $install, Server $server, InstallEngine $engine, string $aside): ?StepResult
+    private function moveWorld(PackInstall $install, Server $server, InstallEngine $engine, string $aside): void
     {
         $worlds = $install->progressValue('worlds', ['world']);
         $levelName = is_array($worlds) && is_string($worlds[0] ?? null) ? $worlds[0] : 'world';
@@ -173,8 +170,6 @@ class MoveAsideStep extends InstallStep
                 $install->addLog('info', 'fresh_world', ['path' => $world, 'to' => $target]);
             }
         }
-
-        return null;
     }
 
     private function record(PackInstall $install, InstallEngine $engine, string $path): void

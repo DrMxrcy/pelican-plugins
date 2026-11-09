@@ -34,6 +34,10 @@ return [
     // kept and the ports always follow the panel allocation, whatever this says.
     'preserved_properties' => env('MODPACKS_PLUS_PRESERVED_PROPERTIES'),
 
+    // Check installed packs for new versions and notify the server owner once per version (plan 36):
+    // off, daily or weekly. Only pack metadata is read from Modrinth/CurseForge; no node is contacted.
+    'update_check' => in_array(env('MODPACKS_PLUS_UPDATE_CHECK'), ['off', 'daily', 'weekly'], true) ? env('MODPACKS_PLUS_UPDATE_CHECK') : 'off',
+
     // Files pulled per download job; cancel takes effect between batches.
     'download_batch' => (int) env('MODPACKS_PLUS_DOWNLOAD_BATCH', 10),
 

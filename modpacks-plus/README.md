@@ -26,6 +26,46 @@ the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft v
 - A live step list and log, a cancel button (stops between steps / download batches) and a final summary.
   The last installed pack shows as a banner on the page.
 
+## Updating and switching packs
+
+- **Update** (the installed pack's newer version, same loader and Minecraft version): the banner offers
+  *Update to &lt;version&gt;* when the update check found one; the pack's versions in the detail view
+  offer *Update* too. An update doesn't move whole folders: it compares the list of files the installed
+  version put on the server (recorded at the end of every install: path, size, sha512/sha1) with the new
+  version and with what is on the server now:
+  - unchanged files are left alone (not downloaded or written again);
+  - files the new version drops or replaces are moved into `.modpacks-plus/previous-<date>/` (same
+    relative path), then the new ones are written;
+  - files **you changed** since the install (other size, or other hash for files about to move) are
+    **kept** and listed in the summary, and the pack's version is not written. Tick **Overwrite my changes**
+    to have them moved aside (and listed) and replaced instead;
+  - a file the pack didn't install that is in the way of a new one is moved aside and listed.
+  The server is stopped first. A version that needs another loader or Minecraft version is not an update:
+  use *Switch to … and install*. Packs installed before this feature have no file list and can only be
+  installed again (their folders are then moved aside as usual).
+- **Switch** to another pack: its folders are moved aside as for any install, plus every other file the
+  old pack's list names (e.g. `server-icon.png`). A switch that needs another loader goes through
+  *Loader switching* with the same admin rule.
+- **Start a fresh world** (install and switch, off by default): the server is stopped and the world
+  (`level-name` with `_nether`/`_the_end`) is moved into `.modpacks-plus/previous-<date>/`, never deleted;
+  the summary says where. Ops, whitelist, bans, `usercache.json` and `server.properties` stay.
+- Worlds, `ops.json`, `whitelist.json`, `banned-*.json`, `usercache.json` and `server.properties` are never
+  moved by an update or switch (only a fresh world moves the world, and a loader switch sets them aside
+  and back). After a failed or cancelled update or switch, **Restore previous files** puts every moved file
+  back (whatever replaced it is kept in `.modpacks-plus/replaced-<date>/`).
+- **server.properties from a pack** is merged, never written over the server's: the server's file keeps
+  its comments, order and keys; the pack's values apply except for the preserved keys (setting, default
+  `level-name, level-seed, motd, max-players, white-list, enforce-whitelist, online-mode, difficulty,
+  gamemode, pvp, view-distance, simulation-distance, spawn-protection, enable-query, query.port,
+  server-port`); `level-name` never comes from a pack and the ports always follow the panel allocation.
+  The previous file is kept in `.modpacks-plus/previous-<date>/server.properties`. A file that can't be
+  read safely (escaped keys, line continuations, an unsafe `level-name`) is left untouched.
+- **Update checks** (setting: off, daily or weekly; off by default): the scheduler reads each installed
+  pack's version list from Modrinth/CurseForge (metadata only, one request per pack, nothing downloaded,
+  no node or game server contacted) and marks *update available* when a newer version exists for the
+  installed loader and Minecraft version. The server owner gets one panel notification per new version
+  (pack name, versions and server name only).
+
 ## Safety rules
 
 Checked before anything is written to the server; archive entries are checked again when overrides are applied.
@@ -235,9 +275,11 @@ Official eggs: Fabric (`LOADER_VERSION`), Forge (`FORGE_VERSION` = `<mc>-<forge>
   lets admins change eggs). The setting **Let server users switch loaders** extends it to anyone with
   the install permissions. Without it, owners see "ask an admin to switch loaders".
 
+Updating a pack and *Start a fresh world* need the same install permissions.
+
 Users without these permissions don't see the buttons; the Livewire handlers (`installPack`,
-`switchLoaderAndInstall`, `cancelInstall`, `restorePreviousFiles`) check every permission again, so
-direct calls get 403.
+`switchLoaderAndInstall`, `updatePack`, `cancelInstall`, `restorePreviousFiles`) check every permission
+again, so direct calls get 403.
 
 ## Requirements
 
@@ -256,8 +298,8 @@ direct calls get 403.
   declares; they don't make a malicious pack safe to run. A pack may still replace loader jars or start
   scripts at the server root.
 - The install backup is locked, so it counts toward the server's backup limit until someone unlocks
-  and deletes it. `.modpacks-plus/previous-*` folders are not cleaned up automatically yet (that comes
-  with pack updates, a later release). After a failed install, `.modpacks-plus/staging/` may keep
+  and deletes it. `.modpacks-plus/previous-*` folders are not cleaned up automatically: delete old ones
+  with the file manager once you no longer need them. After a failed install, `.modpacks-plus/staging/` may keep
   files that were never used.
 - Stop the server before installing; a plain install doesn't stop it for you (a loader switch does,
   before moving worlds; a server started again during the switch is stopped again before they move back).
@@ -268,6 +310,12 @@ direct calls get 403.
   in that instant (e.g. a server started by hand) could be overwritten by the node.
 - Any `server.properties` line ending in a single backslash is read as a line continuation and stops
   the install (fail closed), even when it isn't next to `level-name`.
+- An update judges files larger than `max_panel_fetch_bytes` (32 MB) by size only: a same-size edit of
+  such a file is moved aside (not kept), and listed like any moved file.
+- *Restore previous files* after a failed update puts the moved files back but leaves the new version's
+  added files in place; check `mods/` before starting the server.
+- Modrinth Plus entries of mods an update dropped stay in `mods/.modrinth-metadata.json` until Modrinth
+  Plus rescans the folder.
 - CurseForge searches are not throttled by the plugin: each search, page or filter change on the
   CurseForge tab is one request against the admin's API key quota (or the mirror's).
 - FTB lists every config, script and resource file separately: many FTB packs have more than 1000
@@ -298,7 +346,8 @@ direct calls get 403.
 ## Settings
 
 Admin → Plugins → Modpacks Plus → Settings: **Allow skipping the backup** (off by default),
-**Let server users switch loaders** (off by default), a default egg per loader for when several
+**Let server users switch loaders** (off by default), **Check for pack updates** (off, daily or weekly),
+**Preserved server.properties keys** (see *Updating and switching packs*), a default egg per loader for when several
 official eggs are imported (otherwise the switch is refused as ambiguous), the **CurseForge API key**
 and **Use the public CurseForge mirror when no API key is set** (off by default; see *CurseForge*).
 Caps can be changed with `MODPACKS_PLUS_*` environment variables (see `config/modpacks-plus.php`).

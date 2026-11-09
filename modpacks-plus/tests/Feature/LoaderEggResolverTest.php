@@ -237,6 +237,7 @@ class LoaderEggResolverTest extends TestCase
         $this->assertSame((string) $official->id, $written['MODPACKS_PLUS_EGG_NEOFORGE'] ?? null);
         $this->assertSame('false', $written['MODPACKS_PLUS_ALLOW_USER_LOADER_SWITCH'] ?? null);
 
-        $this->assertCount(4, (new ModpacksPlusPlugin())->getSettingsForm());
+        // Plan 36 added the "Pack updates" section.
+        $this->assertCount(5, (new ModpacksPlusPlugin())->getSettingsForm());
     }
 }

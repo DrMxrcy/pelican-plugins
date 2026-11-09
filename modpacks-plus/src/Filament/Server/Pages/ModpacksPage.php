@@ -434,6 +434,67 @@ class ModpacksPage extends Page implements HasTable
     }
 
     /**
+     * Updates the installed pack to another version of the same pack (plan 36): only files that
+     * changed are touched, the user's changed files are kept unless $overwriteChanges. Public so
+     * the confirm buttons can call it; like installPack() it re-checks every permission, takes
+     * the pack and source from the installed record (never from the browser) and re-reads the
+     * version from the source. A version for another loader or Minecraft version is refused.
+     */
+    public function updatePack(string $versionId, bool $overwriteChanges = false): void
+    {
+        abort_unless(static::canAccess() && static::canInstall(), 403);
+
+        $installed = $this->lastInstalledPack();
+        if ($installed === null || !in_array($installed->provider, PackProviders::IDS, true)) {
+            Notification::make()->title(trans('modpacks-plus::strings.install.refused'))->body(InstallProgress::reason('update_no_manifest', ''))->danger()->send();
+
+            return;
+        }
+
+        $provider = $this->provider($installed->provider);
+        if (!$provider::isValidId($installed->pack_id) || !$provider::isValidId($versionId)) {
+            abort(404);
+        }
+
+        $server = $this->server();
+
+        try {
+            $version = $this->packVersion($provider, $installed->pack_id, $versionId);
+            if (VersionMatch::needs($version, ServerTarget::minecraftVersion($server), ServerTarget::loader($server)) !== null) {
+                throw new InstallRefusedException('update_needs_switch');
+            }
+
+            $install = app(InstallEngine::class)->start(
+                $server,
+                user(),
+                $installed->provider,
+                $installed->pack_id,
+                $version['id'],
+                $installed->name,
+                $version['version_number'],
+                $installed->icon,
+                null,
+                ['update' => true, 'overwrite_changes' => $overwriteChanges],
+            );
+        } catch (InstallRefusedException|PackUnavailableException $exception) {
+            Notification::make()
+                ->title(trans('modpacks-plus::strings.install.refused'))
+                ->body(InstallProgress::reason($exception->reason, $exception->detail))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $this->latestInstallLoaded = false;
+
+        Notification::make()
+            ->title(trans('modpacks-plus::strings.install.update_started', ['name' => $install->name, 'version' => (string) $install->version_number]))
+            ->success()
+            ->send();
+    }
+
+    /**
      * The pack version read again from its source; a version of another pack is a 404.
      *
      * @return array{id: string, project_id: string, name: string, version_number: string, version_type: string, game_versions: array<int, string>, loaders: array<int, string>, date_published: ?string, downloads: int, changelog: ?string, file: array{url: string, filename: string, size: int, hashes: array<string, string>}|null}
@@ -813,7 +874,9 @@ class ModpacksPage extends Page implements HasTable
             $needs = VersionMatch::needs($version, $serverMinecraft, $serverLoader);
 
             $action = $needs === null
-                ? $this->makeInstallAction($index, $packId, $version, (string) $project['title'], $source)
+                ? ($this->isUpdatable($source, $packId, $version['id'])
+                    ? $this->makeUpdateAction('update_'.$index, $version['id'], $version['version_number'])
+                    : $this->makeInstallAction($index, $packId, $version, (string) $project['title'], $source))
                 : $this->makeMismatchAction($index, $packId, $version, (string) $project['title'], $needs, self::switchTarget($version, $serverMinecraft, $serverLoader), $source);
 
             $sections[] = Section::make($version['version_number'] !== '' ? $version['version_number'] : $version['name'])
@@ -864,6 +927,56 @@ class ModpacksPage extends Page implements HasTable
         }
 
         return null;
+    }
+
+    /** Whether a version is another version of the installed pack, which can be updated in place. */
+    private function isUpdatable(string $source, string $packId, string $versionId): bool
+    {
+        $installed = $this->lastInstalledPack();
+
+        return $installed !== null && $installed->provider === $source && $installed->pack_id === $packId
+            && $installed->version_id !== $versionId && $installed->manifestEntries() !== null;
+    }
+
+    /** The installed pack when the update check found a version it can be updated to in place. */
+    private function bannerUpdate(): ?PackInstall
+    {
+        $installed = $this->lastInstalledPack();
+
+        return $installed !== null && $installed->update_available && is_string($installed->latest_version_id)
+            && $installed->latest_version_id !== $installed->version_id && $installed->manifestEntries() !== null ? $installed : null;
+    }
+
+    /**
+     * "Update to <version>" with the "Overwrite my changes" choice (off by default).
+     *
+     * @param  string|\Closure(): string  $versionId
+     * @param  string|\Closure(): string  $versionNumber
+     */
+    private function makeUpdateAction(string $name, string|\Closure $versionId, string|\Closure $versionNumber): Action
+    {
+        $number = fn (): string => $versionNumber instanceof \Closure ? $versionNumber() : $versionNumber;
+        $id = fn (): string => $versionId instanceof \Closure ? $versionId() : $versionId;
+
+        return Action::make($name)
+            ->label(fn () => trans('modpacks-plus::strings.actions.update', ['version' => $number()]))
+            ->icon('tabler-refresh')
+            ->color('success')
+            // Hidden without the install permissions; updatePack() re-checks them anyway.
+            ->visible(fn () => static::canInstall())
+            ->authorize(fn () => static::canInstall())
+            ->disabled(fn () => $this->activeInstall() !== null)
+            ->requiresConfirmation()
+            ->modalHeading(fn () => trans('modpacks-plus::strings.install.update_heading', ['name' => (string) $this->lastInstalledPack()?->name, 'version' => $number()]))
+            ->modalDescription(trans('modpacks-plus::strings.install.update_body'))
+            ->modalSubmitActionLabel(fn () => trans('modpacks-plus::strings.actions.update', ['version' => $number()]))
+            ->schema([
+                Toggle::make('overwrite_changes')
+                    ->label(trans('modpacks-plus::strings.install.overwrite_changes'))
+                    ->helperText(trans('modpacks-plus::strings.install.overwrite_changes_help'))
+                    ->default(false),
+            ])
+            ->action(fn (array $data) => $this->updatePack($id(), (bool) ($data['overwrite_changes'] ?? false)));
     }
 
     /** @param  array{id: string, version_number: string, name: string, file?: array{size: int}|null}  $version */
@@ -1107,9 +1220,15 @@ class ModpacksPage extends Page implements HasTable
                 'name' => (string) $this->lastInstalledPack()?->name,
                 'version' => (string) $this->lastInstalledPack()?->version_number,
             ]))
-                ->description(fn () => $this->lastInstalledPack()?->finished_at?->diffForHumans())
+                ->description(fn () => ($installed = $this->lastInstalledPack()) !== null && $installed->update_available
+                    ? trans('modpacks-plus::strings.page.update_available', ['version' => (string) $installed->latest_version_number])
+                    : $this->lastInstalledPack()?->finished_at?->diffForHumans())
                 ->icon('tabler-package')
-                ->color('success')
+                ->color(fn () => $this->lastInstalledPack()?->update_available ? 'info' : 'success')
+                ->actions([
+                    $this->makeUpdateAction('update_banner', fn () => (string) $this->bannerUpdate()?->latest_version_id, fn () => (string) $this->bannerUpdate()?->latest_version_number)
+                        ->visible(fn () => static::canInstall() && $this->bannerUpdate() !== null),
+                ])
                 ->visible(fn () => $this->lastInstalledPack() !== null),
             Section::make(fn () => trans('modpacks-plus::strings.page.progress', [
                 'name' => $this->latestInstall()->name ?? '',

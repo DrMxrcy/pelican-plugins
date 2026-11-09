@@ -83,6 +83,7 @@ class PackSwitchTest extends TestCase
         return $server;
     }
 
+    /** @param  array<string, mixed>  $options */
     private function switchLoader(Server $server, array $options = [], ?\Closure $between = null): PackInstall
     {
         return $this->runVersion($server, 'CVERS001', $options, function (InstallStep $job, PackInstall $install) use ($server, $between) {

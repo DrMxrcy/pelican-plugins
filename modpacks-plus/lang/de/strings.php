@@ -21,6 +21,7 @@ return [
         ],
         'ftb_curseforge' => 'FTB-Packs nehmen viele Mods von CurseForge. Mods, die es auf Modrinth gibt, werden von dort installiert; die übrigen brauchen ein eingerichtetes CurseForge (ein Admin hinterlegt einen Schlüssel oder schaltet den Mirror ein) und werden sonst als „braucht CurseForge-Schlüssel“ zum Herunterladen aufgelistet.',
         'atlauncher_curseforge' => 'ATLauncher nennt für die meisten Mods nur einen md5-Hash, der nicht zum Prüfen von Downloads verwendet wird. Mods werden stattdessen gegen den sha1 von CurseForge geprüft; ohne eingerichtetes CurseForge (ein Admin hinterlegt einen Schlüssel oder schaltet den Mirror ein) werden sie als „braucht CurseForge-Schlüssel“ aufgelistet, Mods ganz ohne sha1 werden nie geladen.',
+        'update_available' => 'Update verfügbar: :version',
     ],
     'filters' => [
         'sort' => 'Sortierung',
@@ -40,6 +41,7 @@ return [
         'cancel' => 'Installation abbrechen',
         'restore' => 'Vorherige Dateien wiederherstellen',
         'discard_restore' => 'Ausstehende Wiederherstellung verwerfen',
+        'update' => 'Auf :version aktualisieren',
     ],
     'details' => [
         'gallery' => 'Galerie',
@@ -85,6 +87,11 @@ return [
         'reset_variables_count' => ':count Egg-Einstellungen werden auf die Standardwerte des neuen Eggs gesetzt oder entfallen',
         'fresh_world' => 'Mit einer neuen Welt beginnen',
         'fresh_world_help' => 'Aus (Standard): die Welt bleibt erhalten. An: der Server wird gestoppt und die Welt (mit Nether und End) nach .modpacks-plus/previous-<Datum>/ verschoben — nie gelöscht —, damit das neue Pack eine neue erzeugt. Ops, Whitelist, Banns und server.properties bleiben in jedem Fall.',
+        'update_started' => ':name wird auf :version aktualisiert. Der Fortschritt steht oben auf der Seite.',
+        'update_heading' => ':name auf :version aktualisieren?',
+        'update_body' => 'Zuerst wird ein gesperrtes Backup erstellt und der Server gestoppt. Nur Dateien, die sich zwischen den Versionen unterscheiden, ändern sich: Dateien, die die neue Version entfernt oder ersetzt, werden nach .modpacks-plus/previous-<Datum>/ verschoben (nichts wird gelöscht), neue und geänderte Dateien geschrieben, unveränderte bleiben. Dateien, die du seit der Installation geändert hast, bleiben erhalten und werden aufgelistet. Welten, Ops, Whitelist, Bannlisten und server.properties bleiben unberührt; eine server.properties aus dem Pack wird zusammengeführt (bewahrte Schlüssel und Ports bleiben).',
+        'overwrite_changes' => 'Meine Änderungen überschreiben',
+        'overwrite_changes_help' => 'Aus (Standard): Dateien, die du seit der Installation geändert hast, bleiben und die Version des Packs wird nicht geschrieben. An: sie werden nach .modpacks-plus/previous-<Datum>/ verschoben (in der Zusammenfassung aufgelistet) und durch die des Packs ersetzt.',
     ],
     'summary' => [
         'backup' => 'Backup: :uuid',
@@ -346,5 +353,17 @@ return [
         'curseforge_api_key_invalid' => 'Der CurseForge-API-Schlüssel wurde nicht gespeichert: erlaubt sind 16 bis 128 Buchstaben, Ziffern oder $ . / _ + = -.',
         'curseforge_mirror' => 'Öffentlichen CurseForge-Mirror nutzen, wenn kein API-Schlüssel gesetzt ist',
         'curseforge_mirror_help' => 'Liest CurseForge über https://api.curse.tools, eine Kopie der CurseForge-API eines Dritten, die mit dessen Schlüssel läuft. Ohne Verfügbarkeitsgarantie, möglicherweise gedrosselt oder bald weg, und von den API-Bedingungen von CurseForge eventuell nicht erlaubt. Der Mirror bestimmt, welche Dateien und Versionen ein Pack enthält und ob von CurseForge gesperrte Dateien geladen werden. Downloads kommen immer nur vom offiziellen CurseForge-CDN oder von Modrinth und werden per Hash geprüft; Server-Packs werden über den Mirror nie verwendet. Mods sind Code, dem du bewusst vertraust. Ein gespeicherter API-Schlüssel hat immer Vorrang.',
+        'update_check' => 'Nach Pack-Updates suchen',
+        'update_check_help' => 'Liest die Versionsliste des installierten Packs jedes Servers bei Modrinth/CurseForge (kein Download, kein Kontakt zum Node oder Spielserver) und benachrichtigt den Server-Besitzer einmal pro neuer Version. Braucht den Scheduler des Panels.',
+        'update_check_off' => 'Aus',
+        'update_check_daily' => 'Täglich',
+        'update_check_weekly' => 'Wöchentlich',
+        'preserved_properties' => 'Bewahrte server.properties-Schlüssel',
+        'preserved_properties_help' => 'Bringt ein Pack eine server.properties mit, behalten diese Schlüssel die Werte des Servers (durch Kommas getrennt). level-name bleibt immer und die Ports folgen immer der Zuweisung im Panel.',
+        'pack_updates' => 'Pack-Updates',
+    ],
+    'notifications' => [
+        'update_title' => 'Für :name gibt es ein Update',
+        'update_body' => 'Server :server: :name :installed → :version. Aktualisiere es auf der Modpacks-Seite des Servers.',
     ],
 ];

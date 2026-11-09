@@ -21,6 +21,7 @@ return [
         ],
         'ftb_curseforge' => 'FTB packs take many mods from CurseForge. Those found on Modrinth install from there; the rest need CurseForge set up (an admin adds a key or turns on the mirror) and are otherwise listed as "needs CurseForge key" for you to download.',
         'atlauncher_curseforge' => 'ATLauncher only gives an md5 for most mods, which is not used to verify downloads. Mods are checked against CurseForge\'s sha1 instead, so without CurseForge set up (an admin adds a key or turns on the mirror) they are listed as "needs CurseForge key"; mods with no sha1 anywhere are never downloaded.',
+        'update_available' => 'Update available: :version',
     ],
     'filters' => [
         'sort' => 'Sort',
@@ -40,6 +41,7 @@ return [
         'cancel' => 'Cancel install',
         'restore' => 'Restore previous files',
         'discard_restore' => 'Discard pending restore',
+        'update' => 'Update to :version',
     ],
     'details' => [
         'gallery' => 'Gallery',
@@ -85,6 +87,11 @@ return [
         'reset_variables_count' => ':count egg settings reset to the new egg\'s defaults or dropped',
         'fresh_world' => 'Start a fresh world',
         'fresh_world_help' => 'Off (default): the world is kept. On: the server is stopped and the world (with its nether and end) is moved into .modpacks-plus/previous-<date>/ — never deleted — so the new pack starts a new one. Ops, whitelist, bans and server.properties are kept either way.',
+        'update_started' => 'Updating :name to :version. Progress is shown at the top of the page.',
+        'update_heading' => 'Update :name to :version?',
+        'update_body' => 'A locked backup is made first and the server is stopped. Only files that differ between the versions change: files the new version drops or replaces are moved into .modpacks-plus/previous-<date>/ (nothing is deleted), new and changed files are written, unchanged ones are left alone. Files you changed since the install are kept and listed. Worlds, ops, whitelist, ban lists and server.properties are not touched; a server.properties the pack ships is merged (preserved keys and ports kept).',
+        'overwrite_changes' => 'Overwrite my changes',
+        'overwrite_changes_help' => 'Off (default): files you changed since the install are kept and the pack\'s version is not written. On: they are moved into .modpacks-plus/previous-<date>/ (listed in the summary) and replaced by the pack\'s.',
     ],
     'summary' => [
         'backup' => 'Backup: :uuid',
@@ -346,5 +353,17 @@ return [
         'curseforge_api_key_invalid' => 'The CurseForge API key was not saved: use 16 to 128 letters, digits or $ . / _ + = -.',
         'curseforge_mirror' => 'Use the public CurseForge mirror when no API key is set',
         'curseforge_mirror_help' => 'Reads CurseForge through https://api.curse.tools, a third-party copy of the CurseForge API that runs on someone else\'s key. It has no uptime guarantee, may be rate-limited or disappear, and may not be allowed by CurseForge\'s API terms. The mirror chooses which files and versions a pack contains and whether files CurseForge blocks are fetched. Downloads only ever come from the official CurseForge CDN or Modrinth and are hash-checked, and server packs are never used through the mirror. Mods are code you are choosing to trust. A saved API key always wins.',
+        'update_check' => 'Check for pack updates',
+        'update_check_help' => 'Reads the version list of each server\'s installed pack from Modrinth/CurseForge (no download, no contact with the node or game server) and notifies the server owner once per new version. Needs the panel\'s scheduler.',
+        'update_check_off' => 'Off',
+        'update_check_daily' => 'Daily',
+        'update_check_weekly' => 'Weekly',
+        'preserved_properties' => 'Preserved server.properties keys',
+        'preserved_properties_help' => 'When a pack ships server.properties, these keys keep the server\'s values (comma separated). level-name is always kept and the ports always follow the panel allocation.',
+        'pack_updates' => 'Pack updates',
+    ],
+    'notifications' => [
+        'update_title' => ':name has an update',
+        'update_body' => 'Server :server: :name :installed → :version. Update it on the server\'s Modpacks page.',
     ],
 ];
