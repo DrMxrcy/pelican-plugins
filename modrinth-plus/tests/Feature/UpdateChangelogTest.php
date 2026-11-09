@@ -161,11 +161,22 @@ class UpdateChangelogTest extends TestCase
 
         $page = $this->page();
         $sent = count(Http::recorded());
+        $this->assertGreaterThan(0, $sent, 'the page itself fetched the versions');
 
+        // Every Livewire request re-renders the table, which looks the versions up once (memoised
+        // for the request). With the version cache cleared, any lookup the dialog made outside
+        // that memo would show up as a second request.
+        cache()->flush();
+        $page->call('$refresh');
+        $perRender = count(Http::recorded()) - $sent;
+        $this->assertSame(1, $perRender);
+
+        cache()->flush();
+        $before = count(Http::recorded());
         $page->mountAction(TestAction::make('update')->table(self::ROW))
             ->assertMountedActionModalSee('Notes for 5.0.0');
 
-        Http::assertSentCount($sent);
+        Http::assertSentCount($before + $perRender);
     }
 
     public function test_hostile_changelog_html_never_reaches_the_dialog(): void
@@ -191,13 +202,14 @@ class UpdateChangelogTest extends TestCase
 
     public function test_more_than_ten_newer_versions_show_ten_and_a_link_to_the_rest(): void
     {
-        $this->fakeModrinth(14, 1);
+        $this->fakeModrinth(14, 1, [14 => '[admin](/admin) ![shot](https://cdn.example.com/s.png)']);
 
         $page = $this->page()
             ->mountAction(TestAction::make('update')->table(self::ROW))
-            ->assertMountedActionModalSee(['Notes for 14.0.0', 'Notes for 5.0.0', trans('modrinth-plus::strings.changelog.more', ['count' => 3])])
+            ->assertMountedActionModalSee(['admin', 'Notes for 5.0.0', trans('modrinth-plus::strings.changelog.more', ['count' => 3])])
             ->assertMountedActionModalDontSee(['Notes for 4.0.0', 'Notes for 2.0.0'])
-            ->assertMountedActionModalSeeHtml('href="https://modrinth.com/mod/alpha/versions"');
+            ->assertMountedActionModalSeeHtml(['href="https://modrinth.com/mod/alpha/versions"', 'max-width: 100%'])
+            ->assertMountedActionModalDontSeeHtml('href="/admin"');
 
         $this->assertStringContainsString('rel="noopener noreferrer nofollow"', $page->getMountedActionModalHtml());
     }

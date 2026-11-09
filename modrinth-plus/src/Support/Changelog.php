@@ -4,6 +4,11 @@ namespace DrMxrcy\ModrinthPlus\Support;
 
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
+use League\CommonMark\Environment\EnvironmentBuilderInterface;
+use League\CommonMark\Event\DocumentParsedEvent;
+use League\CommonMark\Extension\CommonMark\Node\Inline\Image;
+use League\CommonMark\Extension\CommonMark\Node\Inline\Link;
+use League\CommonMark\Extension\ExtensionInterface;
 use League\CommonMark\Extension\ExternalLink\ExternalLinkExtension;
 
 /**
@@ -49,7 +54,8 @@ final class Changelog
     }
 
     /**
-     * The changelog as safe HTML, or null when there is none (Modrinth often sends "" or null).
+     * The changelog as safe HTML, or null when there is none: Modrinth often sends "" or null,
+     * and a changelog of only raw HTML renders to nothing once that is stripped.
      */
     public static function render(?string $changelog): ?HtmlString
     {
@@ -62,18 +68,67 @@ final class Changelog
             $changelog = rtrim(mb_strcut($changelog, 0, self::MAX_BYTES, 'UTF-8')) . '…';
         }
 
-        return new HtmlString(Str::markdown($changelog, [
+        $html = Str::markdown($changelog, [
             'html_input' => 'strip',
             'allow_unsafe_links' => false,
             'max_nesting_level' => 50,
             'external_link' => [
-                // Every absolute link counts as external: new tab, no opener, no referrer, nofollow.
+                // Only absolute http(s) links are left (see webLinksOnly()), all of them external:
+                // new tab, no opener, no referrer, nofollow.
                 'internal_hosts' => [],
                 'open_in_new_window' => true,
                 'nofollow' => 'external',
                 'noopener' => 'external',
                 'noreferrer' => 'external',
             ],
-        ], [new ExternalLinkExtension()]));
+        ], [new ExternalLinkExtension(), self::webLinksOnly()]);
+
+        // An image alone is content; anything else needs visible text.
+        if (trim(html_entity_decode(strip_tags($html, '<img>'))) === '') {
+            return null;
+        }
+
+        return new HtmlString($html);
+    }
+
+    /**
+     * Keeps only absolute http(s) links and images. Relative, fragment, protocol-relative,
+     * mailto:, data: and every other scheme (including entity-encoded ones, decoded by the parser
+     * before this runs) lose the link and keep their text (an image keeps its alt text), so
+     * nothing in a changelog can navigate the panel tab or point at the panel itself.
+     * Remote images still load from the author's host, as on Modrinth, but never wider than the
+     * dialog.
+     */
+    private static function webLinksOnly(): ExtensionInterface
+    {
+        return new class implements ExtensionInterface
+        {
+            public function register(EnvironmentBuilderInterface $environment): void
+            {
+                $environment->addEventListener(DocumentParsedEvent::class, function (DocumentParsedEvent $event): void {
+                    $resources = [];
+                    foreach ($event->getDocument()->iterator() as $node) {
+                        if ($node instanceof Link || $node instanceof Image) {
+                            $resources[] = $node;
+                        }
+                    }
+
+                    foreach ($resources as $node) {
+                        if (preg_match('#^https?://[^/\\\\]#i', $node->getUrl()) === 1) {
+                            if ($node instanceof Image) {
+                                $node->data->set('attributes/style', 'max-width: 100%; height: auto;');
+                            }
+
+                            continue;
+                        }
+
+                        foreach (iterator_to_array($node->children(), false) as $child) {
+                            $node->insertBefore($child);
+                        }
+                        $node->detach();
+                    }
+                });
+            }
+        };
     }
 }

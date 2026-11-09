@@ -78,7 +78,16 @@ class ChangelogTest extends TestCase
     /** @return array<string, array{?string}> */
     public static function emptyChangelogs(): array
     {
-        return ['null' => [null], 'empty' => [''], 'whitespace' => ["  \n "]];
+        return [
+            'null' => [null],
+            'empty' => [''],
+            'whitespace' => ["  \n "],
+            // Raw HTML is stripped, so these render to nothing: show the fallback, not a blank entry.
+            'html comment only' => ['<!-- x -->'],
+            'script only' => ['<script>alert(1)</script>'],
+            'div only' => ['<div class="x">  </div>'],
+            'html only, several blocks' => ["<div>a</div>\n\n<p>b</p>\n\n<!-- c -->"],
+        ];
     }
 
     #[DataProvider('emptyChangelogs')]
@@ -102,6 +111,18 @@ class ChangelogTest extends TestCase
             'vbscript link' => ['[click](vbscript:msgbox(1))', ['href="vbscript:']],
             'data link' => ['[click](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)', ['href="data:']],
             'javascript image' => ['![x](javascript:alert(1))', ['src="javascript:']],
+            'entity-encoded javascript scheme' => ['[click](&#106;avascript:alert(1))', ['href="javascript:', 'href="&#106;']],
+            'hex entity-encoded javascript scheme' => ['[click](&#x6A;avascript:alert(1))', ['href="javascript:', 'href="&#x6a;']],
+            'quote injection in a link title' => ['[click](https://example.com "a\" onmouseover=\"alert(1)")', ['" onmouseover="', '"onmouseover="']],
+            'quote injection in a link url' => ['[click](<https://example.com/" onmouseover="alert(1)>)', ['" onmouseover="']],
+            'quote injection in an image url' => ['![x](<https://example.com/a.png" onerror="alert(1)>)', ['" onerror="']],
+            'data image' => ['![x](data:image/png;base64,iVBORw0KGgo=)', ['<img', 'data:image']],
+            'mailto link' => ['[mail](mailto:someone@example.com)', ['<a ', 'href=']],
+            'email autolink' => ['someone@example.com', ['<a ', 'href=']],
+            'relative link' => ['[admin](/admin)', ['<a ', 'href=']],
+            'fragment link' => ['[x](#top)', ['<a ', 'href=']],
+            'protocol-relative link' => ['[x](//evil.example/x)', ['<a ', 'href=']],
+            'relative image' => ['![x](/storage/x.png)', ['<img']],
             'inline style' => ['<span style="position:fixed">x</span>', ['<span', 'style=']],
         ];
     }
@@ -126,6 +147,64 @@ class ChangelogTest extends TestCase
         $this->assertMatchesRegularExpression('/rel="[^"]*noopener[^"]*"/', $html);
         $this->assertMatchesRegularExpression('/rel="[^"]*noreferrer[^"]*"/', $html);
         $this->assertMatchesRegularExpression('/rel="[^"]*nofollow[^"]*"/', $html);
+    }
+
+    public function test_unlinked_text_survives(): void
+    {
+        $html = Changelog::render('Go to [the admin page](/admin) or mail someone@example.com.')->toHtml();
+
+        $this->assertStringContainsString('the admin page', $html);
+        $this->assertStringContainsString('someone@example.com', $html);
+    }
+
+    public function test_remote_images_stay_but_are_constrained(): void
+    {
+        $html = Changelog::render('![shot](https://cdn.example.com/shot.png)')->toHtml();
+
+        $this->assertStringContainsString('src="https://cdn.example.com/shot.png"', $html);
+        $this->assertStringContainsString('max-width: 100%', $html);
+        $this->assertStringContainsString('height: auto', $html);
+    }
+
+    public function test_an_image_only_changelog_is_not_empty(): void
+    {
+        $this->assertNotNull(Changelog::render('![shot](https://cdn.example.com/shot.png)'));
+    }
+
+    public function test_every_link_opens_in_a_new_tab(): void
+    {
+        $html = Changelog::render("[a](https://a.example) and <https://b.example> and www.c.example\n\n[d][r]\n\n[r]: http://d.example")->toHtml();
+
+        preg_match_all('/<a [^>]*>/', $html, $tags);
+        $this->assertCount(4, $tags[0]);
+        foreach ($tags[0] as $tag) {
+            $this->assertStringContainsString('target="_blank"', $tag);
+            $this->assertMatchesRegularExpression('/rel="(?=[^"]*nofollow)(?=[^"]*noopener)(?=[^"]*noreferrer)[^"]*"/', $tag);
+        }
+    }
+
+    /** @return array<string, array{string, list<string>}> a hostile tail cut by the truncation, strings that must not appear */
+    public static function cutConstructs(): array
+    {
+        return [
+            'cut inside a script tag' => ['<script>alert(1)</script>', ['<script']],
+            'cut inside an img tag' => ['<img src=x onerror="alert(1)">', ['<img', 'onerror']],
+            'cut inside a javascript link' => ['[x](javascript:alert(1))', ['href="javascript:', '<a ']],
+            'cut inside a link url' => ['[x](https://example.com/a-very-long-path)', ['<a ']],
+        ];
+    }
+
+    /** @param  list<string>  $forbidden */
+    #[DataProvider('cutConstructs')]
+    public function test_truncation_inside_a_construct_stays_safe(string $tail, array $forbidden): void
+    {
+        // The cut lands a few bytes into $tail.
+        $html = strtolower(Changelog::render(str_repeat('a', Changelog::MAX_BYTES - 6) . ' ' . $tail)->toHtml());
+
+        $this->assertStringContainsString('…', $html);
+        foreach ($forbidden as $needle) {
+            $this->assertStringNotContainsString($needle, $html);
+        }
     }
 
     public function test_render_truncates_long_changelogs(): void
