@@ -99,7 +99,7 @@ return [
         'banner' => [
             'heading' => ':count installed project doesn\'t support Minecraft :version|:count installed projects don\'t support Minecraft :version',
             'description' => 'Installed versions without a build for this Minecraft version and :loader may fail to load. Check compatibility to see which ones and whether an update helps.',
-            'pinned' => ':count of them is pinned, so no update is offered for it until it is unpinned.|:count of them are pinned, so no update is offered for them until they are unpinned.',
+            'pinned' => ':count of them is pinned and stays at its current version until it is unpinned.|:count of them are pinned and stay at their current versions until they are unpinned.',
         ],
         'pinned_label' => ':name (pinned)',
         'status' => [

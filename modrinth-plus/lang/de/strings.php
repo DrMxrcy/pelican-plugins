@@ -99,7 +99,7 @@ return [
         'banner' => [
             'heading' => ':count installiertes Projekt unterstützt Minecraft :version nicht|:count installierte Projekte unterstützen Minecraft :version nicht',
             'description' => 'Installierte Versionen ohne Build für diese Minecraft-Version und :loader laden eventuell nicht. Prüfe die Kompatibilität, um zu sehen, welche betroffen sind und ob ein Update hilft.',
-            'pinned' => ':count davon ist angepinnt, daher wird dafür kein Update angeboten, bis es gelöst wird.|:count davon sind angepinnt, daher wird dafür kein Update angeboten, bis sie gelöst werden.',
+            'pinned' => ':count davon ist angepinnt und bleibt bei der aktuellen Version, bis es gelöst wird.|:count davon sind angepinnt und bleiben bei ihren aktuellen Versionen, bis sie gelöst werden.',
         ],
         'pinned_label' => ':name (angepinnt)',
         'status' => [
