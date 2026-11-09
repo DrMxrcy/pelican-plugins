@@ -188,6 +188,8 @@ return [
         'curseforge_mirror_unavailable' => 'CurseForge nicht verfügbar – API-Schlüssel hinterlegen. Der öffentliche Mirror antwortet nicht oder ist gedrosselt (:detail).',
         'ftb_unavailable' => 'FTB (modpacks.ch) ist nicht erreichbar. Später erneut versuchen. (:detail)',
         'ftb_not_found' => 'Nicht auf FTB gefunden: :detail',
+        'atlauncher_unavailable' => 'ATLauncher ist nicht erreichbar. Später erneut versuchen. (:detail)',
+        'atlauncher_not_found' => 'Nicht auf ATLauncher gefunden: :detail',
     ],
     'steps' => [
         'prepare' => 'Pack prüfen',

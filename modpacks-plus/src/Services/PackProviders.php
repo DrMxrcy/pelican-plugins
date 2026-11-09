@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Services;
 
 use DrMxrcy\ModpacksPlus\Contracts\PackProvider;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
+use DrMxrcy\ModpacksPlus\Providers\AtLauncher\AtLauncherPackProvider;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgePackProvider;
 use DrMxrcy\ModpacksPlus\Providers\Ftb\FtbPackProvider;
@@ -27,6 +28,7 @@ class PackProviders
             CurseForgePackProvider::ID => $this->curseforge(),
             // Plan 32: CurseForge files inside FTB packs go through the CurseForge provider's rules.
             FtbPackProvider::ID => new FtbPackProvider(FtbPackProvider::apiClient(), $this->resolver(), $this->modrinth(), Caps::fromConfig()),
+            AtLauncherPackProvider::ID => new AtLauncherPackProvider(AtLauncherPackProvider::apiClient(), AtLauncherPackProvider::cdnClient(), $this->resolver(), $this->modrinth(), Caps::fromConfig()),
             default => throw new PackUnavailableException('not_found', $id),
         };
     }

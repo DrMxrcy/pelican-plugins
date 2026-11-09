@@ -57,6 +57,19 @@ final class PlanValidator
         'mediafilez.forgecdn.net',
     ];
 
+    /**
+     * ATLauncher plans (plan 32): ATLauncher's CDN (mods it hosts and the configs archive), the
+     * CurseForge CDN for mods linked there (URLs built by CurseForgePackProvider), and
+     * cdn.modrinth.com for files matched on Modrinth by sha1. Only cdn.modrinth.com is ever
+     * handed to the node; the rest is fetched, redirect-checked and sha1-checked by the panel.
+     */
+    public const ATLAUNCHER_HOSTS = [
+        'cdn.modrinth.com',
+        'download.nodecdn.net',
+        'edge.forgecdn.net',
+        'mediafilez.forgecdn.net',
+    ];
+
     /** Why a pack file is listed for the user to download instead of installed. */
     public const MANUAL_REASONS = ['distribution_disabled', 'datapack', 'unsupported_type', 'too_large', 'curseforge_key_required', 'no_usable_hash', 'host_not_allowed'];
 
@@ -147,6 +160,7 @@ final class PlanValidator
             'modrinth' => self::ALLOWED_HOSTS,
             'curseforge' => self::CURSEFORGE_HOSTS,
             'ftb' => self::FTB_HOSTS,
+            'atlauncher' => self::ATLAUNCHER_HOSTS,
             default => [],
         };
     }
@@ -421,8 +435,9 @@ final class PlanValidator
             $this->validateArchive($archive);
         }
 
-        if ($plan->serverPack !== null && !self::isServerPackRoot($plan->serverPackRoot ?? '')) {
-            throw new UnsafePlanException('unsafe_path', (string) $plan->serverPackRoot);
+        $root = $plan->overrideRoot();
+        if ($root !== null && !self::isServerPackRoot($root)) {
+            throw new UnsafePlanException('unsafe_path', $root);
         }
 
         $files = [];
@@ -484,7 +499,6 @@ final class PlanValidator
         $skippedClient = $plan->skippedClientOverrides;
         $skippedPack = $plan->skippedPackFiles;
         $targets = [];
-        $root = $plan->overrideRoot();
 
         foreach ($plan->overrides as $override) {
             $path = $this->normalisePath($override->path);

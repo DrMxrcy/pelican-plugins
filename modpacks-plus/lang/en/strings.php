@@ -188,6 +188,8 @@ return [
         'curseforge_mirror_unavailable' => 'CurseForge unavailable — add an API key. The public mirror did not answer or is rate-limited (:detail).',
         'ftb_unavailable' => 'FTB (modpacks.ch) could not be reached. Try again later. (:detail)',
         'ftb_not_found' => 'Not found on FTB: :detail',
+        'atlauncher_unavailable' => 'ATLauncher could not be reached. Try again later. (:detail)',
+        'atlauncher_not_found' => 'Not found on ATLauncher: :detail',
     ],
     'steps' => [
         'prepare' => 'Check the pack',

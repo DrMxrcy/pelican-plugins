@@ -23,7 +23,9 @@ final class InstallPlan
      *                                                                                      (never fetched), with a link
      *                                                                                      to the source's website
      * @param  array<int, string>  $skippedPackFiles  server-pack start scripts, installers and bundled Java not written
-     * @param  string|null  $serverPackRoot  the folder inside $serverPack its files are under ('' = the zip root)
+     * @param  string|null  $serverPackRoot  the folder inside $serverPack its files are under ('' = the zip root);
+     *                                       without a server pack, set when $archive itself holds server
+     *                                       files at that root (ATLauncher's Configs.zip, plan 32)
      * @param  array{reason: string, detail: string}|null  $serverPackFallback  why a server pack was not used
      * @param  array<int, array{path: string, project: string}>  $clientOnlyBy  skipped client files and the Modrinth
      *                                                                          project whose server_side said so
@@ -53,11 +55,13 @@ final class InstallPlan
 
     /**
      * Where override entries come from: null = the archive's `overrides/` and
-     * `server-overrides/`; a string = the server pack's root folder ('' = its zip root).
+     * `server-overrides/`; a string = the server pack's root folder ('' = its zip root), or
+     * the archive's when it holds server files at a root (ATLauncher's Configs.zip). Either
+     * way a root means the server-pack rules apply (no start scripts, jars or dotfiles).
      */
     public function overrideRoot(): ?string
     {
-        return $this->serverPack !== null ? ($this->serverPackRoot ?? '') : null;
+        return $this->serverPack !== null ? ($this->serverPackRoot ?? '') : $this->serverPackRoot;
     }
 
     /** The archive override entries are read from: the server pack when there is one. */
