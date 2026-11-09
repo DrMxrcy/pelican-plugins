@@ -7,6 +7,7 @@ use DrMxrcy\PlayersPlus\Console\Commands\PruneSamplesCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\RollupCommand;
 use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayersPage;
 use DrMxrcy\PlayersPlus\Models\HourlyRollup;
+use DrMxrcy\PlayersPlus\Models\LogCursor;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\PlayerSession;
 use DrMxrcy\PlayersPlus\Models\Sample;
@@ -79,6 +80,8 @@ class PluginResourcesTest extends TestCase
         $this->assertSame('pp_samples', (new Sample())->getTable());
         $this->assertSame('pp_players', (new Player())->getTable());
         $this->assertSame('pp_sessions', (new PlayerSession())->getTable());
+        $this->assertSame('pp_log_cursors', (new LogCursor())->getTable());
+        $this->assertContains('pp_log_cursors', $tables);
         $this->assertContains('pp_players', $tables);
         $this->assertContains('pp_sessions', $tables);
         $this->assertSame('pp_hourly', (new HourlyRollup())->getTable());

@@ -18,8 +18,9 @@ final class FakeDaemonFiles
     /**
      * @param  array<string, string>  $files  path => content
      * @param  array<string, int>  $sizes  path => size reported by the listing (default: real size)
+     * @param  array<string, string>  $modified  path => RFC 3339 modification time reported by the listing
      */
-    public static function respond(Request $request, array $files, array $sizes = []): ?PromiseInterface
+    public static function respond(Request $request, array $files, array $sizes = [], array $modified = []): ?PromiseInterface
     {
         if (str_contains($request->url(), '/files/list-directory')) {
             $directory = trim((string) self::query($request, 'directory'), '/');
@@ -27,7 +28,8 @@ final class FakeDaemonFiles
             foreach ($files as $path => $content) {
                 $parent = dirname($path) === '.' ? '' : dirname($path);
                 if ($parent === $directory) {
-                    $entries[] = ['name' => basename($path), 'size' => $sizes[$path] ?? strlen($content), 'directory' => false, 'file' => true];
+                    $entries[] = ['name' => basename($path), 'size' => $sizes[$path] ?? strlen($content), 'directory' => false, 'file' => true]
+                        + (isset($modified[$path]) ? ['modified' => $modified[$path]] : []);
                 }
             }
 
