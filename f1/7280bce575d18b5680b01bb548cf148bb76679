@@ -1,0 +1,55 @@
+players-plus/README.md
+  s_1d8485e49bfacb::t_d850cc05ca0161 59-62
+players-plus/database/migrations/2026_11_09_000002_create_pp_players_table.php
+  s_1d8485e49bfacb::t_6ccbc2c63b8dba 18-21
+players-plus/database/migrations/2026_11_09_000003_create_pp_sessions_table.php
+  s_1d8485e49bfacb::t_9be945958586e7 14-15,17
+players-plus/src/Filament/Server/Pages/PlayerProfilePage.php
+  s_1d8485e49bfacb::t_0daa7b2f857e94 9,25,53-54,96-113,135-136,183,186,249,253
+players-plus/src/Filament/Server/Pages/PlayersPage.php
+  s_1d8485e49bfacb::t_d12da764f713fd 155,173-175,180-181,184,209-216,219-222,224
+players-plus/src/Jobs/PollServerJob.php
+  s_1d8485e49bfacb::t_fa5ca6913011c7 85-88
+players-plus/src/Models/Player.php
+  s_1d8485e49bfacb::t_a92475085ddbdc 61-65,67,70
+players-plus/src/Services/PlayerIdentity.php
+  s_1d8485e49bfacb::t_1389988881171b 8,32-37,39,71,73,153,156,179-182,186-194,198
+players-plus/src/Services/PlayerStats.php
+  s_1d8485e49bfacb::t_05e7183093f091 7,76-77,80,85,92,99,124-126
+players-plus/src/Services/SessionTracker.php
+  s_1d8485e49bfacb::t_77239532aba5fa 11,13,16,25-26,28-29,31-32,36-38,43-53,55,57-67,69-70,72-75,77-78,80-81,86,102,114-115,117,119,139,144
+players-plus/src/Support/DaemonFiles.php
+  s_1d8485e49bfacb::t_617e89ecd3eb2f 1-62
+players-plus/src/Support/PlayerList.php
+  s_1d8485e49bfacb::t_4f9b832daab868 8,50-104
+players-plus/tests/Feature/AllPlayersViewTest.php
+  s_1d8485e49bfacb::t_83547406dd387a 89,100,108-131
+players-plus/tests/Feature/PlayerIdentityTest.php
+  s_1d8485e49bfacb::t_8fdc5de2c9fdd1 13,38-40,46-47,49,55-56,58,63,88,208-261
+players-plus/tests/Feature/PlayerProfileViewTest.php
+  s_1d8485e49bfacb::t_6b2d63fe4c65fd 8,13,16,44-46,63,114,116-119,124,136,240-276
+players-plus/tests/Feature/PollingTest.php
+  s_1d8485e49bfacb::t_b7949974b1789e 30,435,437,441-446
+players-plus/tests/Feature/SessionTrackerTest.php
+  s_1d8485e49bfacb::t_09ccde3870f43e 15-16,231-282
+players-plus/tests/Fixtures/FakeDaemonFiles.php
+  s_1d8485e49bfacb::t_2ca8288b10c96c 1-62
+players-plus/tests/Unit/PlayerStatsTest.php
+  s_1d8485e49bfacb::t_ce31b8d3450e2a 34,41,48-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f17280bce575d18b5680b01bb548cf148bb76679",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+players-plus/database/migrations/2026_11_09_000001_create_pp_samples_table.php
+  s_1d8485e49bfacb::t_42da6aa6ebc8c1 15-16
+players-plus/tests/Feature/PluginResourcesTest.php
+  s_1d8485e49bfacb::t_bb0dd1fe919210 40-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a325b8a287a73f469df657aab4957eeb6c57d38c",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
