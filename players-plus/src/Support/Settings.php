@@ -19,6 +19,15 @@ final class Settings
         return filter_var(config('players-plus.enabled', true), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true;
     }
 
+    /**
+     * Kick, ban, pardon, whitelist and op from the panel (plan 29). On by default; a value that
+     * is not a recognisable boolean turns it off (fails closed, unlike the read-only settings).
+     */
+    public static function moderationEnabled(): bool
+    {
+        return filter_var(config('players-plus.moderation', true), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
+    }
+
     /** Minutes between polls. */
     public static function pollInterval(): int
     {

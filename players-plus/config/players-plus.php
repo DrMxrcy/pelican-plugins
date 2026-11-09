@@ -4,6 +4,9 @@ return [
     // Turn polling off without uninstalling the plugin; stored samples stay readable.
     'enabled' => env('PLAYERS_PLUS_ENABLED', true),
 
+    // Kick, ban, pardon, whitelist and op actions on the Players pages (sent as console commands).
+    'moderation' => env('PLAYERS_PLUS_MODERATION', true),
+
     // Minutes between polls, 1 to 5.
     'poll_interval' => env('PLAYERS_PLUS_POLL_INTERVAL', 2),
 
