@@ -94,6 +94,27 @@ The Banned, Operators and Whitelist tabs need the `file.read-content` permission
 `banned-players.json`, `ops.json` and `whitelist.json` (each skipped over 1 MB), cached for 30
 seconds and re-read a moment after an action; a file that is not valid JSON shows an error.
 
+## Server logs
+
+Every 5 minutes, new lines of each Minecraft server's `logs/latest.log` are read through the
+daemon (vanilla, Paper/Purpur, Forge, NeoForge and Fabric formats). `<name> joined the game`
+and `<name> left the game` give exact times: a session start or end within two poll
+intervals of a log line moves to that line, and joins and leaves nothing polled (for example
+from before the plugin was installed) become sessions of their own. Playtime is never counted
+twice. Only the current `latest.log` is read, not rotated `*.log.gz` files.
+
+- Incremental: a cursor remembers how far the log was read. An unchanged log is not
+  downloaded; a grown one is streamed and only the new lines (at most 1 MB per scan) are
+  parsed. A new first line or a smaller file means the log rotated and reading restarts.
+- Bounded: logs over 32 MB are skipped, lines over 4 KB are ignored, and a scan stops reading
+  after 20 s and continues next time. A failing read is retried after 30 minutes.
+- Chat can't fake a join: only the exact server message after the log header counts, and
+  names must be valid Minecraft names.
+- Lines carry only a time, so the date comes from the file's modification time and moves on
+  at midnight. The `logged in with entity id … from /<ip>` line is ignored: no IP address
+  is stored. Turn this off with the **Read join and leave times from server logs** setting
+  (`PLAYERS_PLUS_LOG_SCAN`).
+
 ## Privacy
 
 Skin avatars are loaded from [mc-heads.net](https://mc-heads.net) by the viewer's browser

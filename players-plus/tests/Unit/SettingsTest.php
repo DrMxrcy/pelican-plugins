@@ -37,6 +37,20 @@ class SettingsTest extends TestCase
         $this->assertSame(365, Settings::rollupRetentionDays());
     }
 
+    public function test_log_scan_defaults_on_and_needs_polling(): void
+    {
+        $this->assertTrue(Settings::logScan());
+
+        config()->set('players-plus.log_scan', 'false');
+        $this->assertFalse(Settings::logScan());
+
+        config()->set('players-plus.log_scan', 'junk');
+        $this->assertTrue(Settings::logScan());
+
+        config()->set('players-plus.enabled', false);
+        $this->assertFalse(Settings::logScan());
+    }
+
     public function test_enabled_reads_env_style_strings(): void
     {
         config()->set('players-plus.enabled', 'false');
@@ -52,8 +66,8 @@ class SettingsTest extends TestCase
 
         $data = (new PlayersPlusPlugin())->getSettingsFormData();
 
-        $this->assertSame(['enabled' => true, 'poll_interval' => 4, 'retention_days' => 30, 'rollup_retention_days' => 365, 'moderation' => true], $data);
-        $this->assertCount(5, (new PlayersPlusPlugin())->getSettingsForm());
+        $this->assertSame(['enabled' => true, 'poll_interval' => 4, 'retention_days' => 30, 'rollup_retention_days' => 365, 'moderation' => true, 'log_scan' => true], $data);
+        $this->assertCount(6, (new PlayersPlusPlugin())->getSettingsForm());
     }
 
     public function test_save_writes_prefixed_clamped_environment_values(): void
@@ -69,7 +83,7 @@ class SettingsTest extends TestCase
             }
         };
 
-        $plugin->saveSettings(['enabled' => false, 'poll_interval' => 12, 'retention_days' => '7', 'rollup_retention_days' => 99999, 'moderation' => false]);
+        $plugin->saveSettings(['enabled' => false, 'poll_interval' => 12, 'retention_days' => '7', 'rollup_retention_days' => 99999, 'moderation' => false, 'log_scan' => '0']);
 
         $this->assertSame([
             'PLAYERS_PLUS_ENABLED' => 'false',
@@ -77,6 +91,7 @@ class SettingsTest extends TestCase
             'PLAYERS_PLUS_RETENTION_DAYS' => 7,
             'PLAYERS_PLUS_ROLLUP_RETENTION_DAYS' => Settings::MAX_RETENTION_DAYS,
             'PLAYERS_PLUS_MODERATION' => 'false',
+            'PLAYERS_PLUS_LOG_SCAN' => 'false',
         ], $plugin->written);
 
         $plugin->saveSettings([]);

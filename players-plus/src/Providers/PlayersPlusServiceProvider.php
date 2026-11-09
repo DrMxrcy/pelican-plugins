@@ -5,6 +5,7 @@ namespace DrMxrcy\PlayersPlus\Providers;
 use DrMxrcy\PlayersPlus\Console\Commands\PollPlayersCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\PruneSamplesCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\RollupCommand;
+use DrMxrcy\PlayersPlus\Console\Commands\ScanLogsCommand;
 use DrMxrcy\PlayersPlus\Services\Query\Connector;
 use DrMxrcy\PlayersPlus\Services\Query\SocketConnector;
 use DrMxrcy\PlayersPlus\Support\Settings;
@@ -28,6 +29,10 @@ class PlayersPlusServiceProvider extends ServiceProvider
             // Previous hour (now complete) and the current one; idempotent, so reruns are harmless.
             $schedule->command(RollupCommand::class)
                 ->hourlyAt(5)
+                ->withoutOverlapping(10);
+
+            $schedule->command(ScanLogsCommand::class)
+                ->everyFiveMinutes()
                 ->withoutOverlapping(10);
 
             $schedule->command(PruneSamplesCommand::class)

@@ -5,6 +5,7 @@ namespace DrMxrcy\PlayersPlus\Tests\Feature;
 use DrMxrcy\PlayersPlus\Console\Commands\PollPlayersCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\PruneSamplesCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\RollupCommand;
+use DrMxrcy\PlayersPlus\Console\Commands\ScanLogsCommand;
 use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayersPage;
 use DrMxrcy\PlayersPlus\Models\HourlyRollup;
 use DrMxrcy\PlayersPlus\Models\LogCursor;
@@ -26,6 +27,7 @@ class PluginResourcesTest extends TestCase
         $this->assertSame(30, config('players-plus.retention_days'));
         $this->assertSame(365, config('players-plus.rollup_retention_days'));
         $this->assertSame(3, config('players-plus.timeout'));
+        $this->assertTrue(config('players-plus.log_scan'));
     }
 
     public function test_plugin_translations_resolve(): void
@@ -91,6 +93,7 @@ class PluginResourcesTest extends TestCase
         $this->assertStringStartsWith('players-plus:', (new PollPlayersCommand())->getName());
         $this->assertStringStartsWith('players-plus:', (new PruneSamplesCommand())->getName());
         $this->assertStringStartsWith('players-plus:', (new RollupCommand())->getName());
+        $this->assertStringStartsWith('players-plus:', (new ScanLogsCommand())->getName());
 
         $translations = 0;
         $cacheKeys = 0;

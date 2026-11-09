@@ -17,6 +17,8 @@ return [
         'moderation' => 'Moderationsaktionen',
         'moderation_help' => 'Kicken, bannen, Whitelist und OP auf den Spielerseiten, für Benutzer mit Konsolenzugriff. Aus blendet sie überall aus.',
         'saved' => 'Einstellungen gespeichert',
+        'log_scan' => 'Beitritts- und Austrittszeiten aus Server-Logs lesen',
+        'log_scan_help' => 'Alle 5 Minuten liefern neue Zeilen aus logs/latest.log genaue Beitritts- und Austrittszeiten und ergänzen Sitzungen von vor der Installation. IP-Adressen werden nie gespeichert.',
     ],
 
     'activity' => [

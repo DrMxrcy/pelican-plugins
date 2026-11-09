@@ -48,6 +48,7 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
             'retention_days' => Settings::retentionDays(),
             'rollup_retention_days' => Settings::rollupRetentionDays(),
             'moderation' => Settings::moderationEnabled(),
+            'log_scan' => filter_var(config('players-plus.log_scan', true), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true,
         ];
     }
 
@@ -84,6 +85,9 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
             Toggle::make('moderation')
                 ->label(trans('players-plus::strings.settings.moderation'))
                 ->helperText(trans('players-plus::strings.settings.moderation_help')),
+            Toggle::make('log_scan')
+                ->label(trans('players-plus::strings.settings.log_scan'))
+                ->helperText(trans('players-plus::strings.settings.log_scan_help')),
         ];
     }
 
@@ -96,6 +100,7 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
             'PLAYERS_PLUS_RETENTION_DAYS' => Settings::clampInt($data['retention_days'] ?? null, 1, Settings::MAX_RETENTION_DAYS, 30),
             'PLAYERS_PLUS_ROLLUP_RETENTION_DAYS' => Settings::clampInt($data['rollup_retention_days'] ?? null, 1, Settings::MAX_RETENTION_DAYS, 365),
             'PLAYERS_PLUS_MODERATION' => filter_var($data['moderation'] ?? true, FILTER_VALIDATE_BOOLEAN) ? 'true' : 'false',
+            'PLAYERS_PLUS_LOG_SCAN' => filter_var($data['log_scan'] ?? true, FILTER_VALIDATE_BOOLEAN) ? 'true' : 'false',
         ]);
 
         Notification::make()

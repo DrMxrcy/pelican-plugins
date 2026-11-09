@@ -28,6 +28,12 @@ final class Settings
         return filter_var(config('players-plus.moderation', true), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
     }
 
+    /** Scan server logs for join/leave lines (needs polling on too). */
+    public static function logScan(): bool
+    {
+        return self::enabled() && (filter_var(config('players-plus.log_scan', true), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true);
+    }
+
     /** Minutes between polls. */
     public static function pollInterval(): int
     {

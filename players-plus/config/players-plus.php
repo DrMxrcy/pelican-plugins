@@ -16,6 +16,9 @@ return [
     // Days hourly rollups (7 d / 30 d charts, peaks, heatmap) are kept.
     'rollup_retention_days' => env('PLAYERS_PLUS_ROLLUP_RETENTION_DAYS', 365),
 
+    // Read join/leave lines from logs/latest.log every 5 minutes to sharpen and backfill sessions.
+    'log_scan' => env('PLAYERS_PLUS_LOG_SCAN', true),
+
     // Seconds each network step (connect, read) may take when querying a game server.
     'timeout' => env('PLAYERS_PLUS_TIMEOUT', 3),
 ];

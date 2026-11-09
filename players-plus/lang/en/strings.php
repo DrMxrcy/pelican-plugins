@@ -17,6 +17,8 @@ return [
         'moderation' => 'Moderation actions',
         'moderation_help' => 'Kick, ban, whitelist and op from the Players pages, for users who may use the console. Off hides them everywhere.',
         'saved' => 'Settings saved',
+        'log_scan' => 'Read join and leave times from server logs',
+        'log_scan_help' => 'Every 5 minutes, new lines of logs/latest.log give exact join and leave times and fill in sessions from before the plugin was installed. IP addresses are never stored.',
     ],
 
     'activity' => [
