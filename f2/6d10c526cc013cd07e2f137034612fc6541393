@@ -1,0 +1,37 @@
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_82a48274731f35 3-4,10-11,85-113,117-121,123-125,129-131,147-148,156-158
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_b6a781c9944594 45-56
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_cdf694357912aa 45-56
+modpacks-plus/src/Filament/Server/Pages/ModpacksPage.php
+  s_1d8485e49bfacb::t_5f1bb8d0092a45 6,16-17,19,41,43,49-50,52-57,79-81,100-137,272-427,610,650-692
+modpacks-plus/src/Services/InstallEngine.php
+  s_1d8485e49bfacb::t_abeff6e4791320 65-68,72
+modpacks-plus/src/Services/LoaderEggResolver.php
+  s_1d8485e49bfacb::t_af4d90d396300d 104
+modpacks-plus/src/Support/ServerTarget.php
+  s_1d8485e49bfacb::t_f1667e6af4d93d 7,58-66
+modpacks-plus/src/Support/VersionMatch.php
+  s_1d8485e49bfacb::t_4e9c894fbe1116 7,29
+modpacks-plus/tests/Feature/ModpacksPageTest.php
+  s_1d8485e49bfacb::t_f3418327ed17e3 6-7,10,30,34,351-352,447-654
+modpacks-plus/tests/Unit/VersionMatchTest.php
+  s_1d8485e49bfacb::t_895d77f3aef16d 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f26d10c526cc013cd07e2f137034612fc6541393",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
