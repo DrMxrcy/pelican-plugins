@@ -1,6 +1,56 @@
 <?php
 
 return [
+    'page' => [
+        'title' => 'Modpacks',
+        'minecraft_version' => 'Minecraft-Version',
+        'loader' => 'Loader',
+        'unknown' => 'Unbekannt',
+        'unsupported' => 'Auf diesem Server können noch keine Modpacks installiert werden',
+        'installed_pack' => 'Installiertes Pack: :name :version',
+        'progress' => ':name — :status',
+    ],
+    'filters' => [
+        'sort' => 'Sortierung',
+        'categories' => 'Kategorien',
+        'sorts' => [
+            'relevance' => 'Relevanz',
+            'downloads' => 'Downloads',
+            'follows' => 'Follower',
+            'newest' => 'Neueste',
+            'updated' => 'Zuletzt aktualisiert',
+        ],
+    ],
+    'actions' => [
+        'details' => 'Details',
+        'install' => 'Installieren',
+        'cancel' => 'Installation abbrechen',
+    ],
+    'details' => [
+        'gallery' => 'Galerie',
+        'versions' => 'Versionen',
+        'published' => 'Veröffentlicht',
+        'no_versions' => 'Dieses Pack hat keine Versionen.',
+    ],
+    'install' => [
+        'needs' => 'Braucht :target',
+        'not_matching' => 'Diese Version passt nicht zum Server',
+        'refused' => 'Die Installation konnte nicht gestartet werden',
+        'started' => ':name wird installiert. Der Fortschritt wird oben auf der Seite angezeigt.',
+        'confirm_heading' => ':name :version installieren?',
+        'confirm_body' => 'Zuerst wird ein gesperrtes Backup erstellt. Dann werden :folders nach .modpacks-plus/previous-<Datum>/ verschoben (nichts wird gelöscht), die Serverdateien des Packs heruntergeladen und seine Overrides angewendet. Welten, Ops, Whitelist, Bannlisten und server.properties bleiben unberührt. Stoppe den Server vor der Installation.',
+        'cancel_body' => 'Die Installation stoppt nach dem aktuellen Schritt oder Download-Block. Bereits geänderte Dateien bleiben so; Backup und beiseitegelegter Ordner bleiben erhalten.',
+        'cancel_requested' => 'Wird nach dem aktuellen Schritt abgebrochen…',
+    ],
+    'summary' => [
+        'backup' => 'Backup: :uuid',
+        'backup_skipped' => 'Es wurde kein Backup erstellt (per Admin-Einstellung übersprungen).',
+        'moved' => ':folders nach :path verschoben',
+        'downloaded' => ':done von :total Dateien heruntergeladen.',
+        'overrides' => ':done von :total Overrides angewendet.',
+        'skipped_client' => ':count reine Client-Dateien übersprungen.',
+        'skipped_overrides' => 'Geschützte Overrides übersprungen: :paths',
+    ],
     'reasons' => [
         'unsafe_level_name' => 'Der Weltordner (level-name in server.properties) ist kein Ordner im Server: :detail',
         'unsafe_path' => 'Das Pack enthält einen Pfad außerhalb des Serverordners: :detail',

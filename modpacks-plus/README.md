@@ -11,7 +11,10 @@ loader and Minecraft version **already match** the pack.
   cannot be installed (loader switching is a later release).
 - An install runs as chained short queue jobs:
   1. **prepare** — download the `.mrpack` on the panel, verify its sha512, read and validate the index;
-  2. **backup** — a locked backup through Pelican's backup service (never deletes an old backup);
+  2. **backup** — a locked backup through Pelican's backup service (never deletes an old backup).
+     Only the backup whose uuid the install stored is trusted; after a crash between creating it and
+     storing its uuid, only a locked backup made after the install started and carrying the install's
+     random nonce in its name is accepted;
   3. **move aside** — `mods/`, `config/`, `defaultconfigs/`, `kubejs/`, `scripts/` go to
      `.modpacks-plus/previous-<date>/` (nothing is deleted);
   4. **download** — server-side files are pulled by the node, then verified;
@@ -40,6 +43,10 @@ Checked before anything is written to the server; archive entries are checked ag
 - Caps (config / env): 1000 files, 256 MB per file, 100 MB archive, 4 GB total, 20 000 archive entries,
   64 MB per read-back file.
 - Files marked `env.server: unsupported` are skipped.
+- A pre-existing file in the way of a pack file or override is moved into the moved-aside folder first.
+  Paths are compared exactly (case-sensitively), as on the server's filesystem.
+- Every step job re-checks the stored plan; only one job chain per install can act (sequence number),
+  every step has a deadline, and the scheduled watchdog resumes or fails stalled installs.
 - File steps never run while the server is suspended, installing, restoring a backup or transferring.
 
 ## Permissions

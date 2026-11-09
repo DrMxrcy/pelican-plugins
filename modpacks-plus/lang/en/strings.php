@@ -1,6 +1,56 @@
 <?php
 
 return [
+    'page' => [
+        'title' => 'Modpacks',
+        'minecraft_version' => 'Minecraft version',
+        'loader' => 'Loader',
+        'unknown' => 'Unknown',
+        'unsupported' => 'Modpacks can\'t be installed on this server yet',
+        'installed_pack' => 'Installed pack: :name :version',
+        'progress' => ':name — :status',
+    ],
+    'filters' => [
+        'sort' => 'Sort',
+        'categories' => 'Categories',
+        'sorts' => [
+            'relevance' => 'Relevance',
+            'downloads' => 'Downloads',
+            'follows' => 'Followers',
+            'newest' => 'Newest',
+            'updated' => 'Recently updated',
+        ],
+    ],
+    'actions' => [
+        'details' => 'Details',
+        'install' => 'Install',
+        'cancel' => 'Cancel install',
+    ],
+    'details' => [
+        'gallery' => 'Gallery',
+        'versions' => 'Versions',
+        'published' => 'Published',
+        'no_versions' => 'This pack has no versions.',
+    ],
+    'install' => [
+        'needs' => 'Needs :target',
+        'not_matching' => 'This version does not match the server',
+        'refused' => 'The install could not be started',
+        'started' => 'Installing :name. Progress is shown at the top of the page.',
+        'confirm_heading' => 'Install :name :version?',
+        'confirm_body' => 'A locked backup is made first. Then :folders are moved into .modpacks-plus/previous-<date>/ (nothing is deleted), the pack\'s server files are downloaded and its overrides applied. Worlds, ops, whitelist, ban lists and server.properties are not touched. Stop the server before installing.',
+        'cancel_body' => 'The install stops after the current step or download batch. Files already changed stay as they are; the backup and the moved-aside folder are kept.',
+        'cancel_requested' => 'Cancelling after the current step…',
+    ],
+    'summary' => [
+        'backup' => 'Backup: :uuid',
+        'backup_skipped' => 'No backup was made (skipped by the admin setting).',
+        'moved' => 'Moved :folders to :path',
+        'downloaded' => 'Downloaded :done of :total files.',
+        'overrides' => 'Applied :done of :total overrides.',
+        'skipped_client' => ':count client-only files skipped.',
+        'skipped_overrides' => 'Protected overrides skipped: :paths',
+    ],
     'reasons' => [
         'unsafe_level_name' => 'The world folder (level-name in server.properties) is not a folder inside the server: :detail',
         'unsafe_path' => 'The pack contains a path outside the server folder: :detail',
