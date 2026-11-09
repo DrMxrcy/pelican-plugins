@@ -1,0 +1,45 @@
+players-plus/src/Services/MinecraftQuery.php
+  s_1d8485e49bfacb::t_4330db86184de0 1-237
+players-plus/src/Services/Query/Channel.php
+  s_1d8485e49bfacb::t_5466211cb8924e 1-17
+players-plus/src/Services/Query/Connector.php
+  s_1d8485e49bfacb::t_4ddd11c6f02ff2 1-13
+players-plus/src/Services/Query/PingResult.php
+  s_1d8485e49bfacb::t_9b64a8f47c1510 1-15
+players-plus/src/Services/Query/QueryException.php
+  s_1d8485e49bfacb::t_86ca14185826dd 1-8
+players-plus/src/Services/Query/QueryResult.php
+  s_1d8485e49bfacb::t_09dbd82f8a50a0 1-15
+players-plus/src/Services/Query/SocketChannel.php
+  s_1d8485e49bfacb::t_e0aae0742674c9 1-96
+players-plus/src/Services/Query/SocketConnector.php
+  s_1d8485e49bfacb::t_66b43e7c5469fe 1-11
+players-plus/src/Services/ServerAddress.php
+  s_1d8485e49bfacb::t_f66aad3adb8274 1-60
+players-plus/tests/Fixtures/FakeChannel.php
+  s_1d8485e49bfacb::t_2a70e050470c45 1-52
+players-plus/tests/Fixtures/FakeConnector.php
+  s_1d8485e49bfacb::t_02da90866f9ec5 1-24
+players-plus/tests/Fixtures/Packets.php
+  s_1d8485e49bfacb::t_7f31535fa9682d 1-108
+players-plus/tests/Unit/MinecraftQueryTest.php
+  s_1d8485e49bfacb::t_e8b9d5b7f2e507 1-289
+players-plus/tests/Unit/ServerAddressTest.php
+  s_1d8485e49bfacb::t_c23c4c7059b62b 1-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8dd5aef57c2617a5c36803fe3ec0bc8979c391f8",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
