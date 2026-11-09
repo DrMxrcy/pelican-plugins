@@ -48,6 +48,9 @@ class MinecraftModrinthService
     /** Modrinth's loader for datapack builds; used for every datapack search and version lookup. */
     public const DATAPACK_LOADER = 'datapack';
 
+    /** Keys every metadata entry the official plugin writes has; entries without them are skipped. */
+    protected const REQUIRED_ENTRY_KEYS = ['project_id', 'project_slug', 'project_title', 'version_id', 'version_number', 'filename', 'installed_at'];
+
     protected static ?string $pluginVersion = null;
 
     /**
@@ -381,7 +384,7 @@ class MinecraftModrinthService
     }
 
     /**
-     * @param  array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}>  $installedMods
+     * @param  array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}>  $installedMods
      * @return array<int, array<string, mixed>>
      */
     public function getInstalledModsFromModrinth(array $installedMods, int $page = 1): array
@@ -883,7 +886,7 @@ class MinecraftModrinthService
      * Installed mods from the metadata file; [] when there is none yet and also when it could not
      * be read. Use readInstalledModsMetadata() to tell those two apart.
      *
-     * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}>
+     * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}>
      */
     public function getInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType): array
     {
@@ -896,7 +899,7 @@ class MinecraftModrinthService
      * A missing file is [] (nothing installed); an unparsable one is [] too, but writers refuse to
      * overwrite it (see readMetadataForWrite()).
      *
-     * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}>|null
+     * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}>|null
      */
     public function readInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType): ?array
     {
@@ -918,24 +921,10 @@ class MinecraftModrinthService
             return [];
         }
 
-        $requiredKeysFlipped = array_flip([
-            'project_id',
-            'project_slug',
-            'project_title',
-            'version_id',
-            'version_number',
-            'filename',
-            'installed_at',
-        ]);
-
         $validInstalledMods = [];
 
         foreach ($metadata['installed_mods'] as $entry) {
-            if (!is_array($entry)) {
-                continue;
-            }
-
-            if (!empty(array_diff_key($requiredKeysFlipped, $entry))) {
+            if (!self::isValidEntry($entry)) {
                 continue;
             }
 
@@ -947,6 +936,78 @@ class MinecraftModrinthService
         }
 
         return array_values($validInstalledMods);
+    }
+
+    /**
+     * Whether a metadata entry has every key the official plugin writes; others are kept on
+     * disk but never treated as an installed project.
+     *
+     * @phpstan-assert-if-true array<string, mixed> $entry
+     */
+    protected static function isValidEntry(mixed $entry): bool
+    {
+        return is_array($entry) && array_diff_key(array_flip(self::REQUIRED_ENTRY_KEYS), $entry) === [];
+    }
+
+    /**
+     * Pinned projects (plan 18) are never offered an update. Stored as an optional
+     * `"pinned": true` on the entry, which the official plugin ignores; anything but a literal
+     * true (a hand-edited "true", 1) counts as not pinned.
+     *
+     * @param  array<string, mixed>  $installedMod
+     */
+    public static function isPinned(array $installedMod): bool
+    {
+        return ($installedMod['pinned'] ?? null) === true;
+    }
+
+    /**
+     * Pins or unpins an installed project: adds `"pinned": true` to its entry, or removes the
+     * key. Every other entry and key is written back untouched, in the same order. Like the
+     * other writers it reads the file again under the metadata lock and writes nothing when
+     * that read fails (bug 14). False when the project isn't tracked or nothing could be
+     * written; already in the asked state is true without a write.
+     */
+    public function setPinned(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId, bool $pinned): bool
+    {
+        try {
+            return Cache::lock("modrinth_metadata:{$server->id}", 10)->block(5, function () use ($server, $modrinthProjectType, $projectId, $pinned) {
+                $metadata = $this->readMetadataForWrite($server, $modrinthProjectType);
+
+                if ($metadata === null) {
+                    return false;
+                }
+
+                $installedMods = $metadata['mods'];
+
+                // The first valid entry, the same one readInstalledModsMetadata() keeps.
+                foreach ($installedMods as $index => $mod) {
+                    if (!self::isValidEntry($mod) || $mod['project_id'] !== $projectId) {
+                        continue;
+                    }
+
+                    if (self::isPinned($mod) === $pinned && ($pinned || !array_key_exists('pinned', $mod))) {
+                        return true;
+                    }
+
+                    if ($pinned) {
+                        $mod['pinned'] = true;
+                    } else {
+                        unset($mod['pinned']);
+                    }
+
+                    $installedMods[$index] = $mod;
+
+                    return $this->writeMetadata($server, $metadata, $installedMods);
+                }
+
+                return false;
+            }) === true;
+        } catch (Exception $exception) {
+            report($exception);
+
+            return false;
+        }
     }
 
     /**
@@ -1467,7 +1528,7 @@ class MinecraftModrinthService
         return $files;
     }
 
-    /** @return array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}|null */
+    /** @return array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}|null */
     public function getInstalledMod(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId): ?array
     {
         $installedMods = $this->getInstalledModsMetadata($server, $modrinthProjectType);
@@ -1482,12 +1543,14 @@ class MinecraftModrinthService
     }
 
     /**
-     * @param  array{version_id: string, version_number: string}  $installedMod
+     * False for a pinned project, whatever Modrinth has.
+     *
+     * @param  array{version_id: string, version_number: string, pinned?: bool}  $installedMod
      * @param  array<int, array{id: string, version_number: string}>  $availableVersions
      */
     public function isUpdateAvailable(array $installedMod, array $availableVersions): bool
     {
-        if (empty($availableVersions)) {
+        if (empty($availableVersions) || self::isPinned($installedMod)) {
             return false;
         }
 

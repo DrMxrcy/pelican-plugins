@@ -9,7 +9,7 @@ use DrMxrcy\ModrinthPlus\Services\MinecraftModrinthService;
 use Illuminate\Support\Facades\Facade;
 
 /**
- * @phpstan-type InstalledModMetadata array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string}
+ * @phpstan-type InstalledModMetadata array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}
  * @phpstan-type ModrinthVersion array{name: string, version_number: string, changelog: ?string, dependencies: array<mixed>, game_version: array<string>, version_type: string, loaders: array<string>, featured: bool, status: string, requested_status: ?string, id: string, project_id: string, author_id: string, date_published: string, downloads: int, changelog_url: ?string, files: array<mixed>}
  *
  * @method static ?string getMinecraftVersion(Server $server)
@@ -29,13 +29,14 @@ use Illuminate\Support\Facades\Facade;
  * @method static array<int, InstalledModMetadata>|null readInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType)
  * @method static bool saveModMetadata(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId, string $projectSlug, string $projectTitle, string $versionId, string $versionNumber, string $filename, ?string $author = null, ?string $installedAsDependencyOf = null)
  * @method static bool removeModMetadata(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId)
+ * @method static bool setPinned(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId, bool $pinned)
  * @method static void downloadFile(Server $server, string $url, string $folder, string $filename)
  * @method static void deleteFile(Server $server, string $folder, string $filename)
  * @method static void renameFile(Server $server, string $folder, string $from, string $to)
  * @method static bool fileExists(Server $server, string $folder, string $filename)
  * @method static array<string, mixed> listFolder(Server $server, string $folder)
  * @method static InstalledModMetadata|null getInstalledMod(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId)
- * @method static bool isUpdateAvailable(array{version_id: string, version_number: string} $installedMod, array<int, array{id: string, version_number: string}> $availableVersions)
+ * @method static bool isUpdateAvailable(array{version_id: string, version_number: string, pinned?: bool} $installedMod, array<int, array{id: string, version_number: string}> $availableVersions)
  * @method static array<string> getInstalledMods(Server $server, ModrinthProjectType $modrinthProjectType)
  *
  * @see MinecraftModrinthService
