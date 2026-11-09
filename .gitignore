@@ -27,3 +27,7 @@ ROADMAP.md
 .roadmap/
 CHANGELOG-roadmap*.md
 /.tools/
+
+# Local browser QA artifacts
+/.playwright-mcp/
+/qa/

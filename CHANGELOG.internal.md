@@ -17,12 +17,12 @@ _Full work log — every item, including internal/dev work. The curated public c
 - (pending) Changelog preview in the update dialog
 - (pending) Pin a mod to its current version so no updates are offered
 
-## v0.4.0 — (in progress)
+## v0.4.0 — 2026-11-08
 
 ### ✨ New
-- (pending) Update every installed mod with one click.
-- (pending) Mods you added by hand are recognized and can be updated from the panel.
-- (pending) Browse, install, and update datapacks from the panel.
+- Update every installed mod with one click.
+- Mods you added by hand are recognized and can be updated from the panel.
+- Browse, install, and update datapacks from the panel.
 
 ### 🐛 Fixed
 - Fresh install overwrites an untracked file with the same name
@@ -30,17 +30,17 @@ _Full work log — every item, including internal/dev work. The curated public c
 ## v0.3.0 — (in progress)
 
 ### ✨ New
-- (pending) Installing a mod now also installs the libraries it needs.
+- Installing a mod now also installs the libraries it needs.
 - (pending) Browse mods by category and sort by downloads, follows, or recent updates.
-- (pending) One click shows which installed mods have no download for your current Minecraft version.
+- One click shows which installed mods have no download for your current Minecraft version.
 
 ## v0.2.0 — (in progress)
 
 ### ✨ New
 - (pending) Mods that only work on the player's game, like Sodium or Iris, no longer show up in the server's mod list.
-- (pending) Mods that players also need on their own game are now clearly marked.
-- (pending) Already-installed mods that do nothing on a server are now flagged as safe to remove.
-- (pending) The mod list only offers projects that have a download for your exact Minecraft version and loader.
+- Mods that players also need on their own game are now clearly marked.
+- Already-installed mods that do nothing on a server are now flagged as safe to remove.
+- The mod list only offers projects that have a download for your exact Minecraft version and loader.
 
 ### 🐛 Fixed
 - Enforce subuser file permissions on the Modrinth pages and actions
@@ -49,7 +49,14 @@ _Full work log — every item, including internal/dev work. The curated public c
 ### ⚡ Improved
 - Requests to Modrinth now identify the plugin, as Modrinth asks.
 
-## v0.1.0 — (in progress)
+## v0.1.0 — 2026-11-08
 
 ### ⚡ Improved
-- (pending) First installable release of Minecraft Modrinth Plus, a drop-in replacement for the official Modrinth plugin.
+- First installable release of Minecraft Modrinth Plus, a drop-in replacement for the official Modrinth plugin.
+
+## v0.0.1 — (in progress)
+
+### 🐛 Fixed
+- (pending) Importing a new plugin build over an older one marks the plugin Crashed until re-enabled
+- (pending) Dependencies installed automatically show no author in the Installed tab
+- (pending) Installed tab row keeps its old state after installing another version from the Versions modal
