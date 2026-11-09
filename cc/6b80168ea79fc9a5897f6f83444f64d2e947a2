@@ -1,0 +1,23 @@
+modrinth-plus/src/Support/Changelog.php
+  s_1d8485e49bfacb::t_1c2df3d8be89b4 7-11,57-58,71,76-77,84-132
+modrinth-plus/tests/Feature/UpdateChangelogTest.php
+  s_1d8485e49bfacb::t_e45217443d121c 164-175,179,205,209,211-212
+modrinth-plus/tests/Unit/ChangelogTest.php
+  s_1d8485e49bfacb::t_f7ed84c2b9a695 81-90,114-125,152-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cc6b80168ea79fc9a5897f6f83444f64d2e947a2",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
