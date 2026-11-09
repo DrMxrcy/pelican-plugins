@@ -1,0 +1,21 @@
+modrinth-plus/src/Filament/Server/Pages/MinecraftModrinthProjectPage.php
+  s_1d8485e49bfacb::t_96972c906aa435 1112-1113,1127-1129,1139,1507
+modrinth-plus/tests/Feature/UpdateChangelogTest.php
+  s_1d8485e49bfacb::t_1f9e06ad69b9ef 215,228-247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c0817e1a1ea3232ad2a975796e76e5ea4921e558",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
