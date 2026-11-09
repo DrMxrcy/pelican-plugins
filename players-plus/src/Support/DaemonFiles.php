@@ -18,9 +18,6 @@ use Throwable;
  */
 final class DaemonFiles
 {
-    /** Seconds a streamed read may take in total. */
-    public const STREAM_TIMEOUT = 40;
-
     /**
      * @throws FileNotFoundException the file (or its directory) does not exist
      * @throws FileSizeTooLargeException the file is larger than $maxBytes
@@ -96,17 +93,18 @@ final class DaemonFiles
     /**
      * Opens the file as a stream, for reading it a line at a time without buffering it.
      * Wings has no range requests, so the stream always starts at byte 0; the caller stops
-     * reading (and closes it) when it has what it needs. Check the size with stat() first.
+     * reading (and closes it) when it has what it needs. Check the size with stat() first and
+     * bound the bytes read (StreamLines); $timeoutSeconds is only the transport's backstop.
      *
      * @throws FileNotFoundException
      * @throws Throwable any other daemon error
      */
-    public static function open(Server $server, string $path): StreamInterface
+    public static function open(Server $server, string $path, int $timeoutSeconds): StreamInterface
     {
         try {
             $response = self::repository($server)->getHttpClient()
                 ->withOptions(['stream' => true])
-                ->timeout(self::STREAM_TIMEOUT)
+                ->timeout($timeoutSeconds)
                 ->get("/api/servers/$server->uuid/files/contents", ['file' => ltrim($path, '/')]);
         } catch (RequestException $exception) {
             throw $exception->response->status() === 404 ? new FileNotFoundException() : $exception;

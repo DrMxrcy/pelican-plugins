@@ -15,6 +15,7 @@ return new class extends Migration
             // smaller than the offset) means the log rotated and the scan restarts at 0.
             $table->char('identity', 64)->nullable();
             // File size and modification time at the last scan; both unchanged skips the download.
+            // Size 0 while a backlog remains (chunk cap or deadline), so the next scan reads on.
             $table->unsignedBigInteger('size')->default(0);
             // dateTime, not timestamp: no implicit ON UPDATE CURRENT_TIMESTAMP on MySQL/MariaDB.
             $table->dateTime('file_modified_at')->nullable();

@@ -18,6 +18,8 @@ final class LogChunk
      *                                  modification time; only set when the cursor has no clock to continue
      * @param  DateTimeZone  $timezone  the daemon's zone (from the modification time's UTC offset), which
      *                                  the log's wall-clock times are read in
+     * @param  bool  $downloaded  whether the file was streamed (false: unchanged since the last scan)
+     * @param  bool  $more  stopped early (chunk cap or deadline): complete lines are left after $end
      */
     public function __construct(
         public readonly ?string $identity,
@@ -30,5 +32,15 @@ final class LogChunk
         public readonly ?string $firstDate,
         public readonly DateTimeZone $timezone,
         public readonly bool $downloaded,
+        public readonly bool $more = false,
     ) {}
+
+    /**
+     * The size to remember in the cursor. An unchanged size and modification time skip the
+     * download next time, so with lines still left it is 0, which forces the next read.
+     */
+    public function cursorSize(): int
+    {
+        return $this->more ? 0 : $this->size;
+    }
 }

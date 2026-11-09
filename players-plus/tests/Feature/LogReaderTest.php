@@ -61,7 +61,7 @@ class LogReaderTest extends TestCase
     {
         return LogCursor::query()->updateOrCreate(['server_id' => $this->server->id], [
             'identity' => $chunk->identity,
-            'size' => $chunk->size,
+            'size' => $chunk->cursorSize(),
             'file_modified_at' => LogCursor::storable($chunk->modified),
             'offset' => $chunk->end,
             'clock_at' => Carbon::parse('2026-11-09 11:10:44'),
@@ -162,7 +162,7 @@ class LogReaderTest extends TestCase
             $this->assertLessThanOrEqual(LogReader::MAX_CHUNK_BYTES + strlen($line), $chunk->end - $chunk->start);
             array_push($seen, ...$chunk->lines);
             $cursor = $this->cursorAfter($chunk);
-            $this->modified = "2026-11-09T12:1$scan:00+01:00";
+            // The file is not touched between scans: the backlog alone must keep the reads going.
         }
 
         $this->assertSame($this->log, implode('', $seen), 'every byte exactly once');
@@ -179,6 +179,48 @@ class LogReaderTest extends TestCase
         $this->assertSame(LogParser::MAX_LINE_BYTES + 1, strlen($chunk->lines[0]));
         $this->assertNull(LogParser::line($chunk->lines[0]));
         $this->assertNotNull(LogParser::line($chunk->lines[1])?->event);
+    }
+
+    public function test_a_log_that_grew_past_its_listed_size_is_read_only_up_to_that_size(): void
+    {
+        $listed = $this->fixture('vanilla');
+        // The tenant (or the running server) keeps appending after the listing.
+        $this->log = $listed . str_repeat("[12:20:00] [Server thread/INFO]: Bob joined the game\n", 50_000);
+        $this->size = strlen($listed);
+
+        $chunk = $this->read();
+
+        $this->assertSame(strlen($listed), $chunk->end);
+        $this->assertCount(9, $chunk->lines);
+    }
+
+    public function test_a_scan_stops_at_its_deadline_and_the_next_one_resumes(): void
+    {
+        $line = '[12:00:00] [Server thread/INFO]: ' . str_repeat('x', 90) . "\n";
+        $this->log = str_repeat($line, 25_000);
+
+        $reader = $this->app->make(LogReader::class);
+        $now = 0.0;
+        // Every clock reading after the start costs 4 s: the 20 s deadline allows a few blocks.
+        $reader->clock = function () use (&$now) {
+            $t = $now;
+            $now += 4.0;
+
+            return $t;
+        };
+        $chunk = $reader->read($this->server, null);
+
+        $this->assertGreaterThan(0, $chunk->end);
+        $this->assertLessThan(10 * 65536, $chunk->end);
+        $this->assertSame(0, $chunk->end % strlen($line), 'stops at a line boundary');
+        $this->assertSame($chunk->end, strlen(implode('', $chunk->lines)));
+        $this->assertNotNull($chunk->firstDate);
+
+        $this->assertTrue($chunk->more);
+        $next = $this->read($this->cursorAfter($chunk)->refresh());
+        $this->assertSame($chunk->end, $next->start);
+        $this->assertFalse($next->restarted);
+        $this->assertGreaterThanOrEqual($chunk->end + LogReader::MAX_CHUNK_BYTES, $next->end, 'the unchanged file is read on, not skipped');
     }
 
     public function test_an_oversized_log_is_refused_before_download(): void
