@@ -186,6 +186,11 @@ class CurseForgePackProvider implements PackProvider
      */
     public function categoryIds(): array
     {
+        // Not set up: nothing to ask (and nothing to report).
+        if (!$this->client->configured()) {
+            return [];
+        }
+
         $key = 'modpacks-plus:curseforge:categories';
         $cached = Cache::get($key);
         if (is_array($cached)) {

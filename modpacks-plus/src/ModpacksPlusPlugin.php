@@ -48,6 +48,7 @@ class ModpacksPlusPlugin implements HasPluginSettings, Plugin
             // Never the saved key: the field stays empty and only says that one is saved.
             'curseforge_api_key' => null,
             'curseforge_api_key_remove' => false,
+            'curseforge_mirror' => (bool) config('modpacks-plus.curseforge.mirror', false),
         ];
 
         foreach (EggVariableMap::loaders() as $loader) {
@@ -96,6 +97,9 @@ class ModpacksPlusPlugin implements HasPluginSettings, Plugin
                     Toggle::make('curseforge_api_key_remove')
                         ->label(trans('modpacks-plus::strings.settings.curseforge_api_key_remove'))
                         ->visible(fn () => self::curseForgeKeySaved()),
+                    Toggle::make('curseforge_mirror')
+                        ->label(trans('modpacks-plus::strings.settings.curseforge_mirror'))
+                        ->helperText(trans('modpacks-plus::strings.settings.curseforge_mirror_help')),
                 ]),
         ];
     }
@@ -111,6 +115,7 @@ class ModpacksPlusPlugin implements HasPluginSettings, Plugin
         $values = [
             'MODPACKS_PLUS_ALLOW_SKIP_BACKUP' => !empty($data['allow_skip_backup']) ? 'true' : 'false',
             'MODPACKS_PLUS_ALLOW_USER_LOADER_SWITCH' => !empty($data['allow_user_loader_switch']) ? 'true' : 'false',
+            CurseForgeClient::MIRROR_ENV => !empty($data['curseforge_mirror']) ? 'true' : 'false',
         ];
 
         $resolver = new LoaderEggResolver();

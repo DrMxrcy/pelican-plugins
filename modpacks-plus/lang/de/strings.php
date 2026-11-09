@@ -162,12 +162,13 @@ return [
         'server_suspended' => 'Der Server wurde während des Wechsels gesperrt.',
         'restore_running' => 'Auf diesem Server werden gerade vorherige Dateien wiederhergestellt. Versuche es erneut, wenn das abgeschlossen ist.',
         'preserved_pending' => 'Welten oder Spielerdateien eines früheren Loader-Wechsels liegen noch in :detail. Nutze zuerst "Vorherige Dateien wiederherstellen".',
-        'curseforge_not_configured' => 'CurseForge ist nicht eingerichtet: Ein Admin hinterlegt einen CurseForge-API-Schlüssel in den Modpacks-Plus-Einstellungen.',
+        'curseforge_not_configured' => 'CurseForge ist nicht eingerichtet: Ein Admin hinterlegt einen CurseForge-API-Schlüssel (oder schaltet den öffentlichen Mirror ein) in den Modpacks-Plus-Einstellungen.',
         'curseforge_unavailable' => 'CurseForge ist nicht erreichbar. Versuche es später erneut. (:detail)',
         'curseforge_not_found' => 'Auf CurseForge nicht gefunden: :detail',
         'curseforge_key_rejected' => 'CurseForge hat den API-Schlüssel abgelehnt. Ein Admin prüft ihn in den Modpacks-Plus-Einstellungen. (:detail)',
         'curseforge_no_download' => 'CurseForge bietet für diese Pack-Datei keinen Download an (der Autor hat Downloads durch Dritte abgeschaltet): :detail',
         'server_pack_unusable' => 'Das Server-Pack fehlt, ist nicht als Server-Pack markiert, hat keinen Download oder keinen mods/-Ordner (:detail)',
+        'curseforge_mirror_unavailable' => 'CurseForge nicht verfügbar – API-Schlüssel hinterlegen. Der öffentliche Mirror antwortet nicht oder ist gedrosselt (:detail).',
     ],
     'steps' => [
         'prepare' => 'Pack prüfen',
@@ -269,5 +270,7 @@ return [
         'curseforge_api_key_placeholder' => 'Gespeichert (verborgen). Neuen Schlüssel eingeben, um ihn zu ersetzen.',
         'curseforge_api_key_remove' => 'Gespeicherten Schlüssel entfernen',
         'curseforge_api_key_invalid' => 'Der CurseForge-API-Schlüssel wurde nicht gespeichert: erlaubt sind 16 bis 128 Buchstaben, Ziffern oder $ . / _ + = -.',
+        'curseforge_mirror' => 'Öffentlichen CurseForge-Mirror nutzen, wenn kein API-Schlüssel gesetzt ist',
+        'curseforge_mirror_help' => 'Liest CurseForge über https://api.curse.tools, eine Kopie der CurseForge-API eines Dritten, die mit dessen Schlüssel läuft. Ohne Verfügbarkeitsgarantie, möglicherweise gedrosselt oder bald weg, und von den API-Bedingungen von CurseForge eventuell nicht erlaubt. Nur für Pack-Informationen: Downloads kommen weiterhin nur von den CDNs von CurseForge und Modrinth, mit Hash-Prüfung. Ein gespeicherter API-Schlüssel hat immer Vorrang.',
     ],
 ];

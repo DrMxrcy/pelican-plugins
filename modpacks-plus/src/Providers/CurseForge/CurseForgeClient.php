@@ -13,6 +13,14 @@ use Throwable;
  * The one place CurseForge API requests are made (metadata only: search, mod and file
  * info, manifest resolution; downloads never go through here).
  *
+ * Two ways in: the admin's API key (api.curseforge.com), or, when no key is set and the
+ * admin opted in, the public key-free mirror https://api.curse.tools/v1 (same routes and
+ * answers). A configured key always wins. The mirror's `/v1/cf/...` form redirects to plain
+ * HTTP, so a `cf` first segment is refused for both, and redirects are never followed. A
+ * mirror that fails or rate-limits makes CurseForge "unavailable": nothing is retried
+ * elsewhere and no install starts. Mirror answers are as untrusted as any API answer:
+ * downloads still only come from allowlisted hosts with hash checks.
+ *
  * Threat handled: leaking the admin's API key. The key is only ever attached to requests
  * whose URL starts with https://api.curseforge.com/v1/ (checked on the built path and
  * again right before sending), redirects are never followed (a redirect would carry the
@@ -26,6 +34,10 @@ final class CurseForgeClient
 {
     public const API_URL = 'https://api.curseforge.com/v1';
 
+    public const MIRROR_URL = 'https://api.curse.tools/v1';
+
+    public const MIRROR_ENV = 'MODPACKS_PLUS_CURSEFORGE_MIRROR';
+
     public const KEY_ENV = 'MODPACKS_PLUS_CURSEFORGE_API_KEY';
 
     /** What CurseForge keys look like ($2a$10$… plus letters, digits, . and /), with room to spare. */
@@ -33,12 +45,14 @@ final class CurseForgeClient
 
     public const MODE_KEY = 'key';
 
+    public const MODE_MIRROR = 'mirror';
+
     /** Relative API paths: lowercase words and numeric ids only (no scheme, host, `..`, query). */
     private const PATH_PATTERN = '#^[a-z]+(/[a-z0-9]+)*$#';
 
     private readonly ?string $apiKey;
 
-    public function __construct(#[\SensitiveParameter] ?string $apiKey = null)
+    public function __construct(#[\SensitiveParameter] ?string $apiKey = null, private readonly bool $mirror = false)
     {
         $this->apiKey = $apiKey !== null && self::isValidKey($apiKey) ? $apiKey : null;
     }
@@ -47,7 +61,7 @@ final class CurseForgeClient
     {
         $key = config('modpacks-plus.curseforge.api_key');
 
-        return new self(is_string($key) ? $key : null);
+        return new self(is_string($key) ? $key : null, (bool) config('modpacks-plus.curseforge.mirror', false));
     }
 
     public static function isValidKey(#[\SensitiveParameter] string $key): bool
@@ -55,10 +69,23 @@ final class CurseForgeClient
         return (bool) preg_match(self::KEY_PATTERN, $key);
     }
 
-    /** How CurseForge is reached: MODE_KEY, or null when it is not set up (nothing is ever requested then). */
+    /** How CurseForge is reached: MODE_KEY (wins), MODE_MIRROR, or null when it is not set up (nothing is ever requested then). */
     public function mode(): ?string
     {
-        return $this->apiKey !== null ? self::MODE_KEY : null;
+        return match (true) {
+            $this->apiKey !== null => self::MODE_KEY,
+            $this->mirror => self::MODE_MIRROR,
+            default => null,
+        };
+    }
+
+    public function baseUrl(): ?string
+    {
+        return match ($this->mode()) {
+            self::MODE_KEY => self::API_URL,
+            self::MODE_MIRROR => self::MIRROR_URL,
+            default => null,
+        };
     }
 
     public function configured(): bool
@@ -94,10 +121,11 @@ final class CurseForgeClient
         return $this->send('POST', $path, $body, $timeout);
     }
 
-    /** Whether $url is on the API base (exact origin and path prefix). */
+    /** Whether $url is on the API base (exact origin and path prefix), never the mirror's redirecting `/cf` form. */
     public static function isApiUrl(string $url, string $base): bool
     {
-        return str_starts_with($url, $base.'/') && !preg_match('/[\s\\\\@]/', $url);
+        return str_starts_with($url, $base.'/') && !preg_match('/[\s\\\\@]/', $url)
+            && !preg_match('#^/cf(/|\?|$)#i', substr($url, strlen($base)));
     }
 
     /**
@@ -108,15 +136,15 @@ final class CurseForgeClient
      */
     private function send(string $method, string $path, array $payload, int $timeout): array
     {
-        if ($this->mode() === null) {
+        $mode = $this->mode();
+        $base = $this->baseUrl();
+        if ($mode === null || $base === null) {
             throw new PackUnavailableException('curseforge_not_configured');
         }
 
-        if (!preg_match(self::PATH_PATTERN, $path)) {
+        if (!preg_match(self::PATH_PATTERN, $path) || $path === 'cf' || str_starts_with($path, 'cf/')) {
             throw new PackUnavailableException('curseforge_unavailable', 'invalid path');
         }
-
-        $base = self::API_URL;
 
         try {
             $request = Http::createPendingRequest()
@@ -132,15 +160,22 @@ final class CurseForgeClient
                         throw new \RuntimeException('blocked');
                     }
                 })
-                ->withHeaders(['x-api-key' => (string) $this->apiKey]);
+                // The key only ever goes to api.curseforge.com; the mirror gets no key at all.
+                ->withHeaders($mode === self::MODE_KEY ? ['x-api-key' => (string) $this->apiKey] : []);
 
             $response = $method === 'GET' ? $request->get($path, $payload) : $request->asJson()->post($path, $payload);
         } catch (Throwable) {
             // Deliberately not chained (see the class comment).
-            throw new PackUnavailableException('curseforge_unavailable', $path);
+            throw new PackUnavailableException($this->unavailable(), $path);
         }
 
         return $this->json($response, $path);
+    }
+
+    /** The reason for an unreachable API: the mirror's says "add an API key". */
+    private function unavailable(): string
+    {
+        return $this->mode() === self::MODE_MIRROR ? 'curseforge_mirror_unavailable' : 'curseforge_unavailable';
     }
 
     /**
@@ -156,13 +191,13 @@ final class CurseForgeClient
             throw new PackUnavailableException('curseforge_not_found', $path);
         }
 
-        if ($status === 401 || $status === 403) {
+        if (($status === 401 || $status === 403) && $this->mode() === self::MODE_KEY) {
             throw new PackUnavailableException('curseforge_key_rejected', $path.' (HTTP '.$status.')');
         }
 
         $data = $status >= 200 && $status < 300 ? $response->json() : null;
         if (!is_array($data)) {
-            throw new PackUnavailableException('curseforge_unavailable', $path.' (HTTP '.$status.')');
+            throw new PackUnavailableException($this->unavailable(), $path.' (HTTP '.$status.')');
         }
 
         return $data;

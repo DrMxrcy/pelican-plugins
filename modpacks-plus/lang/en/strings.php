@@ -162,12 +162,13 @@ return [
         'server_suspended' => 'The server was suspended during the switch.',
         'restore_running' => 'Previous files are being restored on this server. Try again when that has finished.',
         'preserved_pending' => 'Worlds or player files of an earlier loader switch are still set aside in :detail. Use "Restore previous files" first.',
-        'curseforge_not_configured' => 'CurseForge is not set up: an admin adds a CurseForge API key in the Modpacks Plus settings.',
+        'curseforge_not_configured' => 'CurseForge is not set up: an admin adds a CurseForge API key (or turns on the public mirror) in the Modpacks Plus settings.',
         'curseforge_unavailable' => 'CurseForge could not be reached. Try again later. (:detail)',
         'curseforge_not_found' => 'Not found on CurseForge: :detail',
         'curseforge_key_rejected' => 'CurseForge rejected the API key. An admin checks it in the Modpacks Plus settings. (:detail)',
         'curseforge_no_download' => 'CurseForge offers no download for this pack file (its author turned third-party downloads off): :detail',
         'server_pack_unusable' => 'The server pack is missing, not marked as a server pack, has no download or no mods/ folder (:detail)',
+        'curseforge_mirror_unavailable' => 'CurseForge unavailable — add an API key. The public mirror did not answer or is rate-limited (:detail).',
     ],
     'steps' => [
         'prepare' => 'Check the pack',
@@ -269,5 +270,7 @@ return [
         'curseforge_api_key_placeholder' => 'Saved (hidden). Type a new key to replace it.',
         'curseforge_api_key_remove' => 'Remove the saved key',
         'curseforge_api_key_invalid' => 'The CurseForge API key was not saved: use 16 to 128 letters, digits or $ . / _ + = -.',
+        'curseforge_mirror' => 'Use the public CurseForge mirror when no API key is set',
+        'curseforge_mirror_help' => 'Reads CurseForge through https://api.curse.tools, a third-party copy of the CurseForge API that runs on someone else\'s key. It has no uptime guarantee, may be rate-limited or disappear, and may not be allowed by CurseForge\'s API terms. Only used for pack information: downloads still come only from the CurseForge and Modrinth CDNs with hash checks. A saved API key always wins.',
     ],
 ];

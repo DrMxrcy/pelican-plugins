@@ -23,6 +23,10 @@ return [
     // sent to api.curseforge.com; it is never shown again, logged or stored with an install.
     'curseforge' => [
         'api_key' => is_string(env('MODPACKS_PLUS_CURSEFORGE_API_KEY')) && env('MODPACKS_PLUS_CURSEFORGE_API_KEY') !== '' ? (string) env('MODPACKS_PLUS_CURSEFORGE_API_KEY') : null,
+        // Without a key: use the public mirror https://api.curse.tools/v1 for metadata (search, pack
+        // and file info). Off by default; it runs on someone else's key, may be rate-limited or gone
+        // and may not be allowed by CurseForge's API terms. A configured key always wins.
+        'mirror' => (bool) env('MODPACKS_PLUS_CURSEFORGE_MIRROR', false),
     ],
 
     // Files pulled per download job; cancel takes effect between batches.

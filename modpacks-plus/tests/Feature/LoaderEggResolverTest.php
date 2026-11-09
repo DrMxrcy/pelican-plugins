@@ -223,6 +223,7 @@ class LoaderEggResolverTest extends TestCase
         $this->assertSame([
             'MODPACKS_PLUS_ALLOW_SKIP_BACKUP' => 'false',
             'MODPACKS_PLUS_ALLOW_USER_LOADER_SWITCH' => 'true',
+            'MODPACKS_PLUS_CURSEFORGE_MIRROR' => 'false',
             'MODPACKS_PLUS_EGG_FABRIC' => '',
             'MODPACKS_PLUS_EGG_FORGE' => '',
             'MODPACKS_PLUS_EGG_NEOFORGE' => '',
