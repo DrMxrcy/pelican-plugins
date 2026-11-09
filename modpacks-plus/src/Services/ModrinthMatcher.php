@@ -33,7 +33,8 @@ class ModrinthMatcher
 
     private const CACHE_PREFIX = 'modpacks-plus:modrinth-sha1:';
 
-    private const MAX_CACHED_MISSES = 1000;
+    /** Below the 1000-file manifest cap, so a hostile manifest can't fill the cache with misses. */
+    private const MAX_CACHED_MISSES = 100;
 
     public function __construct(private readonly ModrinthClient $client) {}
 

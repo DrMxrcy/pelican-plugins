@@ -283,7 +283,7 @@ class CurseForgeModrinthFirstTest extends TestCase
     public function test_misses_are_not_cached_for_oversized_lookups(): void
     {
         Http::fake(['api.modrinth.com/*' => Http::response('{}', 200, ['Content-Type' => 'application/json'])]);
-        $hashes = array_map(fn (int $i) => sha1((string) $i), range(1, 1001));
+        $hashes = array_map(fn (int $i) => sha1((string) $i), range(1, 101));
 
         (new ModrinthMatcher(new ModrinthClient()))->match($hashes);
         $this->assertFalse(Cache::has('modpacks-plus:modrinth-sha1:'.$hashes[0]));
