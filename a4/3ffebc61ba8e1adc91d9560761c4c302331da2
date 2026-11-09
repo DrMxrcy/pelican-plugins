@@ -1,0 +1,25 @@
+modpacks-plus/src/Services/InstallManifest.php
+  s_1d8485e49bfacb::t_124cc75cccaffd 17-18,26,45-47
+modpacks-plus/tests/Feature/AtLauncherInstallTest.php
+  s_1d8485e49bfacb::t_df67258ba939e3 100-102,125-126
+modpacks-plus/tests/Feature/InstallManifestTest.php
+  s_1d8485e49bfacb::t_743d1a335cac1c 148
+modpacks-plus/tests/Unit/InstallManifestTest.php
+  s_1d8485e49bfacb::t_7b909a5b4c72f8 55-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a43ffebc61ba8e1adc91d9560761c4c302331da2",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}

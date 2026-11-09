@@ -1,0 +1,29 @@
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_6bf88d9e20ac80 212
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_100db9358d57de 212
+modpacks-plus/src/Services/PackDiff.php
+  s_1d8485e49bfacb::t_4c01287d8e04b5 1-155
+modpacks-plus/src/Services/PropertiesPreserver.php
+  s_1d8485e49bfacb::t_551fdafd943e19 1-203
+modpacks-plus/tests/Unit/PackDiffTest.php
+  s_1d8485e49bfacb::t_51ec90babcbf55 1-127
+modpacks-plus/tests/Unit/PropertiesPreserverTest.php
+  s_1d8485e49bfacb::t_50cd26bdf5bf8d 1-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e949ed051c4e334041870e51c43f2fe58cde3580",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
