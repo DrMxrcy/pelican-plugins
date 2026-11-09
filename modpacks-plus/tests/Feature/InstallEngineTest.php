@@ -25,6 +25,7 @@ use Illuminate\Console\Application;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Mockery;
 use Mockery\MockInterface;
@@ -131,8 +132,20 @@ class InstallEngineTest extends TestCase
         // One locked backup; github file read back, Modrinth files verified by lookup.
         $this->assertSame(1, $this->backupsCreated);
         $this->assertNotNull($install->backup_uuid);
-        $this->assertSame(['mods/from-github.jar'], array_values(array_filter($this->files->callsOf('read'), fn ($path) => $path !== 'server.properties')));
         $this->assertSame([], $this->files->violations);
+
+        // The node only ever pulled cdn.modrinth.com files, into staging; the GitHub file was
+        // fetched and hashed by the panel and written, never handed to the node.
+        $pulled = $this->files->callsOf('pull');
+        $this->assertEqualsCanonicalizing([$this->pack['sodium']['downloads'][0], $this->pack['lithium']['downloads'][0]], $pulled);
+        foreach ($this->files->argsOf('pull') as [, $directory]) {
+            $this->assertStringStartsWith('.modpacks-plus/staging/'.$install->id.'/', (string) $directory);
+        }
+        $this->assertContains('.modpacks-plus/staging/'.$install->id.'/mods/from-github.jar', $this->files->callsOf('write'));
+        Http::assertSent(fn ($request) => $request->url() === $this->pack['github']['downloads'][0]);
+
+        // Staging is gone once the install finished.
+        $this->assertSame([], array_values(array_filter(array_keys($this->files->files), fn (string $path) => str_starts_with($path, '.modpacks-plus/staging/'))));
 
         $summary = $install->summary ?? [];
         $this->assertSame(3, $summary['downloaded']);
@@ -436,9 +449,10 @@ class InstallEngineTest extends TestCase
         $install = $this->latestInstall();
         $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
         $this->assertSame(1, $this->backupsCreated);
+        // The two cdn.modrinth.com files were pulled once each; the GitHub one is fetched by the panel.
         $pulls = array_count_values($this->files->callsOf('pull'));
         $this->assertSame([1], array_values(array_unique($pulls)), (string) json_encode($pulls));
-        $this->assertCount(3, $pulls);
+        $this->assertCount(2, $pulls);
     }
 
     public function test_a_stale_job_does_nothing(): void
@@ -529,30 +543,96 @@ class InstallEngineTest extends TestCase
         $this->assertNotNull($install->summary['backup_uuid']);
     }
 
-    public function test_readback_hash_mismatch_deletes_the_file_and_fails(): void
+    public function test_panel_fetched_file_with_a_wrong_hash_is_never_written(): void
     {
         [, $server] = $this->scenarioServer();
-        $this->scenarioPack();
-        $this->files->remote[$this->pack['github']['downloads'][0]] = 'githuX-bytes';
+        $this->scenarioPack(bodies: ['https://github.com/o/r/releases/download/v1/from-github.jar' => 'githuX-bytes']);
 
         $this->start($server);
         $this->runAll($server);
 
         $this->assertSame('hash_mismatch', $this->latestInstall()->error);
         $this->assertArrayNotHasKey('mods/from-github.jar', $this->files->files);
+        $this->assertSame([], array_values(array_filter($this->files->callsOf('write'), fn (string $path) => str_ends_with($path, 'from-github.jar'))));
+        $this->assertNotContains('https://github.com/o/r/releases/download/v1/from-github.jar', $this->files->callsOf('pull'));
     }
 
-    public function test_size_mismatch_after_a_modrinth_pull_deletes_the_file_and_fails(): void
+    public function test_panel_fetch_larger_than_declared_fails_cleanly(): void
     {
         [, $server] = $this->scenarioServer();
-        $this->scenarioPack();
-        $this->files->remote[$this->pack['sodium']['downloads'][0]] = 'sodium-bytes-but-longer';
+        $this->scenarioPack(bodies: ['https://github.com/o/r/releases/download/v1/from-github.jar' => 'github-bytes-and-then-a-lot-more']);
 
         $this->start($server);
         $this->runAll($server);
 
-        $this->assertSame('download_incomplete', $this->latestInstall()->error);
+        $this->assertSame('panel_fetch_too_large', $this->latestInstall()->error);
+        $this->assertArrayNotHasKey('mods/from-github.jar', $this->files->files);
+    }
+
+    public function test_file_over_the_panel_fetch_cap_is_refused_before_anything_is_written(): void
+    {
+        config()->set('modpacks-plus.caps.max_panel_fetch_bytes', 5);
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack();
+
+        $this->start($server);
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame('panel_fetch_too_large', $install->error);
+        $this->assertSame('prepare', $install->current_step);
+        $this->assertSame(0, $this->files->writeCalls());
+        $this->assertSame(0, $this->backupsCreated);
+    }
+
+    public function test_override_over_the_override_cap_is_refused_before_anything_is_written(): void
+    {
+        config()->set('modpacks-plus.caps.max_override_bytes', 1024);
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack(['overrides/config/huge.json' => str_repeat('x', 1025)]);
+
+        $this->start($server);
+        $this->runAll($server);
+
+        $this->assertSame('override_too_large', $this->latestInstall()->error);
+        $this->assertSame(0, $this->files->writeCalls());
+        $this->assertSame(0, $this->backupsCreated);
+    }
+
+    public function test_size_mismatch_after_a_modrinth_pull_never_reaches_mods(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack(bodies: ['https://cdn.modrinth.com/data/AANobbMI/versions/a/sodium.jar' => 'sodium-bytes-but-longer']);
+
+        $this->start($server);
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame('download_incomplete', $install->error);
         $this->assertArrayNotHasKey('mods/sodium.jar', $this->files->files);
+        $this->assertArrayNotHasKey('.modpacks-plus/staging/'.$install->id.'/mods/sodium.jar', $this->files->files);
+        $this->assertNull($install->progressValue('leftovers'));
+    }
+
+    public function test_a_failed_cleanup_after_a_mismatch_still_fails_and_is_recorded(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack(bodies: ['https://cdn.modrinth.com/data/AANobbMI/versions/a/sodium.jar' => 'sodium-bytes-but-longer']);
+        $this->files->beforeDelete = function (string $path) {
+            if (str_ends_with($path, 'sodium.jar')) {
+                throw new RuntimeException('daemon refused the delete');
+            }
+        };
+
+        $this->start($server);
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_FAILED, $install->status);
+        $this->assertSame('download_incomplete', $install->error);
+        $this->assertArrayNotHasKey('mods/sodium.jar', $this->files->files);
+        $this->assertSame(['.modpacks-plus/staging/'.$install->id.'/mods/sodium.jar'], $install->progressValue('leftovers'));
+        $this->assertContains('leftover', array_column($install->log ?? [], 'key'));
     }
 
     public function test_a_stored_plan_tampered_with_is_rejected_before_overrides_are_written(): void
@@ -571,7 +651,8 @@ class InstallEngineTest extends TestCase
         });
 
         $this->assertSame('unsafe_path', $this->latestInstall()->error);
-        $this->assertSame([], $this->files->callsOf('write'));
+        // Only the panel-fetched download was written (to staging); no override was.
+        $this->assertSame([], array_values(array_filter($this->files->callsOf('write'), fn (string $path) => !str_starts_with($path, '.modpacks-plus/staging/'))));
         $this->assertSame([], $this->files->violations);
     }
 

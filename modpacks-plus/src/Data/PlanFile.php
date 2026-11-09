@@ -5,11 +5,17 @@ namespace DrMxrcy\ModpacksPlus\Data;
 /** One file of a pack the node downloads onto the server. */
 final class PlanFile
 {
-    /** Hash checked through Modrinth's version_files lookup before the pull; size checked after. */
+    /**
+     * On cdn.modrinth.com and vouched for by Modrinth's version_files lookup: the only
+     * kind of file the node (Wings) is ever asked to pull. Size checked after the pull.
+     */
     public const VERIFY_MODRINTH = 'modrinth-lookup';
 
-    /** File read back through the panel after the pull and hashed there. */
-    public const VERIFY_READBACK = 'readback';
+    /**
+     * Everything else: fetched by the panel (every redirect hop allowlisted, byte-capped),
+     * hashed on the panel, and only then written to the server.
+     */
+    public const VERIFY_PANEL = 'panel-fetch';
 
     /**
      * @param  array<int, string>  $urls  candidate download URLs, in the pack's order

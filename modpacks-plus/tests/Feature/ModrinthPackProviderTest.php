@@ -122,7 +122,7 @@ class ModrinthPackProviderTest extends TestCase
         $this->assertSame(['mods/sodium.jar', 'mods/from-github.jar'], array_map(fn (PlanFile $file) => $file->path, $plan->files));
         $this->assertSame(['mods/zoomify.jar'], $plan->skippedClientFiles);
         $this->assertSame(PlanFile::VERIFY_MODRINTH, $plan->files[0]->verify);
-        $this->assertSame(PlanFile::VERIFY_READBACK, $plan->files[1]->verify);
+        $this->assertSame(PlanFile::VERIFY_PANEL, $plan->files[1]->verify);
 
         $overrides = [];
         foreach ($plan->overrides as $override) {
@@ -149,7 +149,7 @@ class ModrinthPackProviderTest extends TestCase
 
         $this->fakeModrinth(Mrpack::zip(['modrinth.index.json' => Mrpack::index([$sodium])]), lookup: $lookup);
 
-        $this->assertSame(PlanFile::VERIFY_READBACK, $this->resolve()->files[0]->verify);
+        $this->assertSame(PlanFile::VERIFY_PANEL, $this->resolve()->files[0]->verify);
     }
 
     public function test_a_failed_lookup_stops_the_plan(): void

@@ -78,7 +78,7 @@ class OverridesStep extends InstallStep
                         $this->moveExistingAside($install, $server, $entry->path);
                     }
 
-                    $contents = $reader->read($entry->entry, $caps->maxFileBytes);
+                    $contents = $reader->read($entry->entry, $caps->maxOverrideBytes);
 
                     $install->setProgress('pending_override', $index);
                     $engine->persist($install);

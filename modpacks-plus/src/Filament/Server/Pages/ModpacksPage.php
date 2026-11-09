@@ -390,6 +390,8 @@ class ModpacksPage extends Page implements HasTable
             ->label(trans('modpacks-plus::strings.actions.install'))
             ->icon('tabler-download')
             ->color('success')
+            // Hidden without the install permissions; installPack() re-checks them anyway.
+            ->visible(fn () => static::canInstall())
             ->authorize(fn () => static::canInstall())
             ->disabled(fn () => $this->activeInstall() !== null)
             ->requiresConfirmation()
@@ -447,7 +449,7 @@ class ModpacksPage extends Page implements HasTable
                         ->icon('tabler-player-stop')
                         ->color('danger')
                         ->authorize(fn () => static::canInstall())
-                        ->visible(fn () => $this->activeInstall() !== null && $this->activeInstall()->cancel_requested_at === null)
+                        ->visible(fn () => static::canInstall() && $this->activeInstall() !== null && $this->activeInstall()->cancel_requested_at === null)
                         ->requiresConfirmation()
                         ->modalDescription(trans('modpacks-plus::strings.install.cancel_body'))
                         ->action(fn () => $this->cancelInstall()),

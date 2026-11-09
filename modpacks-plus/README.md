@@ -17,7 +17,8 @@ loader and Minecraft version **already match** the pack.
      random nonce in its name is accepted;
   3. **move aside** — `mods/`, `config/`, `defaultconfigs/`, `kubejs/`, `scripts/` go to
      `.modpacks-plus/previous-<date>/` (nothing is deleted);
-  4. **download** — server-side files are pulled by the node, then verified;
+  4. **download** — server-side files land in `.modpacks-plus/staging/<install>/`, are verified there
+     and only then renamed into place (see "Downloads" below);
   5. **overrides** — `overrides/` then `server-overrides/` from the archive;
   6. **finalize**.
 - A live step list and log, a cancel button (stops between steps / download batches) and a final summary.
@@ -36,12 +37,20 @@ Checked before anything is written to the server; archive entries are checked ag
 - Downloads must be HTTPS from `cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`,
   `objects.githubusercontent.com` or `gitlab.com` (no credentials, no custom port). The first allowlisted
   URL of a file is used; a file without one rejects the pack.
-- Hashes: the `.mrpack` is hashed (sha512) on the panel. Files on `cdn.modrinth.com` are checked
-  against Modrinth's own hash lookup before the node downloads them, and their size is checked after;
-  other files are read back through the panel and hashed (sha512, else sha1). A mismatch deletes the
-  file and fails the install.
+- **Downloads.** The node (Wings) follows redirects on its own pulls, so it is only ever asked to pull
+  files on `cdn.modrinth.com` whose sha512 Modrinth's own hash lookup knows at exactly that URL; their
+  size is checked after the pull. Every other file (other hosts, or a lookup miss) is fetched by the
+  panel, with every redirect hop checked against the allowlist and a byte cap, hashed there
+  (sha512, else sha1) and only then written to the server. The `.mrpack` itself is fetched the same
+  way and hashed (sha512) on the panel. A mismatch fails the install; nothing unverified is ever
+  renamed out of `.modpacks-plus/staging/`.
 - Caps (config / env): 1000 files, 256 MB per file, 100 MB archive, 4 GB total, 20 000 archive entries,
-  64 MB per read-back file.
+  32 MB per panel-fetched file (`max_panel_fetch_bytes`; such files are held in the worker's memory),
+  16 MB per override file (`max_override_bytes`). A pack over a cap is refused before anything is written.
+- The daemon adapter refuses again, right before each call: paths outside the root, creating, writing,
+  deleting or moving a world, player list or `server.properties`, and any pull that is not
+  `cdn.modrinth.com`.
+- `server.properties` with escaped keys or line continuations is not guessed at: the install stops.
 - Files marked `env.server: unsupported` are skipped.
 - A pre-existing file in the way of a pack file or override is moved into the moved-aside folder first.
   Paths are compared exactly (case-sensitively), as on the server's filesystem.
@@ -54,7 +63,8 @@ Checked before anything is written to the server; archive entries are checked ag
 - Viewing the page: `file.read`.
 - Installing or cancelling: `settings.reinstall` + `file.create` + `file.delete` + `backup.create`.
 
-Both are checked when the page or button is shown and again inside every Livewire handler.
+Users without the install permissions don't see the Install and Cancel buttons; the Livewire
+handlers (`installPack`, `cancelInstall`) check every permission again, so direct calls get 403.
 
 ## Requirements
 
@@ -62,6 +72,20 @@ Both are checked when the page or button is shown and again inside every Livewir
   the Minecraft version comes from the `MINECRAFT_VERSION` or `MC_VERSION` variable.
 - A queue worker (`QUEUE_CONNECTION` other than `sync`) and the scheduler (`schedule:run` every minute),
   which Pelican already needs. The scheduler resumes a stalled install or fails it after its step deadline.
+
+## Known limits
+
+- A node pull whose request timed out may still be writing when the next job looks at it; the file is
+  only accepted once it has its full size, and pulls only come from Modrinth's CDN, which makes this rare.
+- `cdn.modrinth.com` is trusted not to redirect off Modrinth (the node follows its redirects).
+- Mods are code. These checks keep files inside the server and make downloads match what the pack
+  declares; they don't make a malicious pack safe to run. A pack may still replace loader jars or start
+  scripts at the server root.
+- The install backup is locked, so it counts toward the server's backup limit until someone unlocks
+  and deletes it. `.modpacks-plus/previous-*` folders are not cleaned up automatically yet (that comes
+  with pack updates, a later release). After a failed install, `.modpacks-plus/staging/` may keep
+  files that were never used.
+- Stop the server before installing; the plugin doesn't stop it for you.
 
 ## Settings
 

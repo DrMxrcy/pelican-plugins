@@ -20,8 +20,10 @@ return [
         'max_total_bytes' => (int) env('MODPACKS_PLUS_MAX_TOTAL_BYTES', 4 * 1024 * 1024 * 1024),
         // Entries in the .mrpack archive.
         'max_archive_entries' => (int) env('MODPACKS_PLUS_MAX_ARCHIVE_ENTRIES', 20000),
-        // Files that can only be verified by reading them back through the panel (not hosted
-        // on Modrinth's CDN) may not be larger than this.
-        'max_readback_bytes' => (int) env('MODPACKS_PLUS_MAX_READBACK_BYTES', 64 * 1024 * 1024),
+        // Files not vouched for by Modrinth (other hosts, lookup misses) are fetched and hashed by
+        // the panel, held in memory and written through the daemon: each may not be larger than this.
+        'max_panel_fetch_bytes' => (int) env('MODPACKS_PLUS_MAX_PANEL_FETCH_BYTES', 32 * 1024 * 1024),
+        // A single override file (read into memory from the archive before it is written).
+        'max_override_bytes' => (int) env('MODPACKS_PLUS_MAX_OVERRIDE_BYTES', 16 * 1024 * 1024),
     ],
 ];

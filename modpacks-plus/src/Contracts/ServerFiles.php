@@ -6,11 +6,22 @@ use App\Models\Server;
 
 /**
  * The file operations the install engine performs on a server, all relative to the
- * server root. Implementations refuse any path that PlanValidator::isSafeRelativePath()
- * rejects, so a bug upstream still cannot reach outside the root.
+ * server root. Implementations refuse, right before each call reaches the node:
+ * - any path PlanValidator::isSafeRelativePath() rejects (outside the root);
+ * - creating, writing, deleting or moving (from or to) a protected path (worlds,
+ *   player lists, server.properties), except inside this plugin's `.modpacks-plus/`;
+ * - pulling anything but an allowlisted cdn.modrinth.com URL (the node follows
+ *   redirects on its own, so it only gets URLs Modrinth vouched for).
  */
 interface ServerFiles
 {
+    /**
+     * A copy that also protects these world folders (the install's level-name etc.).
+     *
+     * @param  array<int, string>  $worlds
+     */
+    public function protecting(array $worlds): static;
+
     /**
      * Entries of a directory ('' = server root), keyed by name, or null when it doesn't exist.
      *
@@ -27,7 +38,7 @@ interface ServerFiles
     /** Moves $from to $to (both relative to the root). Never replaces an existing target. */
     public function rename(Server $server, string $from, string $to): void;
 
-    /** Has the node download $url into $directory/$filename and waits for it (foreground). */
+    /** Has the node download a cdn.modrinth.com $url into $directory/$filename and waits for it (foreground). */
     public function pull(Server $server, string $url, string $directory, string $filename, int $timeoutSeconds): void;
 
     /** Reads a file, refusing more than $maxBytes. Throws FileNotFoundException when missing. */

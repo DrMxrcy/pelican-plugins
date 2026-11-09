@@ -85,8 +85,9 @@ trait InstallScenario
      *
      * @param  array<string, string>|null  $extraEntries  archive entries besides the index
      * @param  array<string, string>  $dependencies
+     * @param  array<string, string>  $bodies  URL => body served instead of the real file
      */
-    protected function scenarioPack(?array $extraEntries = null, array $dependencies = ['minecraft' => '1.20.1', 'fabric-loader' => '0.15.11']): string
+    protected function scenarioPack(?array $extraEntries = null, array $dependencies = ['minecraft' => '1.20.1', 'fabric-loader' => '0.15.11'], array $bodies = []): string
     {
         $this->pack = [
             'sodium' => Mrpack::file('mods/sodium.jar', 'sodium-bytes', 'https://cdn.modrinth.com/data/AANobbMI/versions/a/sodium.jar'),
@@ -106,20 +107,28 @@ trait InstallScenario
 
         // A fresh fake: stubs registered by an earlier call would otherwise win.
         Http::swap(new HttpFactory());
-        Http::fake([
+        $contents = [
+            'mods/sodium.jar' => 'sodium-bytes',
+            'mods/lithium.jar' => 'lithium-bytes',
+            'mods/from-github.jar' => 'github-bytes',
+            'mods/zoomify.jar' => 'zoomify-bytes',
+        ];
+
+        $stubs = [
             'api.modrinth.com/v2/version/'.Mrpack::VERSION_ID => Http::response(Mrpack::version($archive)),
             'api.modrinth.com/v2/version_files' => Http::response(Mrpack::lookup([$this->pack['sodium'], $this->pack['lithium']])),
             Mrpack::ARCHIVE_URL => Http::response($archive),
-        ]);
+        ];
 
         foreach ($this->pack as $file) {
-            $this->files->remote[$file['downloads'][0]] = match ($file['path']) {
-                'mods/sodium.jar' => 'sodium-bytes',
-                'mods/lithium.jar' => 'lithium-bytes',
-                'mods/from-github.jar' => 'github-bytes',
-                default => 'zoomify-bytes',
-            };
+            $url = $file['downloads'][0];
+            $body = $bodies[$url] ?? $contents[$file['path']];
+            // The node serves cdn.modrinth.com pulls; the panel fetches everything else.
+            $this->files->remote[$url] = $body;
+            $stubs[$url] = Http::response($body);
         }
+
+        Http::fake($stubs);
 
         return $archive;
     }

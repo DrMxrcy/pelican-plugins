@@ -174,6 +174,23 @@ final class PlanValidator
         return false;
     }
 
+    /**
+     * Whether a normalised path is a protected path or lies inside one (not merely contains
+     * one). Creating a directory that only contains a world can't harm it.
+     */
+    public function isWithinProtected(string $path): bool
+    {
+        $path = strtolower($path);
+
+        foreach (array_keys($this->protectedPaths) as $protected) {
+            if ($path === $protected || str_starts_with($path, $protected.'/')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function isAllowedUrl(string $url): bool
     {
         if ($url === '' || strlen($url) > self::MAX_URL_LENGTH) {
@@ -307,8 +324,12 @@ final class PlanValidator
                 throw new UnsafePlanException('no_allowed_url', $path);
             }
 
-            if ($file->verify === PlanFile::VERIFY_READBACK && $file->size > $this->caps->maxReadbackBytes) {
-                throw new UnsafePlanException('readback_too_large', $path);
+            if ($file->verify === PlanFile::VERIFY_MODRINTH && parse_url($url, PHP_URL_HOST) !== 'cdn.modrinth.com') {
+                throw new UnsafePlanException('no_allowed_url', $path);
+            }
+
+            if ($file->verify === PlanFile::VERIFY_PANEL && $file->size > $this->caps->maxPanelFetchBytes) {
+                throw new UnsafePlanException('panel_fetch_too_large', $path);
             }
 
             $files[] = $file->with(['path' => $path, 'hashes' => $hashes, 'url' => $url]);
@@ -331,6 +352,11 @@ final class PlanValidator
 
             if ($override->size < 0 || $override->size > $this->caps->maxFileBytes) {
                 throw new UnsafePlanException('file_too_large', $path);
+            }
+
+            // Overrides are read into the worker's memory before they are written.
+            if ($override->size > $this->caps->maxOverrideBytes) {
+                throw new UnsafePlanException('override_too_large', $path);
             }
 
             if (isset($targets[strtolower($path)])) {

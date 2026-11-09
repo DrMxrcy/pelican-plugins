@@ -334,14 +334,36 @@ class PlanValidatorTest extends TestCase
         );
     }
 
-    public function test_a_read_back_file_over_the_read_back_cap_is_rejected(): void
+    public function test_a_panel_fetched_file_over_the_panel_fetch_cap_is_rejected(): void
     {
-        $caps = new Caps(maxReadbackBytes: 100);
+        $caps = new Caps(maxPanelFetchBytes: 100);
 
         $this->validator($caps)->validate($this->plan([$this->file(['size' => 5000, 'verify' => PlanFile::VERIFY_MODRINTH])]));
         $this->assertRejected(
-            fn () => $this->validator($caps)->validate($this->plan([$this->file(['size' => 5000, 'verify' => PlanFile::VERIFY_READBACK])])),
-            'readback_too_large',
+            fn () => $this->validator($caps)->validate($this->plan([$this->file(['size' => 5000, 'verify' => PlanFile::VERIFY_PANEL])])),
+            'panel_fetch_too_large',
+        );
+    }
+
+    public function test_an_override_over_the_override_cap_is_rejected(): void
+    {
+        $caps = new Caps(maxOverrideBytes: 1000);
+
+        $this->validator($caps)->validate($this->plan([], [new OverrideEntry('overrides/config/a.toml', 'config/a.toml', 1000)]));
+        $this->assertRejected(
+            fn () => $this->validator($caps)->validate($this->plan([], [new OverrideEntry('overrides/config/a.toml', 'config/a.toml', 1001)])),
+            'override_too_large',
+        );
+    }
+
+    public function test_only_cdn_files_may_be_marked_for_a_node_pull(): void
+    {
+        $this->assertRejected(
+            fn () => $this->validator()->validate($this->plan([$this->file([
+                'urls' => ['https://github.com/o/r/releases/download/v1/a.jar'],
+                'verify' => PlanFile::VERIFY_MODRINTH,
+            ])])),
+            'no_allowed_url',
         );
     }
 
@@ -439,6 +461,9 @@ class PlanValidatorTest extends TestCase
         $this->assertTrue($validator->isProtected('saves/world_the_end/DIM1/x'));
         // Moving or replacing a parent folder would take the world with it.
         $this->assertTrue($validator->isProtected('saves'));
+        // ...but only paths at or inside the world count as "within" it (creating `saves` is harmless).
+        $this->assertFalse($validator->isWithinProtected('saves'));
+        $this->assertTrue($validator->isWithinProtected('saves/world/region'));
         $this->assertFalse($validator->isProtected('saves/other/x'));
         $this->assertFalse($validator->isProtected('savesx/world'));
 

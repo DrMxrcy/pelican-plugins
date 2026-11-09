@@ -23,8 +23,11 @@ use Throwable;
  * `POST /version_files` before the pull, and the file is only marked
  * VERIFY_MODRINTH when Modrinth knows that exact hash at that exact URL (the CDN
  * then serves the bytes Modrinth hashed, over TLS); the size is checked after the
- * pull. Every other file (other hosts, or a lookup miss) is VERIFY_READBACK: read
- * back through the panel and hashed, capped by `max_readback_bytes`.
+ * pull. Those are the only files the node ever pulls (Wings follows redirects on its
+ * own, so it is never handed a URL whose redirects the panel can't vouch for). Every
+ * other file (other hosts, or a lookup miss) is VERIFY_PANEL: the panel fetches it with
+ * every redirect hop allowlisted and a byte cap (`max_panel_fetch_bytes`), hashes it,
+ * and writes it through the daemon.
  *
  * @phpstan-import-type PackHit from PackProvider
  * @phpstan-import-type PackVersion from PackProvider
@@ -263,7 +266,8 @@ class ModrinthPackProvider implements PackProvider
             return;
         }
 
-        $this->client->download($archive->url, $path, min($this->caps->maxArchiveBytes, max(0, $archive->size)), $validator);
+        // One archive download per job (prepare / overrides), so it may use most of the ~60 s.
+        $this->client->download($archive->url, $path, min($this->caps->maxArchiveBytes, max(0, $archive->size)), $validator, 45);
 
         if (!$this->archiveMatches($archive, $path)) {
             @unlink($path);
@@ -287,7 +291,7 @@ class ModrinthPackProvider implements PackProvider
 
     /**
      * Marks each file VERIFY_MODRINTH when Modrinth's version_files lookup knows its sha512
-     * at exactly its chosen cdn.modrinth.com URL, else VERIFY_READBACK.
+     * at exactly its chosen cdn.modrinth.com URL, else VERIFY_PANEL.
      *
      * @throws PackUnavailableException the lookup failed (the install is not guessed through)
      */
@@ -321,7 +325,7 @@ class ModrinthPackProvider implements PackProvider
             $sha512 = $file->hashes['sha512'] ?? null;
             $verified = $sha512 !== null && in_array($file->url, $known[$sha512] ?? [], true);
 
-            return $file->with(['verify' => $verified ? PlanFile::VERIFY_MODRINTH : PlanFile::VERIFY_READBACK]);
+            return $file->with(['verify' => $verified ? PlanFile::VERIFY_MODRINTH : PlanFile::VERIFY_PANEL]);
         }, $plan->files)]);
     }
 

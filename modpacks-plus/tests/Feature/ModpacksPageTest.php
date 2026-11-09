@@ -280,10 +280,9 @@ class ModpacksPageTest extends TestCase
             ->assertSee(trans('modpacks-plus::strings.page.installed_pack', ['name' => '<script>alert(1)</script>', 'version' => '1.0.0']));
     }
 
-    public function test_detail_view_marks_mismatching_versions_and_strips_html(): void
+    /** Modrinth answers with two versions: one matching the server, one needing NeoForge 1.21.1. */
+    private function fakeTwoVersions(): void
     {
-        $this->actingOn();
-
         $archive = Mrpack::zip(['modrinth.index.json' => Mrpack::index([])]);
         $match = Mrpack::version($archive);
         $other = Mrpack::version($archive);
@@ -294,16 +293,16 @@ class ModpacksPageTest extends TestCase
 
         $this->fakeModrinthApi(extra: [
             'api.modrinth.com/v2/project/'.Mrpack::PACK_ID.'/version' => Http::response([$match, $other]),
-            'api.modrinth.com/v2/search*' => Http::response(['hits' => [[
-                'project_id' => Mrpack::PACK_ID,
-                'slug' => 'test-pack',
-                'title' => 'Test Pack',
-                'description' => 'A pack',
-                'author' => 'someone',
-                'downloads' => 1,
-            ]], 'total_hits' => 1]),
         ]);
+    }
 
+    /**
+     * The detail view's rendered description HTML and its visible version actions (name => label).
+     *
+     * @return array{string, array<string, string>}
+     */
+    private function detailView(): array
+    {
         /** @var ModpacksPage $instance */
         $instance = Livewire::test(ModpacksPage::class)->instance();
         $components = (new \ReflectionMethod($instance, 'detailSchema'))->invoke($instance, Mrpack::PACK_ID);
@@ -319,7 +318,9 @@ class ModpacksPageTest extends TestCase
                 }
                 if ($component instanceof Section) {
                     foreach ($component->getHeaderActions() as $action) {
-                        $labels[$action->getName()] = $action->getLabel();
+                        if ($action->isVisible()) {
+                            $labels[$action->getName()] = (string) $action->getLabel();
+                        }
                     }
                     $walk($component->getChildSchema()?->getComponents(withHidden: true) ?? []);
                 }
@@ -327,11 +328,48 @@ class ModpacksPageTest extends TestCase
         };
         $walk($schema->getComponents(withHidden: true));
 
+        return [$html, $labels];
+    }
+
+    public function test_detail_view_marks_mismatching_versions_and_strips_html(): void
+    {
+        $this->actingOn();
+        $this->fakeTwoVersions();
+
+        [$html, $labels] = $this->detailView();
+
         $this->assertStringContainsString('<h1>Hi</h1>', $html);
         $this->assertStringNotContainsString('<script>', $html);
         $this->assertStringNotContainsString('javascript:', $html);
         $this->assertSame(trans('modpacks-plus::strings.actions.install'), $labels['install_0'] ?? null);
         $this->assertSame(trans('modpacks-plus::strings.install.needs', ['target' => 'Neoforge 1.21.1']), $labels['needs_1'] ?? null);
+    }
+
+    public function test_install_and_cancel_buttons_are_hidden_without_install_permissions(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, SubuserPermission::FileCreate, SubuserPermission::FileDelete, SubuserPermission::BackupCreate]);
+        $this->fakeTwoVersions();
+
+        [, $labels] = $this->detailView();
+        $this->assertArrayNotHasKey('install_0', $labels);
+        $this->assertArrayHasKey('needs_1', $labels);
+
+        $this->runningInstall($server);
+        Livewire::test(ModpacksPage::class)
+            ->assertSee(trans('modpacks-plus::strings.steps.backup'))
+            ->assertDontSee(trans('modpacks-plus::strings.actions.cancel'));
+    }
+
+    public function test_install_and_cancel_buttons_are_shown_with_install_permissions(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $this->fakeTwoVersions();
+
+        [, $labels] = $this->detailView();
+        $this->assertArrayHasKey('install_0', $labels);
+
+        $this->runningInstall($server);
+        Livewire::test(ModpacksPage::class)->assertSee(trans('modpacks-plus::strings.actions.cancel'));
     }
 
     private function runningInstall(Server $server): PackInstall

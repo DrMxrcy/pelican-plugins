@@ -24,7 +24,16 @@ class ModrinthClient
 
     private const MAX_REDIRECTS = 3;
 
+    /** Seconds one panel-side download may take (keeps a job well under ~60 s). */
+    public const DOWNLOAD_TIMEOUT = 30;
+
     protected static ?string $pluginVersion = null;
+
+    /**
+     * @param  callable|null  $downloadHandler  Guzzle handler for download() (tests use a mock
+     *                                          handler so the real redirect middleware runs)
+     */
+    public function __construct(private readonly mixed $downloadHandler = null) {}
 
     public function api(int $timeout = 10): PendingRequest
     {
@@ -67,7 +76,7 @@ class ModrinthClient
      * @throws UnsafePlanException
      * @throws PackUnavailableException
      */
-    public function download(string $url, string $destination, int $maxBytes, PlanValidator $validator, int $timeout = 50): void
+    public function download(string $url, string $destination, int $maxBytes, PlanValidator $validator, int $timeout = self::DOWNLOAD_TIMEOUT, string $tooLargeReason = 'archive_too_large'): void
     {
         if (!$validator->isAllowedUrl($url)) {
             throw new UnsafePlanException('no_allowed_url', $url);
@@ -79,7 +88,13 @@ class ModrinthClient
         }
 
         try {
-            $response = Http::withUserAgent($this->userAgent())
+            $request = Http::createPendingRequest();
+            if ($this->downloadHandler !== null) {
+                $request->setHandler($this->downloadHandler);
+            }
+
+            $response = $request
+                ->withUserAgent($this->userAgent())
                 ->timeout($timeout)
                 ->connectTimeout(5)
                 ->withOptions([
@@ -90,15 +105,15 @@ class ModrinthClient
                         'protocols' => ['https'],
                         'on_redirect' => self::redirectGuard($validator),
                     ],
-                    'on_headers' => function (ResponseInterface $response) use ($maxBytes) {
+                    'on_headers' => function (ResponseInterface $response) use ($maxBytes, $tooLargeReason, $url) {
                         $length = $response->getHeaderLine('Content-Length');
                         if ($length !== '' && (int) $length > $maxBytes) {
-                            throw new UnsafePlanException('archive_too_large', $length.' bytes');
+                            throw new UnsafePlanException($tooLargeReason, $url);
                         }
                     },
-                    'progress' => function ($total, $downloaded) use ($maxBytes) {
+                    'progress' => function ($total, $downloaded) use ($maxBytes, $tooLargeReason, $url) {
                         if ($downloaded > $maxBytes) {
-                            throw new UnsafePlanException('archive_too_large', $downloaded.' bytes');
+                            throw new UnsafePlanException($tooLargeReason, $url);
                         }
                     },
                 ])
@@ -125,7 +140,7 @@ class ModrinthClient
         if (!is_file($destination) || filesize($destination) > $maxBytes) {
             @unlink($destination);
 
-            throw new UnsafePlanException('archive_too_large', $url);
+            throw new UnsafePlanException($tooLargeReason, $url);
         }
     }
 

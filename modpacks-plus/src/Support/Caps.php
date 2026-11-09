@@ -11,7 +11,8 @@ final class Caps
         public readonly int $maxArchiveBytes = 100 * 1024 * 1024,
         public readonly int $maxTotalBytes = 4 * 1024 * 1024 * 1024,
         public readonly int $maxArchiveEntries = 20000,
-        public readonly int $maxReadbackBytes = 64 * 1024 * 1024,
+        public readonly int $maxPanelFetchBytes = 32 * 1024 * 1024,
+        public readonly int $maxOverrideBytes = 16 * 1024 * 1024,
     ) {}
 
     public static function fromConfig(): self
@@ -28,7 +29,8 @@ final class Caps
             maxArchiveBytes: $int('max_archive_bytes', $defaults->maxArchiveBytes),
             maxTotalBytes: $int('max_total_bytes', $defaults->maxTotalBytes),
             maxArchiveEntries: $int('max_archive_entries', $defaults->maxArchiveEntries),
-            maxReadbackBytes: $int('max_readback_bytes', $defaults->maxReadbackBytes),
+            maxPanelFetchBytes: $int('max_panel_fetch_bytes', $defaults->maxPanelFetchBytes),
+            maxOverrideBytes: $int('max_override_bytes', $defaults->maxOverrideBytes),
         );
     }
 }

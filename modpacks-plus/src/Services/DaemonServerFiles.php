@@ -20,9 +20,49 @@ use RuntimeException;
  */
 class DaemonServerFiles implements ServerFiles
 {
+    /** The only host the node is ever asked to pull from. */
+    public const PULL_HOST = 'cdn.modrinth.com';
+
+    /** @param  array<int, string>  $worlds */
+    final public function __construct(private readonly array $worlds = ['world']) {}
+
+    public function protecting(array $worlds): static
+    {
+        return new static(array_values(array_unique(array_merge($this->worlds, $worlds))));
+    }
+
     private function repository(Server $server): DaemonFileRepository
     {
         return app(DaemonFileRepository::class)->setServer($server);
+    }
+
+    /**
+     * A path the engine may change: safe, and not a world, player list or
+     * server.properties. `.modpacks-plus/` (staging, moved-aside files) is the plugin's own.
+     *
+     * @throws UnsafePlanException
+     */
+    private function guardTarget(string $path, bool $creatingDirectory = false): string
+    {
+        self::guard($path);
+
+        $own = $path === PlanValidator::OWN_FOLDER || str_starts_with($path, PlanValidator::OWN_FOLDER.'/');
+        $validator = new PlanValidator(new Caps(), $this->worlds);
+        // Creating a directory that merely contains a world (e.g. `config` for `config/world`) is harmless.
+        $protected = $creatingDirectory ? $validator->isWithinProtected($path) : $validator->isProtected($path);
+        if (!$own && $protected) {
+            throw new UnsafePlanException('protected_path', $path);
+        }
+
+        return $path;
+    }
+
+    /** @throws UnsafePlanException */
+    public static function assertPullable(string $url): void
+    {
+        if (!(new PlanValidator(new Caps()))->isAllowedUrl($url) || parse_url($url, PHP_URL_HOST) !== self::PULL_HOST) {
+            throw new UnsafePlanException('no_allowed_url', $url);
+        }
     }
 
     /** @throws UnsafePlanException */
@@ -80,7 +120,7 @@ class DaemonServerFiles implements ServerFiles
 
     public function createDirectory(Server $server, string $path): void
     {
-        $path = self::guard($path);
+        $path = $this->guardTarget($path, creatingDirectory: true);
 
         $parent = '';
         foreach (explode('/', $path) as $segment) {
@@ -103,8 +143,8 @@ class DaemonServerFiles implements ServerFiles
 
     public function rename(Server $server, string $from, string $to): void
     {
-        $from = self::guard($from);
-        $to = self::guard($to);
+        $from = $this->guardTarget($from);
+        $to = $this->guardTarget($to);
 
         if ($this->stat($server, $to) !== null) {
             throw new RuntimeException("Refusing to replace $to");
@@ -116,14 +156,12 @@ class DaemonServerFiles implements ServerFiles
     public function pull(Server $server, string $url, string $directory, string $filename, int $timeoutSeconds): void
     {
         $directory = self::guard($directory, allowRoot: true);
-        self::guard($filename);
         if (str_contains($filename, '/')) {
             throw new UnsafePlanException('unsafe_path', $filename);
         }
+        $this->guardTarget($directory === '' ? $filename : "$directory/$filename");
 
-        if (!(new PlanValidator(new Caps()))->isAllowedUrl($url)) {
-            throw new UnsafePlanException('no_allowed_url', $url);
-        }
+        self::assertPullable($url);
 
         $this->repository($server)
             ->getHttpClient()
@@ -151,14 +189,14 @@ class DaemonServerFiles implements ServerFiles
 
     public function write(Server $server, string $path, string $contents): void
     {
-        $path = self::guard($path);
+        $path = $this->guardTarget($path);
 
         $this->repository($server)->putContent($path, $contents)->throw();
     }
 
     public function delete(Server $server, string $path): void
     {
-        $path = self::guard($path);
+        $path = $this->guardTarget($path);
 
         $this->repository($server)->deleteFiles('/', [$path])->throw();
     }

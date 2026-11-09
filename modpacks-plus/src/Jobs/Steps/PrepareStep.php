@@ -57,7 +57,7 @@ class PrepareStep extends InstallStep
             'files' => count($plan->files),
             'overrides' => count($plan->overrides),
             'skipped' => count($plan->skippedClientFiles),
-            'readback' => count(array_filter($plan->files, fn ($file) => $file->verify === PlanFile::VERIFY_READBACK)),
+            'panel' => count(array_filter($plan->files, fn ($file) => $file->verify === PlanFile::VERIFY_PANEL)),
         ]);
         foreach ($plan->skippedOverrides as $path) {
             $install->addLog('warning', 'override_protected', ['path' => $path]);
@@ -77,12 +77,15 @@ class PrepareStep extends InstallStep
         $files = $this->files();
 
         try {
-            $levelName = ServerProperties::levelName($files->read($server, 'server.properties', 1024 * 1024)) ?? 'world';
+            $properties = $files->read($server, 'server.properties', 1024 * 1024);
         } catch (FileNotFoundException) {
-            $levelName = 'world';
+            $properties = '';
         } catch (\Throwable $exception) {
             throw new StepFailedException('server_properties_unreadable', class_basename($exception), $exception);
         }
+
+        // Escaped keys or continuations fail closed (unsafe_level_name).
+        $levelName = ServerProperties::levelName($properties) ?? 'world';
 
         $worlds = [$levelName];
 

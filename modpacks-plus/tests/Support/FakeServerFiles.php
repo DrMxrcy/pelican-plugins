@@ -34,6 +34,44 @@ final class FakeServerFiles implements ServerFiles
     /** Runs after a pull lands, e.g. to simulate the worker dying. */
     public ?\Closure $afterPull = null;
 
+    /** Runs before a delete, e.g. to make it fail. */
+    public ?\Closure $beforeDelete = null;
+
+    /** @var array<int, string> worlds protected by the copy the engine got */
+    private array $worlds = ['world'];
+
+    /**
+     * Shares state with the original (same filesystem, same call log): only the
+     * protected worlds differ, as with the real adapter.
+     */
+    public function protecting(array $worlds): static
+    {
+        $copy = clone $this;
+        $copy->worlds = array_values(array_unique(array_merge($this->worlds, $worlds)));
+        $copy->files = &$this->files;
+        $copy->dirs = &$this->dirs;
+        $copy->calls = &$this->calls;
+        $copy->violations = &$this->violations;
+        $copy->remote = &$this->remote;
+
+        return $copy;
+    }
+
+    /** A change to a protected path outside .modpacks-plus/ is recorded as a violation. */
+    private function checkTarget(string $path, bool $creatingDirectory = false): void
+    {
+        $this->check($path);
+
+        $own = $path === '.modpacks-plus' || str_starts_with($path, '.modpacks-plus/');
+        $validator = new PlanValidator(new Caps(), $this->worlds);
+        $protected = $creatingDirectory ? $validator->isWithinProtected($path) : $validator->isProtected($path);
+        if (!$own && $protected) {
+            $this->violations[] = "protected path changed: $path";
+
+            throw new RuntimeException("fake daemon: protected path $path");
+        }
+    }
+
     /** @param  array<string, string>  $files */
     public function seed(array $files): self
     {
@@ -77,6 +115,19 @@ final class FakeServerFiles implements ServerFiles
             $this->mkdirs($directory);
         }
         $this->files[$path] = $contents;
+    }
+
+    /** @return array<int, array<int, mixed>> arguments of every call of $operation */
+    public function argsOf(string $operation): array
+    {
+        $out = [];
+        foreach ($this->calls as [$op, $args]) {
+            if ($op === $operation) {
+                $out[] = $args;
+            }
+        }
+
+        return $out;
     }
 
     /** @return array<int, string> */
@@ -143,15 +194,15 @@ final class FakeServerFiles implements ServerFiles
     public function createDirectory(Server $server, string $path): void
     {
         $this->calls[] = ['createDirectory', [$path]];
-        $this->check($path);
+        $this->checkTarget($path, creatingDirectory: true);
         $this->mkdirs($path);
     }
 
     public function rename(Server $server, string $from, string $to): void
     {
         $this->calls[] = ['rename', [$from, $to]];
-        $this->check($from);
-        $this->check($to);
+        $this->checkTarget($from);
+        $this->checkTarget($to);
 
         if ($this->stat($server, $to) !== null) {
             throw new RuntimeException("fake daemon: $to exists");
@@ -187,10 +238,10 @@ final class FakeServerFiles implements ServerFiles
     {
         $this->calls[] = ['pull', [$url, $directory, $filename]];
         $this->check($directory, true);
-        $this->check($filename);
+        $this->checkTarget($directory === '' ? $filename : "$directory/$filename");
 
-        if (!(new PlanValidator(new Caps()))->isAllowedUrl($url)) {
-            $this->violations[] = "non-allowlisted pull: $url";
+        if (!(new PlanValidator(new Caps()))->isAllowedUrl($url) || parse_url($url, PHP_URL_HOST) !== 'cdn.modrinth.com') {
+            $this->violations[] = "non-CDN pull: $url";
 
             throw new RuntimeException("fake daemon: refused $url");
         }
@@ -226,14 +277,29 @@ final class FakeServerFiles implements ServerFiles
     public function write(Server $server, string $path, string $contents): void
     {
         $this->calls[] = ['write', [$path]];
-        $this->check($path);
+        $this->checkTarget($path);
         $this->put($path, $contents);
     }
 
     public function delete(Server $server, string $path): void
     {
         $this->calls[] = ['delete', [$path]];
-        $this->check($path);
+        $this->checkTarget($path);
+
+        if ($this->beforeDelete !== null) {
+            ($this->beforeDelete)($path);
+        }
+
         unset($this->files[$path]);
+        foreach (array_keys($this->files) as $file) {
+            if (str_starts_with($file, "$path/")) {
+                unset($this->files[$file]);
+            }
+        }
+        foreach (array_keys($this->dirs) as $directory) {
+            if ($directory === $path || str_starts_with($directory, "$path/")) {
+                unset($this->dirs[$directory]);
+            }
+        }
     }
 }

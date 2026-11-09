@@ -31,8 +31,12 @@ abstract class InstallStep implements ShouldQueue
 
     public const KEY = '';
 
-    /** Seconds of work per job before handing over to a fresh one (jobs stay well under ~60 s). */
-    public const BUDGET_SECONDS = 40;
+    /**
+     * Seconds of work per job before handing over to a fresh one. Budget plus one fetch
+     * (DownloadStep::PULL_TIMEOUT / ModrinthClient::DOWNLOAD_TIMEOUT, 30 s) stays under
+     * ~60 s, below the queue's default retry_after of 90 s.
+     */
+    public const BUDGET_SECONDS = 25;
 
     /** Whether this step touches the server's files (and so waits out conflict states). */
     protected const TOUCHES_FILES = true;
@@ -44,6 +48,9 @@ abstract class InstallStep implements ShouldQueue
     public int $backoff = 10;
 
     private float $startedAt = 0.0;
+
+    /** The install this run works on (gives files() the worlds to protect). */
+    private ?PackInstall $current = null;
 
     final public function __construct(public readonly int $installId, public readonly int $seq) {}
 
@@ -93,6 +100,8 @@ abstract class InstallStep implements ShouldQueue
 
             return;
         }
+
+        $this->current = $install;
 
         try {
             $install->heartbeat_at = now();
@@ -153,9 +162,12 @@ abstract class InstallStep implements ShouldQueue
         return microtime(true) - $this->startedAt > static::BUDGET_SECONDS;
     }
 
+    /** The server file operations, also refusing changes to this install's world folders. */
     protected function files(): ServerFiles
     {
-        return app(ServerFiles::class);
+        $worlds = $this->current?->progressValue('worlds');
+
+        return app(ServerFiles::class)->protecting(is_array($worlds) ? array_values(array_filter($worlds, 'is_string')) : []);
     }
 
     /** Creates a directory once per install (remembered in progress.dirs). */
