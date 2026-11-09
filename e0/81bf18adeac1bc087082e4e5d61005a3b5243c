@@ -1,0 +1,36 @@
+modpacks-plus/tests/Unit/JavaImagePickerTest.php
+  s_1d8485e49bfacb::t_c33c14d704d119 1-120
+modpacks-plus/src/Services/LoaderEggResolver.php
+  s_1d8485e49bfacb::t_4761d930d68789 1-128
+modpacks-plus/tests/Feature/LoaderEggResolverTest.php
+  s_1d8485e49bfacb::t_e9bc65ac201cb0 1-237
+  s_1d8485e49bfacb::t_f7443bd9753da6 238-241
+modpacks-plus/src/ModpacksPlusPlugin.php
+  s_1d8485e49bfacb::t_64a86c0e8f9a1f 7-8,10,14,34-39,43,45,47-53,58-66,71-76,82,84-94
+modpacks-plus/src/Services/JavaImagePicker.php
+  s_1d8485e49bfacb::t_5ce1f4523a6793 1-94
+modpacks-plus/config/modpacks-plus.php
+  s_1d8485e49bfacb::t_5e073dedebfda9 8-21
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_a96fea4f1b5104 96-100,144-149
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_d31e85d14b1bf5 96-100,144-149
+modpacks-plus/src/Support/ServerTarget.php
+  s_1d8485e49bfacb::t_2714dc9b73a536 5,11-12,23-29,38-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e081bf18adeac1bc087082e4e5d61005a3b5243c",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
