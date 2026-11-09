@@ -12,7 +12,8 @@ return new class extends Migration
             $table->id();
             $table->unsignedInteger('server_id');
             // Start of the poll slot, so a retried or duplicated job overwrites its own row.
-            $table->timestamp('polled_at');
+            // dateTime, not timestamp: no implicit ON UPDATE CURRENT_TIMESTAMP on MySQL/MariaDB.
+            $table->dateTime('polled_at');
             $table->string('status', 16);
             $table->unsignedInteger('online')->nullable();
             $table->unsignedInteger('max')->nullable();

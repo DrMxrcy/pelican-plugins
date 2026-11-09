@@ -38,6 +38,19 @@ class PluginResourcesTest extends TestCase
     }
 
     /**
+     * MySQL/MariaDB can give the first non-null `timestamp` column an implicit
+     * ON UPDATE CURRENT_TIMESTAMP, silently rewriting poll and session times on any update.
+     */
+    public function test_migrations_use_datetime_not_timestamp_columns(): void
+    {
+        $migrations = glob(dirname(__DIR__, 2) . '/database/migrations/*.php') ?: [];
+        $this->assertNotEmpty($migrations);
+        foreach ($migrations as $migration) {
+            $this->assertDoesNotMatchRegularExpression('/->(timestamp|timestamps|timestampTz|timestampsTz|nullableTimestamps)\(/', (string) file_get_contents($migration), basename($migration));
+        }
+    }
+
+    /**
      * Player Counter and Server Analytics live in the same panel: every name this plugin adds
      * (env, tables, translations, routes, commands, cache keys) must carry its own prefix.
      */
