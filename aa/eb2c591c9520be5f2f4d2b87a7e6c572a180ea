@@ -1,0 +1,32 @@
+modpacks-plus/tests/Feature/ModrinthMetadataHandoffTest.php
+  s_1d8485e49bfacb::t_f09950204aeee5 1-123,126-162
+  s_1d8485e49bfacb::t_b212687e968a50 124-125
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_b4fe2c71404467 64-79
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_e810e06fe6393e 54-65
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_850969d806fe38 54-65
+modpacks-plus/src/Filament/Server/Components/InstallProgress.php
+  s_1d8485e49bfacb::t_a952a813122303 6,118-119,122-150
+modpacks-plus/src/Jobs/Steps/FinalizeStep.php
+  s_1d8485e49bfacb::t_344c6bdf1eccbd 8,11-14,22-27,40-55
+modpacks-plus/src/Services/InstallEngine.php
+  s_1d8485e49bfacb::t_9275d8e7f1ce02 266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "aaeb2c591c9520be5f2f4d2b87a7e6c572a180ea",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
