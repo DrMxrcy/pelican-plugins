@@ -432,6 +432,22 @@ class ModpacksPageTest extends TestCase
         Queue::assertPushed(RestorePreviousFilesJob::class, 1);
     }
 
+    public function test_a_new_restore_attempt_retries_what_a_cut_short_attempt_skipped(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $install = $this->failedSwitch($server);
+        // An earlier attempt skipped the world and then ended on a daemon error before finishing.
+        $install->setProgress('restore_skipped', ['p:world']);
+        $install->save();
+
+        Livewire::test(ModpacksPage::class)
+            ->call('restorePreviousFiles')
+            ->assertNotified(trans('modpacks-plus::strings.restore.started'));
+
+        Queue::assertPushed(RestorePreviousFilesJob::class, 1);
+        $this->assertSame([], $install->refresh()->progressValue('restore_skipped', []));
+    }
+
     public function test_nothing_to_restore_after_a_successful_install(): void
     {
         $server = $this->actingOn();

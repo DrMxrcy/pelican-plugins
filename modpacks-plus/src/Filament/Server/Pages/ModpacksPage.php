@@ -517,6 +517,12 @@ class ModpacksPage extends Page implements HasTable
             return;
         }
 
+        // A new attempt retries everything an earlier attempt skipped, including one that was
+        // cut short (a daemon error) before it could clear its own list.
+        $install->refresh();
+        $install->setProgress('restore_skipped', []);
+        $install->save();
+
         dispatch(new RestorePreviousFilesJob($install->id));
         $this->latestInstallLoaded = false;
 
