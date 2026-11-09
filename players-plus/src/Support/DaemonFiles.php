@@ -9,15 +9,22 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Illuminate\Http\Client\RequestException;
 use Psr\Http\Message\StreamInterface;
+use RuntimeException;
 use Throwable;
 
 /**
  * Size-checked reads of tenant files through the daemon. The panel's getContent() downloads
  * the whole body before it looks at Content-Length, so the size is taken from the parent
- * directory listing first and anything over the cap is never downloaded.
+ * directory listing first (anything over the cap is never downloaded) and the read itself is
+ * streamed and stops one byte past the cap.
  */
 final class DaemonFiles
 {
+    /** Transport timeout for a read when the caller sets none (the panel's own daemon default). */
+    private const DEFAULT_TIMEOUT_SECONDS = 15;
+
+    private const CHUNK_BYTES = 65536;
+
     /**
      * @throws FileNotFoundException the file (or its directory) does not exist
      * @throws FileSizeTooLargeException the file is larger than $maxBytes
@@ -30,16 +37,23 @@ final class DaemonFiles
             throw new FileSizeTooLargeException();
         }
 
-        // Still capped: the file may have grown between the listing and the read.
-        if ($timeoutSeconds === null) {
-            $content = self::repository($server)->getContent(ltrim($path, '/'), $maxBytes);
-        } else {
-            try {
-                $content = self::repository($server)->getHttpClient()->timeout($timeoutSeconds)
-                    ->get("/api/servers/$server->uuid/files/contents", ['file' => ltrim($path, '/')])->body();
-            } catch (RequestException $exception) {
-                throw $exception->response->status() === 404 ? new FileNotFoundException() : $exception;
+        // Streamed and capped: the file may have grown (or been swapped) between the listing and
+        // the read, and the panel's getContent() would buffer the whole body before checking it.
+        $stream = self::open($server, $path, $timeoutSeconds ?? self::DEFAULT_TIMEOUT_SECONDS);
+        $content = '';
+        $emptyReads = 0;
+        try {
+            while (strlen($content) <= $maxBytes && !$stream->eof()) {
+                $chunk = $stream->read(min(self::CHUNK_BYTES, $maxBytes + 1 - strlen($content)));
+                // One empty read can just be the end arriving; two in a row without EOF is a stall.
+                $emptyReads = $chunk === '' ? $emptyReads + 1 : 0;
+                if ($emptyReads > 1) {
+                    throw new RuntimeException("Reading $path from the daemon stalled.");
+                }
+                $content .= $chunk;
             }
+        } finally {
+            $stream->close();
         }
         if (strlen($content) > $maxBytes) {
             throw new FileSizeTooLargeException();

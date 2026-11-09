@@ -3,7 +3,7 @@
 namespace DrMxrcy\PlayersPlus\Services;
 
 use App\Models\Server;
-use App\Repositories\Daemon\DaemonFileRepository;
+use DrMxrcy\PlayersPlus\Support\DaemonFiles;
 use DrMxrcy\PlayersPlus\Support\ServerProperties;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
@@ -29,7 +29,7 @@ class QueryPortResolver
         // 0 stands for "disabled" because a cached null would look like a miss.
         $port = (int) Cache::remember("players-plus.query-port.$server->id", self::CACHE_SECONDS, function () use ($server, $gamePort) {
             try {
-                $content = app(DaemonFileRepository::class)->setServer($server)->getContent('server.properties', self::MAX_PROPERTIES_BYTES);
+                $content = DaemonFiles::read($server, 'server.properties', self::MAX_PROPERTIES_BYTES);
             } catch (Throwable) {
                 return 0;
             }

@@ -68,6 +68,12 @@ class PollingTest extends TestCase
                 return Http::response('', 502);
             }
 
+            if (preg_match('#/api/servers/([0-9a-f-]+)/files/list-directory#', $request->url(), $m)) {
+                $content = $this->properties[$m[1]] ?? null;
+
+                return Http::response($content === null ? [] : [['name' => 'server.properties', 'size' => strlen($content), 'directory' => false, 'file' => true]]);
+            }
+
             if (preg_match('#/api/servers/([0-9a-f-]+)/files/contents#', $request->url(), $m)) {
                 $content = $this->properties[$m[1]] ?? null;
 
