@@ -1,0 +1,43 @@
+players-plus/database/migrations/2026_11_09_000002_create_pp_players_table.php
+  s_1d8485e49bfacb::t_46d361e5c457d8 1-34
+players-plus/database/migrations/2026_11_09_000003_create_pp_sessions_table.php
+  s_1d8485e49bfacb::t_2cd90d4206658c 1-28
+players-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_0703fa11accf6d 24-28
+players-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_a880c3dad7456e 24-28
+players-plus/src/Enums/SessionSource.php
+  s_1d8485e49bfacb::t_ac6ba3b80f6213 1-17
+players-plus/src/Jobs/PollServerJob.php
+  s_1d8485e49bfacb::t_8e55533085b303 10,46,64,78-86
+players-plus/src/Models/Player.php
+  s_1d8485e49bfacb::t_ddcff00409053f 1-55
+players-plus/src/Models/PlayerSession.php
+  s_1d8485e49bfacb::t_41f3df860ed70e 1-50
+players-plus/src/Services/PlayerIdentity.php
+  s_1d8485e49bfacb::t_6db63091c9aeb1 1-37
+players-plus/src/Services/SessionTracker.php
+  s_1d8485e49bfacb::t_cffe8d0110e458 1-168
+players-plus/tests/Feature/PluginResourcesTest.php
+  s_1d8485e49bfacb::t_6b0b67feefe83b 8-9,64-67
+players-plus/tests/Feature/PollingTest.php
+  s_1d8485e49bfacb::t_022c6ce688309c 13-14,19,120,181,188,410-442
+players-plus/tests/Feature/SessionTrackerTest.php
+  s_1d8485e49bfacb::t_de69563d17f406 1-229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ba1ccb3605441d880034a93cc648f90decb4cc23",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
