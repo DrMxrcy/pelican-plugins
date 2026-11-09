@@ -1,0 +1,21 @@
+modpacks-plus/src/Services/ModrinthMatcher.php
+  s_1d8485e49bfacb::t_9b0cba8f47c496 36-37
+modpacks-plus/tests/Feature/CurseForgeModrinthFirstTest.php
+  s_1d8485e49bfacb::t_005d448a8fab2e 286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ab738ab635d72cb2300c289dbeaefc4a3488a9e2",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "unknown"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}

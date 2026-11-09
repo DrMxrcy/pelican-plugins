@@ -1,0 +1,34 @@
+modpacks-plus/tests/Feature/CurseForgeMirrorTest.php
+  s_1d8485e49bfacb::t_bf19d245ba339b 1-271
+  s_1d8485e49bfacb::t_d1a933f2accf58 272-273
+modpacks-plus/config/modpacks-plus.php
+  s_1d8485e49bfacb::t_d8b25a67045ea0 26-29
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_5eecd80288a05c 165,171,273-274
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_539059b861c4c7 165,171,273-274
+modpacks-plus/src/ModpacksPlusPlugin.php
+  s_1d8485e49bfacb::t_b82d0d8deb38d3 51,100-102,118
+modpacks-plus/src/Providers/CurseForge/CurseForgeClient.php
+  s_1d8485e49bfacb::t_61a7dc96f3baa3 16-23,37-40,48-49,55,64,72,75-88,124,127-128,139-141,145,163-164,169,175-180,194,200
+modpacks-plus/src/Providers/CurseForge/CurseForgePackProvider.php
+  s_1d8485e49bfacb::t_b0d0e5688a4399 189-193
+modpacks-plus/tests/Feature/LoaderEggResolverTest.php
+  s_1d8485e49bfacb::t_c8ad92d7c94320 226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7b3278e9d14d30d8eb5e8456e5fccc765da1e60e",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
