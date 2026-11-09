@@ -175,6 +175,7 @@ return [
             'disabled' => 'Moderation actions are turned off.',
             'offline' => 'The server is not running. Start it and try again.',
             'failed' => 'The panel could not reach the server. Try again in a moment.',
+            'refused' => 'The command did not pass the panel\'s safety check and was not sent.',
         ],
     ],
 

@@ -89,11 +89,16 @@ class ModerationService
         ModerationLists::markChanged($server);
 
         // The panel's own event for console commands, so it reads like one typed in the console.
-        Activity::event('server:console.command')
-            ->subject($server)
-            ->actor($user)
-            ->property('command', $command)
-            ->log();
+        // The command is already out: a failing log write is reported, not shown as a failure.
+        try {
+            Activity::event('server:console.command')
+                ->subject($server)
+                ->actor($user)
+                ->property('command', $command)
+                ->log();
+        } catch (Throwable $exception) {
+            report($exception);
+        }
 
         return $command;
     }

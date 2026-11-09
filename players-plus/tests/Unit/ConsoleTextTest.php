@@ -45,6 +45,13 @@ class ConsoleTextTest extends TestCase
             'selector neutralised' => ['bye @a and @e[type=pig]', 'bye @ a and @ e[type=pig]'],
             'email not a selector' => ['mail me@example.com', 'mail me@ example.com'],
             'plain at sign kept' => ['meet @ 5', 'meet @ 5'],
+            'selector split by zero width space' => ["@\u{200B}a", '@ a'],
+            'selector split by soft hyphen' => ["@\u{00AD}a", '@ a'],
+            // §a is itself a colour code, so both go and only the @ is left.
+            'selector split by a colour code' => ['@§a', '@'],
+            'selector rebuilt after a colour code' => ['@§aa', '@ a'],
+            'angle brackets dropped' => ['<b>hi</b> <script>x</script>', 'bhi/b scriptx/script'],
+            'lone angle brackets dropped' => ['a < b > c', 'a b c'],
             'umlauts kept' => ['Grüße, tschüß', 'Grüße, tschüß'],
             'emoji kept' => ['bye 👋', 'bye 👋'],
             'invalid utf-8 scrubbed' => ["bad\xC3(byte", 'bad?(byte'],
@@ -70,6 +77,7 @@ class ConsoleTextTest extends TestCase
             'mixed garbage' => ["\r\n\0\u{2028}\u{2029}\u{0085}\x1B§a;/op @a\t\x7F"],
             'very long with a newline late' => [str_repeat('a', 5000) . "\nstop"],
             'invalid utf-8 around a newline' => ["\xFF\n\xFE"],
+            'markup' => ["<img src=x onerror=alert(1)>\n<b>"],
         ];
     }
 
@@ -79,7 +87,7 @@ class ConsoleTextTest extends TestCase
         $reason = ConsoleText::reason($input);
 
         $this->assertTrue(mb_check_encoding($reason, 'UTF-8'));
-        $this->assertSame(0, preg_match('/[\p{C}\p{Zl}\p{Zp}§]/u', $reason));
+        $this->assertSame(0, preg_match('/[\p{C}\p{Zl}\p{Zp}§<>]/u', $reason));
         $this->assertStringNotContainsString("\n", $reason);
         $this->assertStringNotContainsString("\r", $reason);
         $this->assertLessThanOrEqual(ConsoleText::MAX_REASON, mb_strlen($reason));

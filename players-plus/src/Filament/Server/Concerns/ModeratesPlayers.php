@@ -18,6 +18,7 @@ use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use LogicException;
 
 /**
  * Kick, ban, pardon, whitelist and op actions for the Players pages. Each action is hidden
@@ -30,6 +31,14 @@ trait ModeratesPlayers
     private ?Sample $moderationSample = null;
 
     private bool $moderationSampleLoaded = false;
+
+    /**
+     * List reads of this request, by list. Private, so Livewire keeps it for one request only:
+     * while reads skip the cache after an action, every list is still read once per render.
+     *
+     * @var array<string, array{state: string, entries: list<array{name: string, uuid: string|null, reason: string|null, source: string|null, created: int|null, expires: int|null, level: int|null}>}>
+     */
+    private array $moderationListStates = [];
 
     /** Moderation is on, and the current user may use this server's console. */
     public static function canModerate(): bool
@@ -161,7 +170,20 @@ trait ModeratesPlayers
                 ->send();
 
             return;
+        } catch (LogicException $exception) {
+            // The last safety check refused the line (nothing was sent): a bug, not user error.
+            report($exception);
+            Notification::make()
+                ->title(trans('players-plus::strings.moderation.failed_title'))
+                ->body(trans('players-plus::strings.moderation.errors.refused'))
+                ->danger()
+                ->send();
+
+            return;
         }
+
+        // This render should not show the lists as read before the command.
+        $this->moderationListStates = [];
 
         Notification::make()
             ->title(trans('players-plus::strings.moderation.sent_title'))

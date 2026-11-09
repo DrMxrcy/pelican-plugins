@@ -4,6 +4,7 @@ namespace DrMxrcy\PlayersPlus\Tests\Feature;
 
 use App\Enums\ServerState;
 use App\Enums\SubuserPermission;
+use App\Facades\Activity;
 use App\Models\ActivityLog;
 use App\Models\Server;
 use App\Models\User;
@@ -16,7 +17,9 @@ use DrMxrcy\PlayersPlus\Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 /**
@@ -212,6 +215,18 @@ class ModerationServiceTest extends TestCase
         $this->assertRefused(ModerationException::FAILED, fn () => $this->run_($server, $user, ModerationAction::Op));
 
         $this->assertSame(0, ActivityLog::query()->where('event', 'server:console.command')->count());
+    }
+
+    public function test_a_failing_activity_log_is_reported_and_the_sent_command_still_counts(): void
+    {
+        [$user, $server] = $this->account();
+        Exceptions::fake();
+        Activity::shouldReceive('event')->andThrow(new RuntimeException('activity log down'));
+
+        $this->assertSame('op Steve', $this->run_($server, $user, ModerationAction::Op));
+
+        $this->assertSame(['op Steve'], FakeConsole::sent());
+        Exceptions::assertReported(fn (RuntimeException $exception) => $exception->getMessage() === 'activity log down');
     }
 
     public function test_starting_server_accepts_commands_like_the_panel_console(): void

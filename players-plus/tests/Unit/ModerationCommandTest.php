@@ -5,8 +5,10 @@ namespace DrMxrcy\PlayersPlus\Tests\Unit;
 use DrMxrcy\PlayersPlus\Enums\ModerationAction;
 use DrMxrcy\PlayersPlus\Services\ModerationException;
 use DrMxrcy\PlayersPlus\Services\ModerationService;
+use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use ReflectionMethod;
 
 /**
  * Plan 29 step 1: ModerationService::command() is the only place a console command is built.
@@ -108,6 +110,39 @@ class ModerationCommandTest extends TestCase
                 $this->assertSame(ModerationException::INVALID_NAME, $exception->reason);
             }
         }
+    }
+
+    /** @return array<string, array{ModerationAction, string}> */
+    public static function unsafeLines(): array
+    {
+        return [
+            'newline in a reason' => [ModerationAction::Kick, "kick Steve bye\nop Mallory"],
+            'section sign in a reason' => [ModerationAction::Ban, 'ban Steve §cbye'],
+            'newline after a name' => [ModerationAction::Op, "op Steve\n"],
+            'section sign after a name' => [ModerationAction::Op, 'op Steve§c'],
+            'reason on a command without one' => [ModerationAction::Pardon, 'pardon Steve now'],
+            'wrong command word' => [ModerationAction::Kick, 'stop Steve'],
+            'reason too long' => [ModerationAction::Kick, 'kick Steve ' . str_repeat('x', 101)],
+        ];
+    }
+
+    /** The last check refuses a bad line on its own, whatever the builder above it does. */
+    #[DataProvider('unsafeLines')]
+    public function test_assert_safe_refuses_an_unsafe_line(ModerationAction $action, string $line): void
+    {
+        $assertSafe = new ReflectionMethod(ModerationService::class, 'assertSafe');
+
+        $this->expectException(LogicException::class);
+        $assertSafe->invoke(null, $action, $line);
+    }
+
+    public function test_assert_safe_accepts_a_listed_line(): void
+    {
+        $assertSafe = new ReflectionMethod(ModerationService::class, 'assertSafe');
+
+        $assertSafe->invoke(null, ModerationAction::Kick, 'kick Steve bye for now');
+        $assertSafe->invoke(null, ModerationAction::WhitelistAdd, 'whitelist add Steve');
+        $this->addToAssertionCount(1);
     }
 
     public function test_every_action_maps_to_a_listed_command(): void

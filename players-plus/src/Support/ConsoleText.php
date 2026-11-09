@@ -34,6 +34,9 @@ final class ConsoleText
         $text = (string) preg_replace('/§[0-9A-Za-z]/u', '', $text);
         $text = str_replace('§', '', $text);
 
+        // Never needed in a reason, and the panel's activity log shows the command as HTML.
+        $text = str_replace(['<', '>'], '', $text);
+
         // Vanilla expands entity selectors (@a, @e[...]) inside kick and ban reasons when run
         // from the console; a space after the @ keeps the text and stops the lookup.
         $text = (string) preg_replace('/@(?=[aenprs])/', '@ ', $text);

@@ -165,10 +165,13 @@ class PlayersPage extends Page implements HasTable
             return ['state' => ModerationLists::STATE_ERROR, 'entries' => []];
         }
 
-        /** @var Server $server */
-        $server = Filament::getTenant();
+        if (!isset($this->moderationListStates[$list])) {
+            /** @var Server $server */
+            $server = Filament::getTenant();
+            $this->moderationListStates[$list] = ModerationLists::read($server, $list);
+        }
 
-        return ModerationLists::read($server, $list);
+        return $this->moderationListStates[$list];
     }
 
     public function sample(): ?Sample

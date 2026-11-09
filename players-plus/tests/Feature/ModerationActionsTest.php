@@ -11,6 +11,7 @@ use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayerProfilePage;
 use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayersPage;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\Sample;
+use DrMxrcy\PlayersPlus\Services\ModerationService;
 use DrMxrcy\PlayersPlus\Services\Query\Connector;
 use DrMxrcy\PlayersPlus\Support\ModerationLists;
 use DrMxrcy\PlayersPlus\Tests\Fixtures\FakeConnector;
@@ -23,9 +24,12 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use LogicException;
+use Mockery;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
@@ -326,6 +330,33 @@ class ModerationActionsTest extends TestCase
             ->assertTableActionDisabled('pp_kick', $this->alice)
             ->assertActionDisabled('pp_whitelist_add_name');
         $this->profile()->assertActionDisabled('pp_ban');
+    }
+
+    public function test_a_refused_unsafe_command_is_reported_and_nothing_is_sent(): void
+    {
+        Exceptions::fake();
+        $service = Mockery::mock(ModerationService::class);
+        $service->shouldReceive('run')->andThrow(new LogicException('Refusing to send an unsafe console command.'));
+        $this->app->instance(ModerationService::class, $service);
+
+        $this->players()
+            ->callAction(TestAction::make('pp_op')->table('Alice'))
+            ->assertNotified(trans('players-plus::strings.moderation.failed_title'));
+        $this->profile()->callAction('pp_kick', data: ['reason' => 'x']);
+
+        $this->assertSame([], FakeConsole::sent());
+        Exceptions::assertReported(LogicException::class);
+    }
+
+    public function test_list_files_are_read_once_per_request_while_they_skip_the_cache(): void
+    {
+        ModerationLists::markChanged($this->server);
+
+        $page = Livewire::withQueryParams(['tab' => PlayersPage::TAB_OPS])->test(PlayersPage::class);
+        $this->assertLessThanOrEqual(1, FakeDaemonFiles::contentReads('ops.json'), 'first render');
+
+        $page->loadTable()->assertSee('Alice');
+        $this->assertLessThanOrEqual(2, FakeDaemonFiles::contentReads('ops.json'), 'second request');
     }
 
     public function test_a_sent_command_makes_the_lists_read_fresh(): void
