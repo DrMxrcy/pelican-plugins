@@ -1,0 +1,25 @@
+CHANGELOG.md
+  s_5ec8deaed238e2::t_4af660f36b2f52 11-18
+  s_5ec8deaed238e2::t_1174401688805b 19-21
+  s_5ec8deaed238e2::t_dbb01fe719e844 9-10
+CHANGELOG.internal.md
+  s_5ec8deaed238e2::t_1174401688805b 25-27
+  s_5ec8deaed238e2::t_dbb01fe719e844 16
+  s_5ec8deaed238e2::t_4af660f36b2f52 17-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e9511bfa7f455c727db2c6f2cc58eed5e531e51f",
+  "prompts": {},
+  "sessions": {
+    "s_5ec8deaed238e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1ee05ba4-7074-4cdf-b856-58c81e4d1154",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
