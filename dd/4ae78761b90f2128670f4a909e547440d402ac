@@ -1,0 +1,30 @@
+players-plus/tests/Feature/ModerationListsTest.php
+  s_1d8485e49bfacb::t_457f32dc00353c 1-260
+players-plus/src/Support/ModerationLists.php
+  s_1d8485e49bfacb::t_70107fdc157999 1-180
+  s_1d8485e49bfacb::t_99a8303f63a028 181-183
+players-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_4e133702bdb0b1 77-103
+players-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_003e54e0217146 77-103
+players-plus/src/Filament/Server/Pages/PlayersPage.php
+  s_1d8485e49bfacb::t_d4aa030c17fe2d 11,32-34,44-51,102-103,113-142,157-161,165-229,356-357,372-383,385-389
+players-plus/src/Services/ModerationService.php
+  s_1d8485e49bfacb::t_0b3f582c0ecd9d 11,88-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dd4ae78761b90f2128670f4a909e547440d402ac",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
