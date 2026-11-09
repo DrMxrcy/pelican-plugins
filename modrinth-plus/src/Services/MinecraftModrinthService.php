@@ -433,6 +433,13 @@ class MinecraftModrinthService
             }
         }
 
+        // `/v2/projects` has no author: projects installed from a search row stored one, but
+        // dependencies and scanned jars did not.
+        $authors = $this->getAuthorsByIds(array_values(array_filter(
+            $pageIds,
+            fn (string $projectId) => isset($modrinthMap[$projectId]) && !isset($installedModsById[$projectId]['author']),
+        )));
+
         $results = [];
         foreach ($pageIds as $projectId) {
             $installedMod = $installedModsById[$projectId];
@@ -443,8 +450,8 @@ class MinecraftModrinthService
                 if (isset($project['updated']) && !isset($project['date_modified'])) {
                     $project['date_modified'] = $project['updated'];
                 }
-                if (isset($installedMod['author']) && !isset($project['author'])) {
-                    $project['author'] = $installedMod['author'];
+                if (!isset($project['author'])) {
+                    $project['author'] = $installedMod['author'] ?? $authors[$projectId] ?? null;
                 }
                 $results[] = $project;
             } else {
@@ -464,6 +471,55 @@ class MinecraftModrinthService
         }
 
         return $results;
+    }
+
+    /**
+     * Author names (as the search index and the "All" tab show them) for the given projects, in
+     * one search request filtered by project id. Projects it can't name are left out, and a
+     * failed request is not cached so the next render tries again.
+     *
+     * @param  list<string>  $projectIds  at most one page (20)
+     * @return array<string, string> project id => author
+     */
+    protected function getAuthorsByIds(array $projectIds): array
+    {
+        if ($projectIds === []) {
+            return [];
+        }
+
+        sort($projectIds);
+        $key = 'modrinth_authors:'.md5(implode(',', $projectIds));
+
+        $authors = cache()->get($key);
+
+        if (is_array($authors)) {
+            return $authors;
+        }
+
+        try {
+            $response = $this->modrinth(5)
+                ->throw()
+                ->get('search', [
+                    'facets' => json_encode([array_map(fn (string $id) => "project_id:$id", $projectIds)], JSON_THROW_ON_ERROR),
+                    'limit' => count($projectIds),
+                ])
+                ->json();
+        } catch (Exception $exception) {
+            report($exception);
+
+            return [];
+        }
+
+        $authors = [];
+        foreach (is_array($response['hits'] ?? null) ? $response['hits'] : [] as $hit) {
+            if (is_array($hit) && is_string($hit['project_id'] ?? null) && is_string($hit['author'] ?? null)) {
+                $authors[$hit['project_id']] = $hit['author'];
+            }
+        }
+
+        cache()->put($key, $authors, now()->addDay());
+
+        return $authors;
     }
 
     protected function getVersionsCacheKey(string $projectId, ?string $minecraftVersion, string $minecraftLoader): string
