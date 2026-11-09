@@ -1,0 +1,49 @@
+players-plus/README.md
+  s_1d8485e49bfacb::t_411bb7222ab06a 97-109
+players-plus/database/migrations/2026_11_09_000010_create_pp_log_cursors_table.php
+  s_1d8485e49bfacb::t_8112dbb30e68cf 19,25-26
+players-plus/src/Jobs/ScanLogsJob.php
+  s_1d8485e49bfacb::t_aff137461f1866 8,21-24,43-44,68-69
+players-plus/src/Models/LogCursor.php
+  s_1d8485e49bfacb::t_18c15c771a04e9 20
+players-plus/src/Services/LogBackfill.php
+  s_1d8485e49bfacb::t_1839143a641a9a 7,20-27,29-30,38-53,58-60,63,71-73,75-94,96-99,106-110,115-122,124-138,144,148,151-152,156-158,161-163,172-173,185-191,194-203,207-210,217-245
+players-plus/src/Services/LogChunk.php
+  s_1d8485e49bfacb::t_e98a7095c99d19 16-18,24,34-35
+players-plus/src/Services/LogClock.php
+  s_1d8485e49bfacb::t_cdfd3405bbf086 16-20,29-30,34,36,38-40,48-50,64-71
+players-plus/src/Services/LogParser.php
+  s_1d8485e49bfacb::t_abbfacd7bcc9b1 26-30,68-69
+players-plus/src/Services/LogReadTooSlow.php
+  s_1d8485e49bfacb::t_994d21f8d1cf23 1-11
+players-plus/src/Services/LogReader.php
+  s_1d8485e49bfacb::t_ccfe3dad0861ed 24-25,28-30,43,56,61-62,70-71,73,76-77,82-86,94-95,98-116,121,125-127,132-135,138
+players-plus/src/Services/PlayerIdentity.php
+  s_1d8485e49bfacb::t_7a3ddd0ef93641 46-63
+players-plus/src/Services/SessionTracker.php
+  s_1d8485e49bfacb::t_4897f07c8c2232 63-64,66,70
+players-plus/tests/Feature/LogBackfillTest.php
+  s_1d8485e49bfacb::t_865546e17fc9b2 237,313-314,316,325-480
+players-plus/tests/Feature/LogReaderTest.php
+  s_1d8485e49bfacb::t_c04c90f7a9aa75 12,41,69,229-269
+players-plus/tests/Feature/ScanLogsTest.php
+  s_1d8485e49bfacb::t_057b316870d0ba 140-165
+players-plus/tests/Unit/LogParserTest.php
+  s_1d8485e49bfacb::t_6832416fbd7648 128-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "60a3c8a91e1bd4c50e79227f4c6cd5f12cf4f5e9",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
