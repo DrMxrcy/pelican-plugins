@@ -51,6 +51,18 @@ return [
         'skipped_client' => ':count reine Client-Dateien übersprungen.',
         'skipped_overrides' => 'Geschützte Overrides übersprungen: :paths',
         'skipped_client_overrides' => 'Reine Client-Overrides übersprungen (Ressourcenpakete, Shader, Screenshots, Optionen): :paths',
+        'metadata' => [
+            'written' => 'Die Modrinth-Mods des Packs wurden für Modrinth Plus eingetragen (:added neu, :updated aktualisiert).',
+            'unchanged' => 'Die Modrinth-Mods des Packs waren für Modrinth Plus bereits eingetragen.',
+            'lookup_failed' => 'Modrinth war nicht erreichbar, daher wurden die Mods des Packs nicht für Modrinth Plus eingetragen (dessen „Ordner scannen“ findet sie später).',
+            'unreadable' => ':path konnte nicht gelesen werden; die Datei blieb unverändert und die Mods des Packs wurden nicht für Modrinth Plus eingetragen.',
+            'invalid' => ':path ist keine gültige Metadaten-Datei; sie blieb unverändert und die Mods des Packs wurden nicht für Modrinth Plus eingetragen.',
+            'busy' => ':path wurde gerade von einem anderen Plugin geändert; die Datei blieb unverändert und die Mods des Packs wurden nicht für Modrinth Plus eingetragen.',
+            'write_failed' => ':path konnte nicht geschrieben werden, daher wurden die Mods des Packs nicht für Modrinth Plus eingetragen.',
+            'error' => 'Die Mods des Packs konnten nicht für Modrinth Plus eingetragen werden.',
+        ],
+        'metadata_kept' => 'Von Modrinth Plus bereits unter einer anderen Datei verwaltet, unverändert gelassen: :files',
+        'metadata_conflicts' => 'Nicht für Modrinth Plus eingetragen, weil ein anderer Eintrag den Dateinamen schon verwendet: :files',
     ],
     'reasons' => [
         'unsafe_level_name' => 'Der Weltordner (level-name in server.properties) ist kein Ordner im Server: :detail',

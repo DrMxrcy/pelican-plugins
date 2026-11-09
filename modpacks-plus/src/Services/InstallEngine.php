@@ -263,6 +263,7 @@ class InstallEngine
             'skipped_client_files' => $plan ? count($plan->skippedClientFiles) : 0,
             'skipped_overrides' => $plan ? $plan->skippedOverrides : [],
             'skipped_client_overrides' => $plan ? $plan->skippedClientOverrides : [],
+            'modrinth_metadata' => $install->progressValue('modrinth_metadata'),
         ];
     }
 

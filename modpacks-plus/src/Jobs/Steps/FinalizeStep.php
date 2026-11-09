@@ -5,10 +5,13 @@ namespace DrMxrcy\ModpacksPlus\Jobs\Steps;
 use App\Models\Server;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
+use DrMxrcy\ModpacksPlus\Services\ModrinthMetadataWriter;
 
 /**
- * Removes the (now empty) staging folder, best effort, and marks the install done; the
- * engine writes the summary and removes the panel copy of the archive.
+ * Records the pack's Modrinth mods in `mods/.modrinth-metadata.json` for Modrinth Plus
+ * (plan 33; best effort, the outcome goes into the summary), removes the (now empty)
+ * staging folder, best effort, and marks the install done; the engine writes the summary
+ * and removes the panel copy of the archive.
  */
 class FinalizeStep extends InstallStep
 {
@@ -16,6 +19,12 @@ class FinalizeStep extends InstallStep
 
     protected function perform(PackInstall $install, Server $server, InstallEngine $engine): StepResult
     {
+        // Once per install: a retried finalize keeps the first outcome.
+        if ($install->progressValue('modrinth_metadata') === null) {
+            $install->setProgress('modrinth_metadata', $this->recordModrinthMetadata($install, $server));
+            $engine->persist($install);
+        }
+
         $staging = DownloadStep::stagingRoot($install);
 
         try {
@@ -27,5 +36,21 @@ class FinalizeStep extends InstallStep
         }
 
         return StepResult::done();
+    }
+
+    /**
+     * Never fails the install: the pack is in place either way.
+     *
+     * @return array<string, mixed>
+     */
+    private function recordModrinthMetadata(PackInstall $install, Server $server): array
+    {
+        try {
+            return app(ModrinthMetadataWriter::class)->record($server, $this->files(), $install);
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return ['status' => 'error'];
+        }
     }
 }

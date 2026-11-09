@@ -61,6 +61,22 @@ Checked before anything is written to the server; archive entries are checked ag
   every step has a deadline, and the scheduled watchdog resumes or fails stalled installs.
 - File steps never run while the server is suspended, installing, restoring a backup or transferring.
 
+## Modrinth Plus
+
+After an install, the pack's mods that are on Modrinth (top-level jars in `mods/`, matched by hash
+through Modrinth's `version_files` lookup) are recorded in `mods/.modrinth-metadata.json`, the file the
+official Modrinth plugin and Modrinth Plus read. They then show as installed there and can be updated
+one by one; Modrinth Plus marks them "from modpack" and warns before updating one. Neither plugin needs
+the other: the shared file is the only link.
+
+- Entries use Modrinth Plus's format plus an `installed_as_modpack` key (provider, pack id, version id,
+  pack name, version number). Older Modrinth Plus versions and the official plugin ignore it.
+- The file is only appended to or merged into: other entries (pinned or not), unknown keys and the
+  order are kept. A mod you track yourself under another jar is left alone.
+- Written under Modrinth Plus's metadata lock. If the file can't be read, isn't valid, or the lock or
+  Modrinth isn't available, nothing is written and the install summary says so; the install itself
+  still succeeds.
+
 ## Permissions
 
 - Viewing the page: `file.read`.

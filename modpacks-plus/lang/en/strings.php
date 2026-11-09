@@ -51,6 +51,18 @@ return [
         'skipped_client' => ':count client-only files skipped.',
         'skipped_overrides' => 'Protected overrides skipped: :paths',
         'skipped_client_overrides' => 'Client-only overrides skipped (resource packs, shaders, screenshots, options): :paths',
+        'metadata' => [
+            'written' => 'Recorded the pack\'s Modrinth mods for Modrinth Plus (:added added, :updated updated).',
+            'unchanged' => 'The pack\'s Modrinth mods were already recorded for Modrinth Plus.',
+            'lookup_failed' => 'Modrinth could not be reached, so the pack\'s mods were not recorded for Modrinth Plus (its "Scan folder" can find them later).',
+            'unreadable' => ':path could not be read, so it was left untouched and the pack\'s mods were not recorded for Modrinth Plus.',
+            'invalid' => ':path is not a valid metadata file, so it was left untouched and the pack\'s mods were not recorded for Modrinth Plus.',
+            'busy' => ':path was being changed by another plugin, so it was left untouched and the pack\'s mods were not recorded for Modrinth Plus.',
+            'write_failed' => ':path could not be written, so the pack\'s mods were not recorded for Modrinth Plus.',
+            'error' => 'The pack\'s mods could not be recorded for Modrinth Plus.',
+        ],
+        'metadata_kept' => 'Already tracked by Modrinth Plus under another file, left as it was: :files',
+        'metadata_conflicts' => 'Not recorded for Modrinth Plus because another entry already uses the file name: :files',
     ],
     'reasons' => [
         'unsafe_level_name' => 'The world folder (level-name in server.properties) is not a folder inside the server: :detail',

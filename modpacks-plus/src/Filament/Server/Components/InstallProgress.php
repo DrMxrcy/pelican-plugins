@@ -3,6 +3,7 @@
 namespace DrMxrcy\ModpacksPlus\Filament\Server\Components;
 
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
+use DrMxrcy\ModpacksPlus\Services\ModrinthMetadataWriter;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\HtmlString;
 
@@ -114,6 +115,37 @@ final class InstallProgress
             $lines[] = trans('modpacks-plus::strings.summary.skipped_client_overrides', ['paths' => implode(', ', array_map('strval', (array) $summary['skipped_client_overrides']))]);
         }
 
+        array_push($lines, ...self::metadataLines($summary['modrinth_metadata'] ?? null));
+
         return new HtmlString('<ul>'.implode('', array_map(fn (string $line) => '<li>'.e($line).'</li>', $lines)).'</ul>');
+    }
+
+    /**
+     * What the hand-off to Modrinth Plus (`mods/.modrinth-metadata.json`, plan 33) did.
+     *
+     * @return array<int, string>
+     */
+    private static function metadataLines(mixed $result): array
+    {
+        $status = is_array($result) && is_string($result['status'] ?? null) ? $result['status'] : null;
+        $key = 'modpacks-plus::strings.summary.metadata.'.$status;
+        if ($status === null || $status === 'nothing' || !trans()->has($key)) {
+            return [];
+        }
+
+        /** @var array<string, mixed> $result */
+        $lines = [trans($key, [
+            'added' => (int) ($result['added'] ?? 0),
+            'updated' => (int) ($result['updated'] ?? 0),
+            'path' => ModrinthMetadataWriter::PATH,
+        ])];
+
+        foreach (['kept', 'conflicts'] as $list) {
+            if (!empty($result[$list]) && is_array($result[$list])) {
+                $lines[] = trans('modpacks-plus::strings.summary.metadata_'.$list, ['files' => implode(', ', array_map('strval', $result[$list]))]);
+            }
+        }
+
+        return $lines;
     }
 }
