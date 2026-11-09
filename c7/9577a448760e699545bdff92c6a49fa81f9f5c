@@ -1,0 +1,22 @@
+modrinth-plus/tests/Unit/ChangelogTest.php
+  s_1d8485e49bfacb::t_f78b3bd373f7c5 1-144
+  s_1d8485e49bfacb::t_4f28d5b8c8842e 145-146
+modrinth-plus/src/Support/Changelog.php
+  s_1d8485e49bfacb::t_ec3afe1f46d614 1-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c79577a448760e699545bdff92c6a49fa81f9f5c",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
