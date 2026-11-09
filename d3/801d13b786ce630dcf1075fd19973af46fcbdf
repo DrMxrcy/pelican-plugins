@@ -1,0 +1,21 @@
+modpacks-plus/src/Jobs/Steps/ChangeEggStep.php
+  s_1d8485e49bfacb::t_b90a32eb14ac67 47-50
+modpacks-plus/tests/Feature/LoaderSwitchTest.php
+  s_1d8485e49bfacb::t_53a824d1131caa 668,829,844,862,872
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d3801d13b786ce630dcf1075fd19973af46fcbdf",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
