@@ -9,6 +9,7 @@ use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
 use DrMxrcy\ModrinthPlus\Exceptions\ServerPropertiesUnreadableException;
 use DrMxrcy\ModrinthPlus\Support\SearchFacets;
 use DrMxrcy\ModrinthPlus\Support\ServerProperties;
+use DrMxrcy\ModrinthPlus\Support\Sides;
 use DrMxrcy\ModrinthPlus\Support\UnmatchedJars;
 use Exception;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
@@ -333,6 +334,15 @@ class MinecraftModrinthService
             }
 
             cache()->put($key, $response, now()->addMinutes(30));
+        }
+
+        if ($hideClientOnly && is_array($response['hits'] ?? null)) {
+            // The server_side facet matches a project when any of its versions allows the server,
+            // so projects marked client-only can still come back; the hit's own value decides.
+            $response['hits'] = array_values(array_filter(
+                $response['hits'],
+                fn ($hit) => !is_array($hit) || !Sides::isClientOnly($hit),
+            ));
         }
 
         return $this->onlyCompatibleHits($response, $minecraftVersion, $minecraftLoader);

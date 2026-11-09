@@ -131,6 +131,35 @@ class ClientOnlyFilterTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    /**
+     * Modrinth's server_side facet matches a project when any of its versions allows the
+     * server, so a project marked client-only (e.g. Zoomify) can still come back. The hit's
+     * own server_side decides.
+     */
+    public function test_client_only_hits_the_facet_lets_through_are_dropped(): void
+    {
+        Http::fake(['api.modrinth.com/v2/search*' => Http::response(['hits' => [
+            ['slug' => 'zoomify', 'server_side' => 'unsupported', 'client_side' => 'required'],
+            ['slug' => 'lithium', 'server_side' => 'optional', 'client_side' => 'optional'],
+            ['slug' => 'no-sides'],
+        ], 'total_hits' => 3])]);
+
+        $result = $this->service()->getProjects(new Server(), ModrinthProjectType::Mod);
+
+        $this->assertSame(['lithium', 'no-sides'], array_column($result['hits'], 'slug'));
+    }
+
+    public function test_client_only_hits_stay_when_showing_client_only(): void
+    {
+        Http::fake(['api.modrinth.com/v2/search*' => Http::response(['hits' => [
+            ['slug' => 'zoomify', 'server_side' => 'unsupported', 'client_side' => 'required'],
+        ], 'total_hits' => 1])]);
+
+        $result = $this->service()->getProjects(new Server(), ModrinthProjectType::Mod, 1, null, true);
+
+        $this->assertSame(['zoomify'], array_column($result['hits'], 'slug'));
+    }
+
     public function test_same_filter_is_served_from_cache(): void
     {
         $this->fakeSearch();
