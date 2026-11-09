@@ -1,0 +1,39 @@
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_7195d954e8190f 29,60,93-96,218-221,228-232
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_c425c4960da74b 29,60,93-96,218-221,228-232
+modpacks-plus/src/Filament/Server/Components/InstallProgress.php
+  s_1d8485e49bfacb::t_ef75a1bdd25e87 124-126,132-140,205-206,209,224
+modpacks-plus/src/Filament/Server/Pages/ModpacksPage.php
+  s_1d8485e49bfacb::t_fe5a814fc4179d 409-418,481-483,509-518,522-554,820-830
+modpacks-plus/src/Jobs/RestorePreviousFilesJob.php
+  s_1d8485e49bfacb::t_ee09a4d090e0bf 137,139-140,192-201,221-231
+modpacks-plus/src/Jobs/Steps/PreserveStep.php
+  s_1d8485e49bfacb::t_40cc4def4f5d0b 34-40,61-66,69
+modpacks-plus/src/Jobs/Steps/RestorePreservedStep.php
+  s_1d8485e49bfacb::t_2d8cc269524291 44,46-53,56-62,64-70
+modpacks-plus/src/Services/PreservedFiles.php
+  s_1d8485e49bfacb::t_183e3bba28b40f 62-66,69-70,72,74-80,82-83,85-86,90,96-99,104,113-119,121
+modpacks-plus/tests/Feature/LoaderSwitchTest.php
+  s_1d8485e49bfacb::t_038dd667f49dfb 826,828,833-834,935-1049
+modpacks-plus/tests/Feature/ModpacksPageTest.php
+  s_1d8485e49bfacb::t_a2e19e30b6917c 688-690,747,758-791,793-808
+modpacks-plus/tests/Support/FakeServerFiles.php
+  s_1d8485e49bfacb::t_3ecc810d5fdddc 48-50,69,201-204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "093a3810732a6e5074fb7b5b622a09b6475e7204",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
