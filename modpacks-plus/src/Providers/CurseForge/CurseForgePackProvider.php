@@ -74,6 +74,11 @@ class CurseForgePackProvider implements PackProvider
     /** Ids per batch request (POST /mods/files, POST /mods). */
     private const RESOLVE_CHUNK = 100;
 
+    /** Extensions of files placed on the server, and of pack / server-pack archives. */
+    private const FILE_EXTENSIONS = ['jar', 'zip'];
+
+    private const ARCHIVE_EXTENSIONS = ['zip'];
+
     /** CurseForge class ids => server folder. */
     public const CLASS_FOLDERS = [6 => 'mods', 12 => 'resourcepacks', 6552 => 'shaderpacks'];
 
@@ -477,14 +482,15 @@ class CurseForgePackProvider implements PackProvider
             }
 
             $name = is_string($file['fileName'] ?? null) ? $file['fileName'] : '';
-            if (!self::isSafeFileName($name)) {
+            $classId = is_int($mod['classId'] ?? null) ? $mod['classId'] : 0;
+            // Placed files must be plain .jar/.zip names (data packs and other kinds are only listed).
+            if (!self::isSafeFileName($name) || (isset(self::CLASS_FOLDERS[$classId]) && !self::hasExtension($name, self::FILE_EXTENSIONS))) {
                 throw new UnsafePlanException('unsafe_path', $name);
             }
 
             $display = is_string($file['displayName'] ?? null) && $file['displayName'] !== '' ? $file['displayName'] : $name;
             $page = self::websiteUrl($mod['links']['websiteUrl'] ?? null);
             $link = $page !== null ? $page.'/files/'.$entry['file'] : null;
-            $classId = is_int($mod['classId'] ?? null) ? $mod['classId'] : 0;
 
             $folder = self::CLASS_FOLDERS[$classId] ?? null;
             if ($folder === null) {
@@ -553,12 +559,39 @@ class CurseForgePackProvider implements PackProvider
             return null;
         }
 
-        $url = self::downloadUrl($file['downloadUrl'] ?? null);
-        if ($url === null && $allowed === true && ($file['downloadUrl'] ?? null) === null) {
-            $url = self::constructedUrl($fileId, $name);
+        $downloadUrl = $file['downloadUrl'] ?? null;
+        if ($downloadUrl === null) {
+            // No downloadUrl: only when the author explicitly allows distribution.
+            return $allowed === true ? self::constructedUrl($fileId, $name) : null;
         }
 
-        return $url;
+        return self::fileDownloadUrl($fileId, $name, $downloadUrl);
+    }
+
+    /**
+     * The URL a CurseForge file is fetched from: always the edge.forgecdn.net path built from the
+     * file's own id and name (as CurseForge documents). The API's downloadUrl is never used as
+     * such; it must name exactly that path (on edge or mediafilez), else the file gets no URL.
+     *
+     * Threat: an API answer (above all the third-party mirror's) pointing a file at other bytes
+     * that carry a matching hash it also supplies. With the URL built from the id, the bytes are
+     * whatever CurseForge's own CDN serves for that file; the hash is a consistency check on top.
+     */
+    public static function fileDownloadUrl(int $fileId, string $fileName, mixed $downloadUrl): ?string
+    {
+        $constructed = self::constructedUrl($fileId, $fileName);
+        $given = self::downloadUrl($downloadUrl);
+        if ($constructed === null || $given === null) {
+            return null;
+        }
+
+        return parse_url($given, PHP_URL_PATH) === parse_url($constructed, PHP_URL_PATH) ? $constructed : null;
+    }
+
+    /** @param  array<int, string>  $extensions */
+    public static function hasExtension(string $name, array $extensions): bool
+    {
+        return in_array(strtolower(pathinfo($name, PATHINFO_EXTENSION)), $extensions, true);
     }
 
     /**
@@ -745,7 +778,7 @@ class CurseForgePackProvider implements PackProvider
     /** The edge.forgecdn.net URL CurseForge documents for a file id and name. */
     public static function constructedUrl(int $fileId, string $fileName): ?string
     {
-        if ($fileId <= 0 || !self::isSafeFileName($fileName)) {
+        if ($fileId <= 0 || $fileId > 2147483647 || !self::isSafeFileName($fileName)) {
             return null;
         }
 
@@ -880,9 +913,13 @@ class CurseForgePackProvider implements PackProvider
      */
     protected function archiveOf(array $file): ?PackArchive
     {
-        $url = self::downloadUrl($file['downloadUrl'] ?? null);
+        $id = self::intId($file['id'] ?? null);
         $name = is_string($file['fileName'] ?? null) ? $file['fileName'] : '';
-        if ($url === null || !self::isSafeFileName($name)) {
+        $downloadUrl = $file['downloadUrl'] ?? null;
+        // A pack zip is only fetched when CurseForge offers it (a downloadUrl), and then from the
+        // URL built from its own id and name, never from the downloadUrl itself.
+        $url = $id !== null && $downloadUrl !== null && self::hasExtension($name, self::ARCHIVE_EXTENSIONS) ? self::fileDownloadUrl($id, $name, $downloadUrl) : null;
+        if ($url === null) {
             return null;
         }
 

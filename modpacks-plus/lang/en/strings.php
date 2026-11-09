@@ -10,6 +10,13 @@ return [
         'installed_pack' => 'Installed pack: :name :version',
         'progress' => ':name — :status',
         'discarded_banner' => 'A restore was discarded on :date: worlds and player files of a loader switch are still in :path.',
+        'curseforge_not_configured' => 'CurseForge is not set up',
+        'curseforge_mirror' => 'CurseForge is read through the public mirror (api.curse.tools). If it stops answering, ask an admin to add an API key.',
+        'no_results' => 'No modpacks found',
+        'sources' => [
+            'modrinth' => 'Modrinth',
+            'curseforge' => 'CurseForge',
+        ],
     ],
     'filters' => [
         'sort' => 'Sort',
@@ -20,6 +27,7 @@ return [
             'follows' => 'Followers',
             'newest' => 'Newest',
             'updated' => 'Recently updated',
+            'name' => 'Name',
         ],
     ],
     'actions' => [
@@ -34,6 +42,9 @@ return [
         'versions' => 'Versions',
         'published' => 'Published',
         'no_versions' => 'This pack has no versions.',
+        'also_on_modrinth_heading' => 'Also on Modrinth',
+        'also_on_modrinth_help' => 'A Modrinth modpack has the same name and loader. It is matched by name only, so check it is the same pack.',
+        'also_on_modrinth' => 'Also on Modrinth — install from there',
     ],
     'install' => [
         'needs' => 'Needs :target',
@@ -271,6 +282,6 @@ return [
         'curseforge_api_key_remove' => 'Remove the saved key',
         'curseforge_api_key_invalid' => 'The CurseForge API key was not saved: use 16 to 128 letters, digits or $ . / _ + = -.',
         'curseforge_mirror' => 'Use the public CurseForge mirror when no API key is set',
-        'curseforge_mirror_help' => 'Reads CurseForge through https://api.curse.tools, a third-party copy of the CurseForge API that runs on someone else\'s key. It has no uptime guarantee, may be rate-limited or disappear, and may not be allowed by CurseForge\'s API terms. Only used for pack information: downloads still come only from the CurseForge and Modrinth CDNs with hash checks. A saved API key always wins.',
+        'curseforge_mirror_help' => 'Reads CurseForge through https://api.curse.tools, a third-party copy of the CurseForge API that runs on someone else\'s key. It has no uptime guarantee, may be rate-limited or disappear, and may not be allowed by CurseForge\'s API terms. Only used for pack information: downloads still come only from the CurseForge and Modrinth CDNs with hash checks. A saved API key always wins. It also decides which files (by CurseForge id) a pack contains: each file is still fetched only from CurseForge\'s own CDN at the address built from that id and name (or matched on Modrinth), and checked against its hash.',
     ],
 ];

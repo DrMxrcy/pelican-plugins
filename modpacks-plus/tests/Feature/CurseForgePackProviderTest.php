@@ -244,6 +244,17 @@ class CurseForgePackProviderTest extends TestCase
         $this->assertSame($expected, CurseForgePackProvider::downloadUrl($url));
     }
 
+    public function test_file_download_urls_are_built_from_id_and_name(): void
+    {
+        $this->assertSame('https://edge.forgecdn.net/files/5000/1/a.jar', CurseForgePackProvider::fileDownloadUrl(5000001, 'a.jar', 'https://edge.forgecdn.net/files/5000/1/a.jar'));
+        $this->assertSame('https://edge.forgecdn.net/files/5000/1/a.jar', CurseForgePackProvider::fileDownloadUrl(5000001, 'a.jar', 'https://mediafilez.forgecdn.net/files/5000/1/a.jar'));
+        $this->assertNull(CurseForgePackProvider::fileDownloadUrl(5000001, 'a.jar', 'https://edge.forgecdn.net/files/5000/2/a.jar'));
+        $this->assertNull(CurseForgePackProvider::fileDownloadUrl(5000001, 'a.jar', 'https://edge.forgecdn.net/files/5000/1/b.jar'));
+        $this->assertNull(CurseForgePackProvider::fileDownloadUrl(5000001, 'a.jar', 'https://evil.example/files/5000/1/a.jar'));
+        $this->assertNull(CurseForgePackProvider::fileDownloadUrl(5000001, '../a.jar', 'https://edge.forgecdn.net/files/5000/1/..%2Fa.jar'));
+        $this->assertNull(CurseForgePackProvider::fileDownloadUrl(5000001, 'a.jar', null));
+    }
+
     public function test_constructed_urls_follow_the_documented_layout(): void
     {
         $this->assertSame('https://edge.forgecdn.net/files/3740/146/jei%201.jar', CurseForgePackProvider::constructedUrl(3740146, 'jei 1.jar'));

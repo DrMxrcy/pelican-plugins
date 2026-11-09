@@ -1,12 +1,13 @@
 # Modpacks Plus
 
-Browse [Modrinth](https://modrinth.com) modpacks and install one onto a Minecraft server, switching
+Browse [Modrinth](https://modrinth.com) and [CurseForge](https://www.curseforge.com) modpacks and install one onto a Minecraft server, switching
 the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft version when they differ.
 
 ## What it does
 
-- A **Modpacks** server page: search Modrinth modpacks filtered by the server's Minecraft version
-  and loader, with categories and sort; a pack detail view (description, gallery, versions).
+- A **Modpacks** server page with a **Modrinth** and a **CurseForge** source: search modpacks filtered by
+  the server's Minecraft version and loader, with categories and sort; a pack detail view (description,
+  gallery, versions). See *CurseForge* below for the API key and the opt-in mirror.
 - Versions for another Minecraft version or loader offer **Switch to &lt;loader&gt; &lt;version&gt; and install**
   (admins, or everyone with the install permissions when the setting allows it; see *Loader switching*).
 - An install runs as chained short queue jobs:
@@ -34,8 +35,9 @@ Checked before anything is written to the server; archive entries are checked ag
   folder holding `level.dat`), `ops.json`, `whitelist.json`, `banned-players.json`, `banned-ips.json`,
   `usercache.json`, `server.properties` and `.modpacks-plus/` are never moved or written. A pack file
   aimed at one rejects the pack; an override aimed at one is skipped and listed in the summary.
-- Downloads must be HTTPS from `cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`,
-  `objects.githubusercontent.com` or `gitlab.com` (no credentials, no custom port). The first allowlisted
+- Downloads must be HTTPS from the pack's provider hosts (no credentials, no custom port): Modrinth packs
+  `cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`, `objects.githubusercontent.com` or
+  `gitlab.com`; CurseForge packs `edge.forgecdn.net`, `mediafilez.forgecdn.net` or `cdn.modrinth.com`. The first allowlisted
   URL of a file is used; a file without one rejects the pack.
 - **Downloads.** The node (Wings) follows redirects on its own pulls, so it is only ever asked to pull
   files on `cdn.modrinth.com` whose sha512 Modrinth's own hash lookup knows at exactly that URL; their
@@ -60,6 +62,44 @@ Checked before anything is written to the server; archive entries are checked ag
 - Every step job re-checks the stored plan; only one job chain per install can act (sequence number),
   every step has a deadline, and the scheduled watchdog resumes or fails stalled installs.
 - File steps never run while the server is suspended, installing, restoring a backup or transferring.
+
+## CurseForge
+
+- **Setup.** An admin enters a CurseForge API key (console.curseforge.com) in the settings. It is stored in
+  the panel's `.env` as `MODPACKS_PLUS_CURSEFORGE_API_KEY`, never shown again (the field only says a key
+  is saved; empty keeps it), sent only to `https://api.curseforge.com/v1/` (redirects are never followed)
+  and never written to install records, logs or error messages. Without a key (and without the mirror)
+  the CurseForge tab says how to set it up and makes no request.
+- **Key-free mirror (opt-in, off by default).** *Use the public CurseForge mirror when no API key is set*
+  reads CurseForge through `https://api.curse.tools/v1`, a third party's copy of the API running on their
+  key: no uptime guarantee, it may be rate-limited or disappear, and it may not be allowed by CurseForge's
+  API terms. It is used for metadata only (HTTPS, never its `/v1/cf` form, which redirects to plain HTTP).
+  A saved key always wins. If the mirror fails or rate-limits, the tab says "CurseForge unavailable — add an
+  API key" and no install starts. **With the mirror, you trust it to say which files (CurseForge file ids)
+  a pack contains and whether their authors allow third-party downloads.** It can't choose the bytes:
+  every file is still fetched from CurseForge's own CDN at the path built from its id and name (or from
+  Modrinth, see below) and checked against its hash.
+- **Server pack first.** When the pack version has a server pack (`serverPackFileId`, from the API only),
+  its files are written like overrides; its start scripts, loader installers, `libraries/` and bundled Java
+  are skipped (the egg installs the loader version from the pack's `manifest.json`, see *Loader switching*).
+  A server pack over the caps or unusable falls back to the manifest build; the summary says why.
+- **Manifest build.** Otherwise `manifest.json` is read, its files resolved in batches and placed by kind
+  (`mods/`; resource and shader packs are client-only and skipped), optional files left out, `overrides/`
+  applied.
+- **Download URLs.** A file's URL is always built from its own id and name
+  (`https://edge.forgecdn.net/files/<id/1000>/<id%1000>/<name>`); the API's `downloadUrl` must name exactly
+  that path or the file isn't fetched. File names must be plain `.jar`/`.zip` names. CurseForge CDN files
+  are fetched, redirect-checked and sha1-verified by the panel (md5 is ignored), never pulled by the node.
+- **Modrinth first.** Every file is looked up on Modrinth by sha1. A match (same size) downloads from
+  `cdn.modrinth.com`, verified by sha512, and is recorded for Modrinth Plus; Modrinth's side data drops
+  client-only mods (unknown files stay in). A failed Modrinth lookup stops the install (nothing guessed).
+  The summary counts files from Modrinth, from CurseForge and to download manually.
+- **Download manually.** Files whose author turned third-party downloads off (and that aren't on
+  Modrinth), and data packs (they belong in the world, which installs never touch), are listed in the
+  summary with a link to their CurseForge page. They are never fetched or scraped.
+- **Also on Modrinth.** A CurseForge pack whose title (case-insensitive) and loader match a Modrinth
+  modpack shows "Also on Modrinth — install from there", which lists it in the Modrinth tab. A suggestion
+  only: titles can collide.
 
 ## Modrinth Plus
 
@@ -173,8 +213,9 @@ direct calls get 403.
 ## Settings
 
 Admin → Plugins → Modpacks Plus → Settings: **Allow skipping the backup** (off by default),
-**Let server users switch loaders** (off by default) and a default egg per loader for when several
-official eggs are imported (otherwise the switch is refused as ambiguous).
+**Let server users switch loaders** (off by default), a default egg per loader for when several
+official eggs are imported (otherwise the switch is refused as ambiguous), the **CurseForge API key**
+and **Use the public CurseForge mirror when no API key is set** (off by default; see *CurseForge*).
 Caps can be changed with `MODPACKS_PLUS_*` environment variables (see `config/modpacks-plus.php`).
 
 ## Install

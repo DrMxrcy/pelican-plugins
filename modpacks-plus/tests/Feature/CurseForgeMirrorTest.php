@@ -3,8 +3,10 @@
 namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 
 use App\Tests\Traits\Integration\CreatesTestModels;
+use DrMxrcy\ModpacksPlus\Data\InstallPlan;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
+use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\ModpacksPlusPlugin;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
@@ -220,6 +222,107 @@ class CurseForgeMirrorTest extends TestCase
         // Metadata from the mirror, the pack archive from the CurseForge CDN; nothing downloaded from the mirror.
         Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/download'));
         Http::assertSent(fn (Request $request) => $request->url() === CurseForge::url(CurseForge::FILE_ID, CurseForge::PACK_FILE_NAME));
+    }
+
+    private function resolveThroughMirror(): InstallPlan
+    {
+        return $this->provider()->resolvePlan((string) CurseForge::PACK_ID, (string) CurseForge::FILE_ID, new PlanValidator(new Caps(), ['world'], PlanValidator::hostsFor('curseforge')), sys_get_temp_dir().'/mp-mirror-'.bin2hex(random_bytes(4)));
+    }
+
+    /**
+     * Mirror answers for the pack's three manifest files: the given ones, the rest blocked.
+     *
+     * @param  array<int, array<string, mixed>>  $files
+     * @return array<string, mixed>
+     */
+    private function mirrorFiles(array $files): array
+    {
+        $byId = [];
+        foreach ([5000001 => 201, 5000002 => 202, 5000003 => 203] as $id => $modId) {
+            $byId[$id] = CurseForge::file($id, $modId, 'blocked-'.$modId.'.jar', 'x', ['downloadUrl' => null]);
+        }
+        foreach ($files as $file) {
+            $byId[$file['id']] = $file;
+        }
+        $files = array_values($byId);
+        $mods = array_map(fn (array $file) => CurseForge::modEntry($file['modId'], 'Mod '.$file['modId'], str_starts_with($file['fileName'], 'blocked-') ? null : true), $files);
+
+        return [
+            self::MIRROR.'mods/files' => Http::response(CurseForge::data($files)),
+            self::MIRROR.'mods' => Http::response(CurseForge::data($mods)),
+        ];
+    }
+
+    public function test_a_mirror_download_url_naming_other_bytes_is_ignored(): void
+    {
+        // Same allowlisted host, but another file's path: the mirror can't redirect the install there.
+        $files = [
+            CurseForge::file(5000001, 201, 'a-mod.jar', 'a-bytes', ['downloadUrl' => 'https://edge.forgecdn.net/files/6666/666/a-mod.jar']),
+            CurseForge::file(5000002, 202, 'b-mod.jar', 'b-bytes', ['downloadUrl' => 'https://edge.forgecdn.net/files/5000/2/other.jar']),
+        ];
+        $this->fakeMirrorPack($this->mirrorFiles($files));
+
+        $plan = $this->resolveThroughMirror();
+
+        $this->assertSame([], $plan->files);
+        $this->assertSame(['a-mod', 'b-mod', 'blocked-203'], array_column($plan->manualFiles, 'name'));
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/files/6666/') || str_contains($request->url(), 'other.jar'));
+    }
+
+    public function test_the_constructed_url_is_the_one_fetched(): void
+    {
+        // The mirror names the right file on the other CDN host: the URL built from id and name is used.
+        $files = [CurseForge::file(5000001, 201, 'a mod+1.jar', 'a-bytes', ['downloadUrl' => 'https://mediafilez.forgecdn.net/files/5000/1/a mod+1.jar'])];
+        $this->fakeMirrorPack(array_merge($this->mirrorFiles($files), [
+            'https://edge.forgecdn.net/files/5000/1/a%20mod%2B1.jar' => fn () => Http::response('a-bytes'),
+        ]));
+
+        $plan = $this->resolveThroughMirror();
+
+        $this->assertSame('https://edge.forgecdn.net/files/5000/1/a%20mod%2B1.jar', $plan->files[0]->url ?? null);
+        $this->assertSame(['sha1' => sha1('a-bytes')], $plan->files[0]->hashes);
+    }
+
+    public function test_a_pack_archive_url_for_another_file_is_never_used(): void
+    {
+        $this->fakeMirrorPack([
+            self::MIRROR.'mods/'.CurseForge::PACK_ID.'/files/'.CurseForge::FILE_ID => Http::response(CurseForge::data(
+                CurseForge::file(CurseForge::FILE_ID, CurseForge::PACK_ID, CurseForge::PACK_FILE_NAME, 'zip', ['downloadUrl' => 'https://edge.forgecdn.net/files/1/1/evil.zip'])
+            )),
+        ]);
+
+        $this->assertSame('curseforge_no_download', $this->catchUnavailable(fn () => $this->resolveThroughMirror())->reason);
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'forgecdn'));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function hostileFileNames(): array
+    {
+        return [
+            'executable' => ['a-mod.exe'],
+            'no extension' => ['a-mod'],
+            'script' => ['start.sh'],
+            'backslash' => ['..\\..\\a.jar'],
+            'slash' => ['../a.jar'],
+            'control character' => ["a\n.jar"],
+            'percent-encoded' => ['a%2f.jar'],
+            'hidden' => ['.a.jar'],
+            'too long' => [str_repeat('a', 300).'.jar'],
+        ];
+    }
+
+    #[DataProvider('hostileFileNames')]
+    public function test_a_hostile_file_name_rejects_the_pack(string $name): void
+    {
+        $files = [CurseForge::file(5000001, 201, $name, 'a-bytes', ['downloadUrl' => null])];
+        $this->fakeMirrorPack($this->mirrorFiles($files));
+
+        try {
+            $this->resolveThroughMirror();
+            $this->fail('Expected UnsafePlanException');
+        } catch (UnsafePlanException $exception) {
+            $this->assertSame('unsafe_path', $exception->reason);
+        }
     }
 
     public function test_installs_through_the_mirror(): void

@@ -10,6 +10,13 @@ return [
         'installed_pack' => 'Installiertes Pack: :name :version',
         'progress' => ':name — :status',
         'discarded_banner' => 'Am :date wurde eine Wiederherstellung verworfen: Welten und Spielerdateien eines Loader-Wechsels liegen weiter in :path.',
+        'curseforge_not_configured' => 'CurseForge ist nicht eingerichtet',
+        'curseforge_mirror' => 'CurseForge wird über den öffentlichen Mirror (api.curse.tools) gelesen. Antwortet er nicht mehr, einen Admin bitten, einen API-Schlüssel zu hinterlegen.',
+        'no_results' => 'Keine Modpacks gefunden',
+        'sources' => [
+            'modrinth' => 'Modrinth',
+            'curseforge' => 'CurseForge',
+        ],
     ],
     'filters' => [
         'sort' => 'Sortierung',
@@ -20,6 +27,7 @@ return [
             'follows' => 'Follower',
             'newest' => 'Neueste',
             'updated' => 'Zuletzt aktualisiert',
+            'name' => 'Name',
         ],
     ],
     'actions' => [
@@ -34,6 +42,9 @@ return [
         'versions' => 'Versionen',
         'published' => 'Veröffentlicht',
         'no_versions' => 'Dieses Pack hat keine Versionen.',
+        'also_on_modrinth_heading' => 'Auch auf Modrinth',
+        'also_on_modrinth_help' => 'Ein Modrinth-Modpack hat denselben Namen und Loader. Der Abgleich erfolgt nur über den Namen, also prüfen, ob es dasselbe Pack ist.',
+        'also_on_modrinth' => 'Auch auf Modrinth – von dort installieren',
     ],
     'install' => [
         'needs' => 'Braucht :target',
@@ -271,6 +282,6 @@ return [
         'curseforge_api_key_remove' => 'Gespeicherten Schlüssel entfernen',
         'curseforge_api_key_invalid' => 'Der CurseForge-API-Schlüssel wurde nicht gespeichert: erlaubt sind 16 bis 128 Buchstaben, Ziffern oder $ . / _ + = -.',
         'curseforge_mirror' => 'Öffentlichen CurseForge-Mirror nutzen, wenn kein API-Schlüssel gesetzt ist',
-        'curseforge_mirror_help' => 'Liest CurseForge über https://api.curse.tools, eine Kopie der CurseForge-API eines Dritten, die mit dessen Schlüssel läuft. Ohne Verfügbarkeitsgarantie, möglicherweise gedrosselt oder bald weg, und von den API-Bedingungen von CurseForge eventuell nicht erlaubt. Nur für Pack-Informationen: Downloads kommen weiterhin nur von den CDNs von CurseForge und Modrinth, mit Hash-Prüfung. Ein gespeicherter API-Schlüssel hat immer Vorrang.',
+        'curseforge_mirror_help' => 'Liest CurseForge über https://api.curse.tools, eine Kopie der CurseForge-API eines Dritten, die mit dessen Schlüssel läuft. Ohne Verfügbarkeitsgarantie, möglicherweise gedrosselt oder bald weg, und von den API-Bedingungen von CurseForge eventuell nicht erlaubt. Nur für Pack-Informationen: Downloads kommen weiterhin nur von den CDNs von CurseForge und Modrinth, mit Hash-Prüfung. Ein gespeicherter API-Schlüssel hat immer Vorrang. Er bestimmt auch, welche Dateien (nach CurseForge-ID) ein Pack enthält: Jede Datei wird trotzdem nur vom CDN von CurseForge unter der aus ID und Namen gebildeten Adresse geladen (oder über Modrinth gefunden) und gegen ihren Hash geprüft.',
     ],
 ];

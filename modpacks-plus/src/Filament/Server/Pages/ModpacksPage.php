@@ -6,11 +6,14 @@ use App\Enums\ServerState;
 use App\Enums\SubuserPermission;
 use App\Models\Egg;
 use App\Models\Server;
+use DrMxrcy\ModpacksPlus\Contracts\PackProvider;
 use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
 use DrMxrcy\ModpacksPlus\Jobs\RestorePreviousFilesJob;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
+use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
+use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgePackProvider;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Services\JavaImagePicker;
@@ -46,7 +49,7 @@ use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 
 /**
- * Browse Modrinth modpacks and install one onto this server, switching the server's
+ * Browse Modrinth and CurseForge modpacks and install one onto this server, switching the server's
  * loader egg first when the pack needs another loader or Minecraft version.
  *
  * Permissions: viewing needs file.read; installing, cancelling and restoring need
@@ -55,6 +58,10 @@ use Illuminate\Support\Str;
  * the plugin setting "Let server users switch loaders" is on. The public Livewire
  * methods (installPack, switchLoaderAndInstall, cancelInstall, restorePreviousFiles)
  * check them themselves: they are callable from the browser no matter which buttons are shown.
+ *
+ * The source (Modrinth or CurseForge) is a public property the browser can set to anything:
+ * it is only ever used through source(), which falls back to Modrinth for unknown values.
+ * CurseForge without an API key or the opt-in mirror makes no API call at all.
  */
 class ModpacksPage extends Page implements HasTable
 {
@@ -82,6 +89,12 @@ class ModpacksPage extends Page implements HasTable
     private array $switchTargets = [];
 
     private bool $latestInstallLoaded = false;
+
+    /** Which provider the table lists (PackProviders::IDS); read through source(). */
+    public string $source = ModrinthPackProvider::ID;
+
+    /** Why the current source could not be read in this request (shown as the table's empty state). */
+    private ?string $sourceError = null;
 
     /**
      * Deliberately reachable while the server is in a conflict state (installing, a failed
@@ -184,12 +197,58 @@ class ModpacksPage extends Page implements HasTable
         return $server;
     }
 
-    private function provider(): ModrinthPackProvider
+    /** The selected source, never anything but a known provider id. */
+    private function source(): string
+    {
+        return in_array($this->source, PackProviders::IDS, true) ? $this->source : ModrinthPackProvider::ID;
+    }
+
+    private function provider(?string $source = null): PackProvider
+    {
+        return app(PackProviders::class)->get($source ?? $this->source());
+    }
+
+    private function modrinth(): ModrinthPackProvider
     {
         /** @var ModrinthPackProvider $provider */
         $provider = app(PackProviders::class)->get(ModrinthPackProvider::ID);
 
         return $provider;
+    }
+
+    /** Whether the source can be asked anything (CurseForge needs a key or the mirror). */
+    private function sourceReady(?string $source = null): bool
+    {
+        return ($source ?? $this->source()) !== CurseForgePackProvider::ID || CurseForgeClient::fromConfig()->configured();
+    }
+
+    /** Switches the listed source. Unknown values are ignored. */
+    public function setSource(string $source): void
+    {
+        if (!in_array($source, PackProviders::IDS, true)) {
+            return;
+        }
+
+        $this->source = $source;
+        $this->sourceError = null;
+        $this->resetTable();
+    }
+
+    /** The "Also on Modrinth" button: lists the Modrinth pack with that title (the user installs from there). */
+    public function showOnModrinth(string $title): void
+    {
+        $this->setSource(ModrinthPackProvider::ID);
+        $this->tableSearch = mb_substr(trim($title), 0, 100);
+    }
+
+    /** @return array<int, Action> */
+    protected function getHeaderActions(): array
+    {
+        return array_map(fn (string $source) => Action::make('source_'.$source)
+            ->label(trans('modpacks-plus::strings.page.sources.'.$source))
+            ->icon($source === ModrinthPackProvider::ID ? 'tabler-box' : 'tabler-flame')
+            ->color(fn () => $this->source() === $source ? 'primary' : 'gray')
+            ->action(fn () => $this->setSource($source)), PackProviders::IDS);
     }
 
     private function latestInstall(): ?PackInstall
@@ -230,22 +289,20 @@ class ModpacksPage extends Page implements HasTable
      * by anyone holding the page, so it re-checks every permission and re-reads the version
      * from Modrinth instead of trusting anything sent by the browser.
      */
-    public function installPack(string $packId, string $versionId): void
+    public function installPack(string $packId, string $versionId, string $source = ModrinthPackProvider::ID): void
     {
         abort_unless(static::canAccess() && static::canInstall(), 403);
 
-        if (!ModrinthPackProvider::isValidId($packId) || !ModrinthPackProvider::isValidId($versionId)) {
+        abort_unless(in_array($source, PackProviders::IDS, true), 404);
+        $provider = $this->provider($source);
+        if (!$provider::isValidId($packId) || !$provider::isValidId($versionId)) {
             abort(404);
         }
 
         $server = $this->server();
-        $provider = $this->provider();
 
         try {
-            $version = $provider->version($versionId);
-            if ($version['project_id'] !== $packId) {
-                abort(404);
-            }
+            $version = $this->packVersion($provider, $packId, $versionId);
 
             $needs = VersionMatch::needs($version, ServerTarget::minecraftVersion($server), ServerTarget::loader($server));
             if ($needs !== null) {
@@ -262,7 +319,7 @@ class ModpacksPage extends Page implements HasTable
             $install = app(InstallEngine::class)->start(
                 $server,
                 user(),
-                ModrinthPackProvider::ID,
+                $provider->id(),
                 (string) $project['id'],
                 $version['id'],
                 (string) $project['title'],
@@ -293,25 +350,23 @@ class ModpacksPage extends Page implements HasTable
      * the version from Modrinth, and picks the egg on the server side. With no usable egg
      * nothing is created or changed and the message names the egg to import.
      */
-    public function switchLoaderAndInstall(string $packId, string $versionId): void
+    public function switchLoaderAndInstall(string $packId, string $versionId, string $source = ModrinthPackProvider::ID): void
     {
         abort_unless(static::canAccess() && static::canInstall() && static::canSwitchLoader(), 403);
 
-        if (!ModrinthPackProvider::isValidId($packId) || !ModrinthPackProvider::isValidId($versionId)) {
+        abort_unless(in_array($source, PackProviders::IDS, true), 404);
+        $provider = $this->provider($source);
+        if (!$provider::isValidId($packId) || !$provider::isValidId($versionId)) {
             abort(404);
         }
 
         $server = $this->server();
-        $provider = $this->provider();
 
         try {
-            $version = $provider->version($versionId);
-            if ($version['project_id'] !== $packId) {
-                abort(404);
-            }
+            $version = $this->packVersion($provider, $packId, $versionId);
 
             if (VersionMatch::needs($version, ServerTarget::minecraftVersion($server), ServerTarget::loader($server)) === null) {
-                $this->installPack($packId, $versionId);
+                $this->installPack($packId, $versionId, $source);
 
                 return;
             }
@@ -327,7 +382,7 @@ class ModpacksPage extends Page implements HasTable
             $install = app(InstallEngine::class)->start(
                 $server,
                 user(),
-                ModrinthPackProvider::ID,
+                $provider->id(),
                 (string) $project['id'],
                 $version['id'],
                 (string) $project['title'],
@@ -351,6 +406,24 @@ class ModpacksPage extends Page implements HasTable
             ->title(trans('modpacks-plus::strings.install.started', ['name' => $install->name]))
             ->success()
             ->send();
+    }
+
+    /**
+     * The pack version read again from its source; a version of another pack is a 404.
+     *
+     * @return array{id: string, project_id: string, name: string, version_number: string, version_type: string, game_versions: array<int, string>, loaders: array<int, string>, date_published: ?string, downloads: int, changelog: ?string, file: array{url: string, filename: string, size: int, hashes: array<string, string>}|null}
+     *
+     * @throws PackUnavailableException
+     */
+    private function packVersion(PackProvider $provider, string $packId, string $versionId): array
+    {
+        try {
+            return $provider->packVersion($packId, $versionId);
+        } catch (PackUnavailableException $exception) {
+            abort_if($exception->reason === 'version_mismatch', 404);
+
+            throw $exception;
+        }
     }
 
     /**
@@ -579,7 +652,7 @@ class ModpacksPage extends Page implements HasTable
     private function selectedCategories(?array $filters): array
     {
         $values = is_array($filters['categories'] ?? null) ? ($filters['categories']['values'] ?? null) : null;
-        $known = $this->provider()->categories();
+        $known = $this->sourceReady() ? $this->provider()->categories() : [];
 
         return is_array($values) ? array_values(array_intersect(array_filter($values, 'is_string'), $known)) : [];
     }
@@ -589,7 +662,7 @@ class ModpacksPage extends Page implements HasTable
     {
         $value = is_array($filters['sort'] ?? null) ? ($filters['sort']['value'] ?? null) : null;
 
-        return is_string($value) && in_array($value, ModrinthPackProvider::SORTS, true) ? $value : null;
+        return is_string($value) && in_array($value, $this->provider()->sorts(), true) ? $value : null;
     }
 
     public function table(Table $table): Table
@@ -597,6 +670,13 @@ class ModpacksPage extends Page implements HasTable
         return $table
             ->records(function (?string $search, int $page, ?array $filters) {
                 $server = $this->server();
+
+                // CurseForge without a key or the mirror: say so, ask nothing.
+                if (!$this->sourceReady()) {
+                    $this->sourceError = InstallProgress::reason('curseforge_not_configured', '');
+
+                    return new LengthAwarePaginator([], 0, self::PER_PAGE, $page);
+                }
 
                 try {
                     $result = $this->provider()->search(
@@ -610,7 +690,8 @@ class ModpacksPage extends Page implements HasTable
                     );
                 } catch (PackUnavailableException $exception) {
                     report($exception);
-                    Notification::make()->title(InstallProgress::reason($exception->reason, $exception->detail))->danger()->send();
+                    $this->sourceError = InstallProgress::reason($exception->reason, $exception->detail);
+                    Notification::make()->title($this->sourceError)->danger()->send();
 
                     return new LengthAwarePaginator([], 0, self::PER_PAGE, $page);
                 }
@@ -623,16 +704,17 @@ class ModpacksPage extends Page implements HasTable
                 return new LengthAwarePaginator($records, $result['total'], self::PER_PAGE, $page);
             })
             ->deferLoading()
+            ->emptyStateHeading(fn () => $this->sourceError ?? trans('modpacks-plus::strings.page.no_results'))
             ->paginated([self::PER_PAGE])
             ->filters([
                 SelectFilter::make('sort')
                     ->label(trans('modpacks-plus::strings.filters.sort'))
-                    ->options(collect(ModrinthPackProvider::SORTS)->mapWithKeys(fn (string $sort) => [$sort => trans('modpacks-plus::strings.filters.sorts.'.$sort)])->all())
+                    ->options(fn () => collect($this->provider()->sorts())->mapWithKeys(fn (string $sort) => [$sort => trans('modpacks-plus::strings.filters.sorts.'.$sort)])->all())
                     ->placeholder(trans('modpacks-plus::strings.filters.sorts.relevance')),
                 SelectFilter::make('categories')
                     ->label(trans('modpacks-plus::strings.filters.categories'))
                     ->multiple()
-                    ->options(fn () => collect($this->provider()->categories())->mapWithKeys(fn (string $category) => [$category => Str::headline($category)])->all()),
+                    ->options(fn () => collect($this->sourceReady() ? $this->provider()->categories() : [])->mapWithKeys(fn (string $category) => [$category => Str::headline($category)])->all()),
             ], layout: FiltersLayout::AboveContent)
             ->deferFilters(false)
             ->columns([
@@ -662,9 +744,12 @@ class ModpacksPage extends Page implements HasTable
     /** @return array<int, Component> */
     private function detailSchema(string $packId): array
     {
+        $source = $this->source();
+
         try {
-            $project = $this->provider()->project($packId);
-            $versions = array_slice($this->provider()->versions($packId), 0, self::MAX_VERSIONS);
+            $provider = $this->provider($source);
+            $project = $provider->project($packId);
+            $versions = array_slice($provider->versions($packId), 0, self::MAX_VERSIONS);
         } catch (PackUnavailableException $exception) {
             return [Html::make(new HtmlString('<p>'.e(InstallProgress::reason($exception->reason, $exception->detail)).'</p>'))];
         }
@@ -673,9 +758,22 @@ class ModpacksPage extends Page implements HasTable
         $serverMinecraft = ServerTarget::minecraftVersion($server);
         $serverLoader = ServerTarget::loader($server);
 
-        $components = [
-            Html::make($this->markdown((string) $project['body'] !== '' ? (string) $project['body'] : (string) $project['description'])),
-        ];
+        $components = [];
+
+        if ($source === CurseForgePackProvider::ID && ($twin = $this->modrinthTwin((string) $project['title'], $project['loaders'] ?? [], $versions)) !== null) {
+            $components[] = Section::make(trans('modpacks-plus::strings.details.also_on_modrinth_heading'))
+                ->description(trans('modpacks-plus::strings.details.also_on_modrinth_help'))
+                ->headerActions([
+                    Action::make('also_on_modrinth')
+                        ->label(trans('modpacks-plus::strings.details.also_on_modrinth'))
+                        ->icon('tabler-box')
+                        ->color('success')
+                        ->cancelParentActions()
+                        ->action(fn () => $this->showOnModrinth($twin)),
+                ]);
+        }
+
+        $components[] = Html::make($this->markdown((string) $project['body'] !== '' ? (string) $project['body'] : (string) $project['description']));
 
         if ($project['gallery'] !== []) {
             $images = '';
@@ -690,8 +788,8 @@ class ModpacksPage extends Page implements HasTable
             $needs = VersionMatch::needs($version, $serverMinecraft, $serverLoader);
 
             $action = $needs === null
-                ? $this->makeInstallAction($index, $packId, $version, (string) $project['title'])
-                : $this->makeMismatchAction($index, $packId, $version, (string) $project['title'], $needs, self::switchTarget($version, $serverMinecraft, $serverLoader));
+                ? $this->makeInstallAction($index, $packId, $version, (string) $project['title'], $source)
+                : $this->makeMismatchAction($index, $packId, $version, (string) $project['title'], $needs, self::switchTarget($version, $serverMinecraft, $serverLoader), $source);
 
             $sections[] = Section::make($version['version_number'] !== '' ? $version['version_number'] : $version['name'])
                 ->description(implode(', ', $version['loaders']).' · '.implode(', ', array_slice($version['game_versions'], 0, 6)))
@@ -711,8 +809,40 @@ class ModpacksPage extends Page implements HasTable
         return $components;
     }
 
+    /**
+     * The title of a Modrinth modpack with the same title (case-insensitive) and loader as a
+     * CurseForge pack, or null. Only a suggestion: titles can collide, so nothing is automatic.
+     *
+     * @param  mixed  $loaders  the CurseForge pack's loaders
+     * @param  array<int, array{loaders: array<int, string>}>  $versions
+     */
+    private function modrinthTwin(string $title, mixed $loaders, array $versions): ?string
+    {
+        $loader = (is_array($loaders) ? array_values(array_filter($loaders, 'is_string')) : [])[0] ?? ($versions[0]['loaders'][0] ?? null);
+        $wanted = mb_strtolower(trim($title));
+        if ($loader === null || $wanted === '') {
+            return null;
+        }
+
+        try {
+            $hits = $this->modrinth()->search($title, null, $loader, [], 'relevance', 1, 10)['hits'];
+        } catch (PackUnavailableException $exception) {
+            report($exception);
+
+            return null;
+        }
+
+        foreach ($hits as $hit) {
+            if (mb_strtolower(trim($hit['title'])) === $wanted) {
+                return $hit['title'];
+            }
+        }
+
+        return null;
+    }
+
     /** @param  array{id: string, version_number: string, name: string}  $version */
-    private function makeInstallAction(int $index, string $packId, array $version, string $title): Action
+    private function makeInstallAction(int $index, string $packId, array $version, string $title, string $source = ModrinthPackProvider::ID): Action
     {
         $versionId = $version['id'];
 
@@ -728,7 +858,7 @@ class ModpacksPage extends Page implements HasTable
             ->modalHeading(trans('modpacks-plus::strings.install.confirm_heading', ['name' => $title, 'version' => $version['version_number']]))
             ->modalDescription(trans('modpacks-plus::strings.install.confirm_body', ['folders' => 'mods/, config/, defaultconfigs/, kubejs/, scripts/']))
             ->modalSubmitActionLabel(trans('modpacks-plus::strings.actions.install'))
-            ->action(fn () => $this->installPack($packId, $versionId));
+            ->action(fn () => $this->installPack($packId, $versionId, $source));
     }
 
     /**
@@ -739,7 +869,7 @@ class ModpacksPage extends Page implements HasTable
      * @param  array{id: string, version_number: string, name: string}  $version
      * @param  array{loader: string, minecraft: string}|null  $target
      */
-    private function makeMismatchAction(int $index, string $packId, array $version, string $title, string $needs, ?array $target): Action
+    private function makeMismatchAction(int $index, string $packId, array $version, string $title, string $needs, ?array $target, string $source = ModrinthPackProvider::ID): Action
     {
         if ($target === null || !static::canInstall()) {
             return Action::make('needs_'.$index)
@@ -771,10 +901,10 @@ class ModpacksPage extends Page implements HasTable
             ->modalHeading(trans('modpacks-plus::strings.install.switch_heading', ['name' => $title, 'version' => $version['version_number'], 'target' => $needs]))
             ->modalDescription(fn () => $this->switchDescription($target))
             ->modalSubmitActionLabel(trans('modpacks-plus::strings.install.switch_confirm'))
-            ->action(fn () => $this->switchLoaderAndInstall($packId, $versionId));
+            ->action(fn () => $this->switchLoaderAndInstall($packId, $versionId, $source));
     }
 
-    /** Markdown from Modrinth, with raw HTML stripped and unsafe links dropped. */
+    /** Markdown from Modrinth (or CurseForge's description as plain text), with raw HTML stripped and unsafe links dropped. */
     private function markdown(string $markdown): HtmlString
     {
         if (trim($markdown) === '') {
@@ -794,6 +924,15 @@ class ModpacksPage extends Page implements HasTable
         $server = $this->server();
 
         return $schema->components([
+            Callout::make(trans('modpacks-plus::strings.page.curseforge_not_configured'))
+                ->description(trans('modpacks-plus::strings.reasons.curseforge_not_configured'))
+                ->icon('tabler-key')
+                ->color('warning')
+                ->visible(fn () => $this->source() === CurseForgePackProvider::ID && !$this->sourceReady()),
+            Callout::make(trans('modpacks-plus::strings.page.curseforge_mirror'))
+                ->icon('tabler-info-circle')
+                ->color('info')
+                ->visible(fn () => $this->source() === CurseForgePackProvider::ID && CurseForgeClient::fromConfig()->mode() === CurseForgeClient::MODE_MIRROR),
             Callout::make(trans('modpacks-plus::strings.page.unsupported'))
                 ->description(trans('modpacks-plus::strings.reasons.server_not_supported'))
                 ->icon('tabler-alert-triangle')
