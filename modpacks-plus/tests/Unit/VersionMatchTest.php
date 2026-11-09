@@ -16,7 +16,7 @@ class VersionMatchTest extends TestCase
     {
         $this->assertSame('Forge 1.20.1', VersionMatch::needs(['game_versions' => ['1.20.1'], 'loaders' => ['forge']], '1.20.1', 'fabric'));
         $this->assertSame('Fabric 1.21.1', VersionMatch::needs(['game_versions' => ['1.21.1'], 'loaders' => ['fabric']], '1.20.1', 'fabric'));
-        $this->assertSame('Neoforge 1.21.1', VersionMatch::needs(['game_versions' => ['1.21.1'], 'loaders' => ['neoforge']], '1.20.1', 'fabric'));
+        $this->assertSame('NeoForge 1.21.1', VersionMatch::needs(['game_versions' => ['1.21.1'], 'loaders' => ['neoforge']], '1.20.1', 'fabric'));
     }
 
     public function test_unknown_server_never_matches(): void

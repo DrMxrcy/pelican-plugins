@@ -1,14 +1,14 @@
 # Modpacks Plus
 
-Browse [Modrinth](https://modrinth.com) modpacks and install one onto a Minecraft server whose
-loader and Minecraft version **already match** the pack.
+Browse [Modrinth](https://modrinth.com) modpacks and install one onto a Minecraft server, switching
+the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft version when they differ.
 
 ## What it does
 
 - A **Modpacks** server page: search Modrinth modpacks filtered by the server's Minecraft version
   and loader, with categories and sort; a pack detail view (description, gallery, versions).
-- Versions for another Minecraft version or loader show "Needs &lt;loader&gt; &lt;version&gt;" and
-  cannot be installed (loader switching is a later release).
+- Versions for another Minecraft version or loader offer **Switch to &lt;loader&gt; &lt;version&gt; and install**
+  (admins, or everyone with the install permissions when the setting allows it; see *Loader switching*).
 - An install runs as chained short queue jobs:
   1. **prepare** — download the `.mrpack` on the panel, verify its sha512, read and validate the index;
   2. **backup** — a locked backup through Pelican's backup service (never deletes an old backup).
@@ -82,18 +82,53 @@ the other: the shared file is the only link.
   valid, or the lock or Modrinth isn't available, nothing is written and the install summary says so;
   the install itself still succeeds.
 
+## Loader switching
+
+When a pack needs another loader or Minecraft version, the install first moves the server to the
+official [pelican-eggs/minecraft](https://github.com/pelican-eggs/minecraft) loader egg:
+
+1. **check** and **record the current setup** — the egg (recognised by uuid or update URL, or tagged
+   `minecraft` + the loader; the admin's default egg wins, see *Settings*), the version variables, a Java
+   image the egg allows (≤1.16 → 8, 1.17 → 16, 1.18–1.20.4 → 17, 1.20.5–1.21.x → 21, newer → highest);
+   the server's egg, startup, image, variables and mounts are stored on the install;
+2. backup and old pack folders aside, as for any install;
+3. **stop the server** and **set worlds and player files aside** (worlds with `_nether`/`_the_end`,
+   `ops.json`, `whitelist.json`, ban lists, `usercache.json`, `server.properties`, `eula.txt`) into
+   `.modpacks-plus/preserved-<date>/`;
+4. **change the egg** with Pelican's egg changer (new startup, variables kept by name, mounts the egg
+   doesn't allow detached), set `MC_VERSION` and the loader version, set the image;
+5. **reinstall** with Pelican's reinstall service and **wait** for it (20-minute limit);
+6. **put worlds and player files back** (anything the reinstall made in their place is kept in
+   `.modpacks-plus/replaced-<date>/`), then download and apply the pack.
+
+No egg is ever created, imported or edited, and no other server is touched. Without a usable egg,
+nothing changes and the page says which egg to import. If the reinstall fails, the install ends
+`failed`, the egg is **not** switched back automatically (the summary names the previous egg and
+values), and **Restore previous files** moves the preserved worlds and player files and the old pack
+folders back (never overwriting: whatever is in the way goes to `.modpacks-plus/replaced-<date>/`).
+A cancel asked for while worlds are set aside takes effect once they are back.
+
+Official eggs: Fabric (`LOADER_VERSION`), Forge (`FORGE_VERSION` = `<mc>-<forge>`), NeoForge
+(`NEOFORGE_VERSION`), Quilt (no loader variable: its egg always installs the latest Quilt loader).
+
 ## Permissions
 
 - Viewing the page: `file.read`.
-- Installing or cancelling: `settings.reinstall` + `file.create` + `file.delete` + `backup.create`.
+- Installing, cancelling or restoring previous files: `settings.reinstall` + `file.create` +
+  `file.delete` + `backup.create`.
+- Switching the loader (changes the egg): admins with *update server* on the server (Pelican itself only
+  lets admins change eggs). The setting **Let server users switch loaders** extends it to anyone with
+  the install permissions. Without it, owners see "ask an admin to switch loaders".
 
-Users without the install permissions don't see the Install and Cancel buttons; the Livewire
-handlers (`installPack`, `cancelInstall`) check every permission again, so direct calls get 403.
+Users without these permissions don't see the buttons; the Livewire handlers (`installPack`,
+`switchLoaderAndInstall`, `cancelInstall`, `restorePreviousFiles`) check every permission again, so
+direct calls get 403.
 
 ## Requirements
 
-- The egg has the `minecraft` tag and a loader tag (`fabric`, `forge`, `neoforge` or `quilt`);
-  the Minecraft version comes from the `MINECRAFT_VERSION` or `MC_VERSION` variable.
+- The egg has the `minecraft` tag and a loader tag (`fabric`, `forge`, `neoforge` or `quilt`), or is one
+  of the official pelican-eggs loader eggs; the Minecraft version comes from the `MINECRAFT_VERSION` or
+  `MC_VERSION` variable.
 - A queue worker (`QUEUE_CONNECTION` other than `sync`) and the scheduler (`schedule:run` every minute),
   which Pelican already needs. The scheduler resumes a stalled install or fails it after its step deadline.
 
@@ -109,7 +144,8 @@ handlers (`installPack`, `cancelInstall`) check every permission again, so direc
   and deletes it. `.modpacks-plus/previous-*` folders are not cleaned up automatically yet (that comes
   with pack updates, a later release). After a failed install, `.modpacks-plus/staging/` may keep
   files that were never used.
-- Stop the server before installing; the plugin doesn't stop it for you.
+- Stop the server before installing; a plain install doesn't stop it for you (a loader switch does,
+  before moving worlds; a server started again during the switch is stopped again before they move back).
 - A node pull that times out is checked and retried, at most 3 attempts per file; a very slow CDN
   download can therefore fail the install (retry it later).
 - Any `server.properties` line ending in a single backslash is read as a line continuation and stops
@@ -117,7 +153,9 @@ handlers (`installPack`, `cancelInstall`) check every permission again, so direc
 
 ## Settings
 
-Admin → Plugins → Modpacks Plus → Settings: **Allow skipping the backup** (off by default).
+Admin → Plugins → Modpacks Plus → Settings: **Allow skipping the backup** (off by default),
+**Let server users switch loaders** (off by default) and a default egg per loader for when several
+official eggs are imported (otherwise the switch is refused as ambiguous).
 Caps can be changed with `MODPACKS_PLUS_*` environment variables (see `config/modpacks-plus.php`).
 
 ## Install

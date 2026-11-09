@@ -62,15 +62,16 @@ class InstallEngine
     ];
 
     /**
-     * Run order of an install that switches the loader: old pack folders aside, then the
-     * snapshot, worlds and player files aside, egg change, reinstall and wait, files back,
-     * and the normal pack install.
+     * Run order of an install that switches the loader: the snapshot (which also checks the
+     * target egg, variables and image) before any change, backup, old pack folders aside,
+     * worlds and player files aside, egg change, reinstall and wait, files back, and the
+     * normal pack install.
      */
     public const SWITCH_ORDER = [
         PrepareStep::KEY,
+        SnapshotStep::KEY,
         BackupStep::KEY,
         MoveAsideStep::KEY,
-        SnapshotStep::KEY,
         PreserveStep::KEY,
         ChangeEggStep::KEY,
         ReinstallStep::KEY,

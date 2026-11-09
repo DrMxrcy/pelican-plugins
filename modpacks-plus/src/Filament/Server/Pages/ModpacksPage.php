@@ -3,6 +3,7 @@
 namespace DrMxrcy\ModpacksPlus\Filament\Server\Pages;
 
 use App\Enums\SubuserPermission;
+use App\Models\Egg;
 use App\Models\Server;
 use App\Traits\Filament\BlockAccessInConflict;
 use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
@@ -12,7 +13,10 @@ use DrMxrcy\ModpacksPlus\Jobs\RestorePreviousFilesJob;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
+use DrMxrcy\ModpacksPlus\Services\JavaImagePicker;
+use DrMxrcy\ModpacksPlus\Services\LoaderEggResolver;
 use DrMxrcy\ModpacksPlus\Services\PackProviders;
+use DrMxrcy\ModpacksPlus\Support\EggVariableMap;
 use DrMxrcy\ModpacksPlus\Support\ServerTarget;
 use DrMxrcy\ModpacksPlus\Support\VersionMatch;
 use Filament\Actions\Action;
@@ -34,19 +38,23 @@ use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 
 /**
- * Browse Modrinth modpacks and install one onto this server (when its loader and
- * Minecraft version already match).
+ * Browse Modrinth modpacks and install one onto this server, switching the server's
+ * loader egg first when the pack needs another loader or Minecraft version.
  *
- * Permissions: viewing needs file.read; installing and cancelling need
- * settings.reinstall + file.create + file.delete + backup.create. The public Livewire
- * methods installPack() and cancelInstall() check them themselves: they are callable from
- * the browser no matter which buttons are shown.
+ * Permissions: viewing needs file.read; installing, cancelling and restoring need
+ * settings.reinstall + file.create + file.delete + backup.create. Switching the loader
+ * (an egg change) additionally needs an admin ("update server" on this server), unless
+ * the plugin setting "Let server users switch loaders" is on. The public Livewire
+ * methods (installPack, switchLoaderAndInstall, cancelInstall, restorePreviousFiles)
+ * check them themselves: they are callable from the browser no matter which buttons are shown.
  */
 class ModpacksPage extends Page implements HasTable
 {
@@ -68,6 +76,9 @@ class ModpacksPage extends Page implements HasTable
 
     private ?PackInstall $latestInstall = null;
 
+    /** @var array<string, array{egg: Egg, image: array{label: string, image: string, java: int}}|InstallRefusedException> per loader|minecraft, this request */
+    private array $switchTargets = [];
+
     private bool $latestInstallLoaded = false;
 
     public static function canAccess(): bool
@@ -84,6 +95,44 @@ class ModpacksPage extends Page implements HasTable
     public static function canInstall(): bool
     {
         return static::userCan(SubuserPermission::SettingsReinstall, SubuserPermission::FileCreate, SubuserPermission::FileDelete, SubuserPermission::BackupCreate);
+    }
+
+    /**
+     * Switching the loader changes the server's egg and reinstalls it, which Pelican only
+     * lets admins do: admins with "update server" on this server (root admins included),
+     * or, when the plugin setting allows it, anyone holding the install permissions.
+     */
+    public static function canSwitchLoader(): bool
+    {
+        $user = user();
+        $server = Filament::getTenant();
+        if (!$user || !$server instanceof Server || !static::canInstall()) {
+            return false;
+        }
+
+        return $user->can('update', $server) || (bool) config('modpacks-plus.allow_user_loader_switch', false);
+    }
+
+    /**
+     * The loader and Minecraft version a pack version would switch the server to (keeping
+     * whichever of the two already matches), or null when it has no supported loader.
+     *
+     * @param  array{game_versions: array<int, string>, loaders: array<int, string>}  $version
+     * @return array{loader: string, minecraft: string}|null
+     */
+    public static function switchTarget(array $version, ?string $serverMinecraft, ?string $serverLoader): ?array
+    {
+        $loaders = array_values(array_intersect(array_map('strtolower', $version['loaders']), ServerTarget::LOADERS));
+        if ($loaders === []) {
+            return null;
+        }
+
+        $loader = $serverLoader !== null && in_array($serverLoader, $loaders, true) ? $serverLoader : $loaders[0];
+        $minecraft = $serverMinecraft !== null && in_array($serverMinecraft, $version['game_versions'], true)
+            ? $serverMinecraft
+            : ($version['game_versions'][0] ?? '');
+
+        return $minecraft !== '' ? ['loader' => $loader, 'minecraft' => $minecraft] : null;
     }
 
     /** Whether the signed-in user holds every permission on the current server (owners and admins pass through User::can()). */
@@ -218,6 +267,162 @@ class ModpacksPage extends Page implements HasTable
             ->title(trans('modpacks-plus::strings.install.started', ['name' => $install->name]))
             ->success()
             ->send();
+    }
+
+    /**
+     * Switches the server to the loader egg a pack version needs, then installs it. Public
+     * so the confirm button can call it; it re-checks the switch permission and re-reads
+     * the version from Modrinth, and picks the egg on the server side. With no usable egg
+     * nothing is created or changed and the message names the egg to import.
+     */
+    public function switchLoaderAndInstall(string $packId, string $versionId): void
+    {
+        abort_unless(static::canAccess() && static::canInstall() && static::canSwitchLoader(), 403);
+
+        if (!ModrinthPackProvider::isValidId($packId) || !ModrinthPackProvider::isValidId($versionId)) {
+            abort(404);
+        }
+
+        $server = $this->server();
+        $provider = $this->provider();
+
+        try {
+            $version = $provider->version($versionId);
+            if ($version['project_id'] !== $packId) {
+                abort(404);
+            }
+
+            if (VersionMatch::needs($version, ServerTarget::minecraftVersion($server), ServerTarget::loader($server)) === null) {
+                $this->installPack($packId, $versionId);
+
+                return;
+            }
+
+            $target = self::switchTarget($version, ServerTarget::minecraftVersion($server), ServerTarget::loader($server));
+            if ($target === null) {
+                throw new InstallRefusedException('loader_unsupported', implode(', ', $version['loaders']));
+            }
+
+            ['egg' => $egg] = $this->switchEgg($target);
+
+            $project = $provider->project($packId);
+            $install = app(InstallEngine::class)->start(
+                $server,
+                user(),
+                ModrinthPackProvider::ID,
+                (string) $project['id'],
+                $version['id'],
+                (string) $project['title'],
+                $version['version_number'],
+                is_string($project['icon_url'] ?? null) ? $project['icon_url'] : null,
+                ['loader' => $target['loader'], 'minecraft' => $target['minecraft'], 'egg_id' => $egg->id, 'egg_name' => $egg->name],
+            );
+        } catch (InstallRefusedException|PackUnavailableException $exception) {
+            Notification::make()
+                ->title(trans('modpacks-plus::strings.install.refused'))
+                ->body(InstallProgress::reason($exception->reason, $exception->detail))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $this->latestInstallLoaded = false;
+
+        Notification::make()
+            ->title(trans('modpacks-plus::strings.install.started', ['name' => $install->name]))
+            ->success()
+            ->send();
+    }
+
+    /**
+     * The egg and Java image a switch to $target uses (resolved once per request).
+     *
+     * @param  array{loader: string, minecraft: string}  $target
+     * @return array{egg: Egg, image: array{label: string, image: string, java: int}}
+     *
+     * @throws InstallRefusedException
+     */
+    private function switchEgg(array $target): array
+    {
+        $key = $target['loader'].'|'.$target['minecraft'];
+        if (!array_key_exists($key, $this->switchTargets)) {
+            try {
+                $egg = (new LoaderEggResolver())->resolve($target['loader']);
+                $this->switchTargets[$key] = ['egg' => $egg, 'image' => (new JavaImagePicker())->pick($egg->docker_images ?? [], $target['minecraft'])];
+            } catch (InstallRefusedException $exception) {
+                $this->switchTargets[$key] = $exception;
+            }
+        }
+
+        $resolved = $this->switchTargets[$key];
+        if ($resolved instanceof InstallRefusedException) {
+            throw $resolved;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * The confirm text of a switch: exactly what resets (startup command, Docker image,
+     * variables whose names differ, mounts the new egg doesn't allow), what is kept, and
+     * that the server reinstalls. Or why it can't be done.
+     *
+     * @param  array{loader: string, minecraft: string}  $target
+     */
+    private function switchDescription(array $target): HtmlString
+    {
+        try {
+            ['egg' => $egg, 'image' => $image] = $this->switchEgg($target);
+        } catch (InstallRefusedException $exception) {
+            return new HtmlString('<p>'.e(InstallProgress::reason($exception->reason, $exception->detail)).'</p>');
+        }
+
+        $server = $this->server();
+        $server->loadMissing('egg');
+        $sameEgg = $server->egg_id === $egg->id;
+        $versionVariables = EggVariableMap::requiredVariables($target['loader']);
+
+        $resets = [];
+        if (!$sameEgg) {
+            $resets[] = trans('modpacks-plus::strings.install.reset_startup', ['from' => (string) $server->startup, 'to' => (string) Arr::first($egg->startup_commands ?? [])]);
+        }
+        $resets[] = trans('modpacks-plus::strings.install.reset_image', ['from' => (string) $server->image, 'to' => $image['image']]);
+        $resets[] = trans('modpacks-plus::strings.install.reset_versions', ['variables' => implode(', ', $versionVariables)]);
+
+        if (!$sameEgg) {
+            $current = $server->variables()->pluck('env_variable')->all();
+            $new = $egg->variables()->pluck('env_variable')->all();
+            $dropped = array_values(array_diff($current, $new));
+            $defaults = array_values(array_diff($new, $current, $versionVariables));
+            if ($dropped !== []) {
+                $resets[] = trans('modpacks-plus::strings.install.reset_variables_dropped', ['variables' => implode(', ', $dropped)]);
+            }
+            if ($defaults !== []) {
+                $resets[] = trans('modpacks-plus::strings.install.reset_variables_default', ['variables' => implode(', ', $defaults)]);
+            }
+
+            $mounts = $server->mounts()
+                ->whereHas('eggs')
+                ->whereDoesntHave('eggs', fn (Builder $query) => $query->where('eggs.id', $egg->id))
+                ->pluck('name')
+                ->all();
+            if ($mounts !== []) {
+                $resets[] = trans('modpacks-plus::strings.install.reset_mounts', ['mounts' => implode(', ', $mounts)]);
+            }
+        }
+
+        $intro = trans('modpacks-plus::strings.install.switch_intro', [
+            'from' => $server->egg->name,
+            'to' => $egg->name,
+            'target' => ServerTarget::loaderName($target['loader']).' '.$target['minecraft'],
+        ]);
+
+        return new HtmlString(
+            '<p>'.e($intro).'</p>'
+            .'<ul style="list-style: disc; padding-left: 1.25rem; margin: 0.5rem 0">'.implode('', array_map(fn (string $line) => '<li>'.e($line).'</li>', $resets)).'</ul>'
+            .'<p>'.e(trans('modpacks-plus::strings.install.switch_kept')).'</p>'
+        );
     }
 
     /** Asks the running install to stop after the current step or download batch. Same permissions as installing. */
@@ -402,11 +607,7 @@ class ModpacksPage extends Page implements HasTable
 
             $action = $needs === null
                 ? $this->makeInstallAction($index, $packId, $version, (string) $project['title'])
-                : Action::make('needs_'.$index)
-                    ->label(trans('modpacks-plus::strings.install.needs', ['target' => $needs]))
-                    ->icon('tabler-lock')
-                    ->color('gray')
-                    ->disabled();
+                : $this->makeMismatchAction($index, $packId, $version, (string) $project['title'], $needs, self::switchTarget($version, $serverMinecraft, $serverLoader));
 
             $sections[] = Section::make($version['version_number'] !== '' ? $version['version_number'] : $version['name'])
                 ->description(implode(', ', $version['loaders']).' · '.implode(', ', array_slice($version['game_versions'], 0, 6)))
@@ -444,6 +645,49 @@ class ModpacksPage extends Page implements HasTable
             ->modalDescription(trans('modpacks-plus::strings.install.confirm_body', ['folders' => 'mods/, config/, defaultconfigs/, kubejs/, scripts/']))
             ->modalSubmitActionLabel(trans('modpacks-plus::strings.actions.install'))
             ->action(fn () => $this->installPack($packId, $versionId));
+    }
+
+    /**
+     * A version for another loader or Minecraft version: "Switch to … and install" for
+     * those allowed to switch, "ask an admin" for those who may install but not switch,
+     * otherwise just what it needs.
+     *
+     * @param  array{id: string, version_number: string, name: string}  $version
+     * @param  array{loader: string, minecraft: string}|null  $target
+     */
+    private function makeMismatchAction(int $index, string $packId, array $version, string $title, string $needs, ?array $target): Action
+    {
+        if ($target === null || !static::canInstall()) {
+            return Action::make('needs_'.$index)
+                ->label(trans('modpacks-plus::strings.install.needs', ['target' => $needs]))
+                ->icon('tabler-lock')
+                ->color('gray')
+                ->disabled();
+        }
+
+        if (!static::canSwitchLoader()) {
+            return Action::make('needs_'.$index)
+                ->label(trans('modpacks-plus::strings.install.ask_admin', ['target' => $needs]))
+                ->icon('tabler-lock')
+                ->color('gray')
+                ->disabled();
+        }
+
+        $versionId = $version['id'];
+
+        return Action::make('switch_'.$index)
+            ->label(trans('modpacks-plus::strings.install.switch', ['target' => $needs]))
+            ->icon('tabler-switch-horizontal')
+            ->color('warning')
+            // Hidden without the switch permission; switchLoaderAndInstall() re-checks it anyway.
+            ->visible(fn () => static::canSwitchLoader())
+            ->authorize(fn () => static::canSwitchLoader())
+            ->disabled(fn () => $this->activeInstall() !== null)
+            ->requiresConfirmation()
+            ->modalHeading(trans('modpacks-plus::strings.install.switch_heading', ['name' => $title, 'version' => $version['version_number'], 'target' => $needs]))
+            ->modalDescription(fn () => $this->switchDescription($target))
+            ->modalSubmitActionLabel(trans('modpacks-plus::strings.install.switch_confirm'))
+            ->action(fn () => $this->switchLoaderAndInstall($packId, $versionId));
     }
 
     /** Markdown from Modrinth, with raw HTML stripped and unsafe links dropped. */

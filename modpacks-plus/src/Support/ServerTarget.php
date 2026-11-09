@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Support;
 
 use App\Models\Egg;
 use App\Models\Server;
+use Illuminate\Support\Str;
 
 /**
  * What a server runs, read from the egg tags (`minecraft` + a loader tag, the same
@@ -52,6 +53,15 @@ final class ServerTarget
         }
 
         return $tagged ?? $official;
+    }
+
+    /** How a loader is written for people (NeoForge, Fabric, …). */
+    public static function loaderName(string $loader): string
+    {
+        return match (strtolower($loader)) {
+            'neoforge' => 'NeoForge',
+            default => Str::headline($loader),
+        };
     }
 
     /** The one loader tag of an egg tagged `minecraft`, else null. */

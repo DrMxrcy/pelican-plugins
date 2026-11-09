@@ -7,7 +7,6 @@ use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
 use DrMxrcy\ModpacksPlus\Support\EggVariableMap;
 use DrMxrcy\ModpacksPlus\Support\ServerTarget;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Str;
 
 /**
  * Finds the egg a server moves to for a loader, among the eggs the admin imported.
@@ -102,10 +101,7 @@ class LoaderEggResolver
 
     public static function loaderName(string $loader): string
     {
-        return match ($loader) {
-            'neoforge' => 'NeoForge',
-            default => Str::headline($loader),
-        };
+        return ServerTarget::loaderName($loader);
     }
 
     /** @throws InstallRefusedException */

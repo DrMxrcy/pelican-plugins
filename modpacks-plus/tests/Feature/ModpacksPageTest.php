@@ -3,8 +3,11 @@
 namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 
 use App\Enums\SubuserPermission;
+use App\Models\Egg;
+use App\Models\Mount;
 use App\Models\Role;
 use App\Models\Server;
+use App\Models\Subuser;
 use App\Models\User;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModpacksPlus\Filament\Server\Pages\ModpacksPage;
@@ -24,9 +27,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Spatie\Permission\Models\Permission;
 
 /**
  * Plan 30 step 5: the Modpacks page. Viewing needs file.read; installing and cancelling
@@ -343,7 +348,8 @@ class ModpacksPageTest extends TestCase
         $this->assertStringNotContainsString('<script>', $html);
         $this->assertStringNotContainsString('javascript:', $html);
         $this->assertSame(trans('modpacks-plus::strings.actions.install'), $labels['install_0'] ?? null);
-        $this->assertSame(trans('modpacks-plus::strings.install.needs', ['target' => 'Neoforge 1.21.1']), $labels['needs_1'] ?? null);
+        // The owner may install but not switch loaders (setting off).
+        $this->assertSame(trans('modpacks-plus::strings.install.ask_admin', ['target' => 'NeoForge 1.21.1']), $labels['needs_1'] ?? null);
     }
 
     public function test_install_and_cancel_buttons_are_hidden_without_install_permissions(): void
@@ -437,5 +443,213 @@ class ModpacksPageTest extends TestCase
             ->assertNotified(trans('modpacks-plus::strings.restore.nothing'));
 
         Queue::assertNotPushed(RestorePreviousFilesJob::class);
+    }
+
+    private function importNeoForgeEgg(string $name = 'NeoForge'): Egg
+    {
+        return LoaderEggResolverTest::makeEgg([
+            'uuid' => LoaderEggResolverTest::NEOFORGE_UUID,
+            'name' => $name,
+            'startup_commands' => ['Default' => 'java @unix_args.txt'],
+        ]);
+    }
+
+    private function actingAsRootAdminOn(Server $server): void
+    {
+        /** @var User $admin */
+        $admin = User::factory()->create();
+        $admin->syncRoles(Role::getRootAdmin());
+        $this->actingAs($admin);
+        Filament::setTenant($server);
+    }
+
+    private function actingAsAdminWith(Server $server, string $permission): void
+    {
+        /** @var Role $role */
+        $role = Role::factory()->create(['name' => 'Admin '.uniqid(), 'guard_name' => 'web']);
+        $role->givePermissionTo(Permission::findOrCreate($permission, 'web'));
+        /** @var User $admin */
+        $admin = User::factory()->create();
+        $admin->syncRoles($role);
+        $this->actingAs($admin);
+        Filament::setTenant($server);
+    }
+
+    /** The engine must never be reached (403s roll the test transaction back, so the DB can't tell). */
+    private function forbidSwitch(): void
+    {
+        $engine = Mockery::mock(InstallEngine::class);
+        $engine->shouldNotReceive('start');
+        $this->app->instance(InstallEngine::class, $engine);
+    }
+
+    public function test_owner_sees_ask_an_admin_and_a_direct_switch_call_is_403_with_the_setting_off(): void
+    {
+        $this->actingOn();
+        $this->importNeoForgeEgg();
+        $this->fakeTwoVersions();
+
+        $this->assertTrue(ModpacksPage::canInstall());
+        $this->assertFalse(ModpacksPage::canSwitchLoader());
+        [, $labels] = $this->detailView();
+        $this->assertSame(trans('modpacks-plus::strings.install.ask_admin', ['target' => 'NeoForge 1.21.1']), $labels['needs_1'] ?? null);
+        $this->assertArrayNotHasKey('switch_1', $labels);
+
+        $this->fakeModrinthApi('neoforge', '1.21.1');
+        $this->forbidSwitch();
+        Livewire::test(ModpacksPage::class)->call('switchLoaderAndInstall', Mrpack::PACK_ID, Mrpack::VERSION_ID)->assertForbidden();
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/version/'));
+    }
+
+    public function test_with_the_setting_on_the_owner_can_switch(): void
+    {
+        config()->set('modpacks-plus.allow_user_loader_switch', true);
+        $this->actingOn();
+        $egg = $this->importNeoForgeEgg();
+        $this->fakeTwoVersions();
+
+        $this->assertTrue(ModpacksPage::canSwitchLoader());
+        [, $labels] = $this->detailView();
+        $this->assertSame(trans('modpacks-plus::strings.install.switch', ['target' => 'NeoForge 1.21.1']), $labels['switch_1'] ?? null);
+
+        $this->fakeModrinthApi('neoforge', '1.21.1');
+        Livewire::test(ModpacksPage::class)
+            ->call('switchLoaderAndInstall', Mrpack::PACK_ID, Mrpack::VERSION_ID)
+            ->assertNotified(trans('modpacks-plus::strings.install.started', ['name' => 'Test <b>Pack</b>']));
+
+        $install = PackInstall::query()->firstOrFail();
+        $this->assertSame(['loader' => 'neoforge', 'minecraft' => '1.21.1', 'egg_id' => $egg->id, 'egg_name' => 'NeoForge'], $install->loader_switch);
+        $this->assertSame(InstallEngine::SWITCH_ORDER, array_column($install->steps ?? [], 'key'));
+        Queue::assertPushed(PrepareStep::class);
+    }
+
+    public function test_root_admin_and_update_server_admins_can_switch_with_the_setting_off(): void
+    {
+        $server = $this->actingOn();
+        $this->importNeoForgeEgg();
+        $this->fakeModrinthApi('neoforge', '1.21.1');
+
+        $this->actingAsRootAdminOn($server);
+        $this->assertTrue(ModpacksPage::canSwitchLoader());
+        Livewire::test(ModpacksPage::class)->call('switchLoaderAndInstall', Mrpack::PACK_ID, Mrpack::VERSION_ID)->assertOk();
+        $this->assertSame(1, PackInstall::query()->whereNotNull('loader_switch')->count());
+
+        PackInstall::query()->delete();
+        $this->actingAsAdminWith($server, 'update server');
+        $this->assertTrue(ModpacksPage::canSwitchLoader());
+        Livewire::test(ModpacksPage::class)->call('switchLoaderAndInstall', Mrpack::PACK_ID, Mrpack::VERSION_ID)->assertOk();
+        $this->assertSame(1, PackInstall::query()->whereNotNull('loader_switch')->count());
+    }
+
+    public function test_an_admin_with_only_view_server_cannot_open_the_page(): void
+    {
+        $server = $this->actingOn();
+        $this->actingAsAdminWith($server, 'view server');
+
+        $this->assertFalse(ModpacksPage::canAccess());
+        $this->assertFalse(ModpacksPage::canSwitchLoader());
+        Livewire::test(ModpacksPage::class)->assertForbidden();
+    }
+
+    public function test_an_admin_without_update_server_cannot_switch_even_with_the_install_permissions(): void
+    {
+        $server = $this->actingOn();
+        $this->importNeoForgeEgg();
+        $this->fakeModrinthApi('neoforge', '1.21.1');
+        $this->actingAsAdminWith($server, 'view server');
+        Subuser::query()->create(['user_id' => user()?->id, 'server_id' => $server->id, 'permissions' => array_map(fn (SubuserPermission $permission) => $permission->value, [SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS])]);
+        Filament::setTenant($server->fresh());
+        $this->forbidSwitch();
+
+        $this->assertTrue(ModpacksPage::canInstall());
+        $this->assertFalse(ModpacksPage::canSwitchLoader());
+        Livewire::test(ModpacksPage::class)->call('switchLoaderAndInstall', Mrpack::PACK_ID, Mrpack::VERSION_ID)->assertForbidden();
+    }
+
+    public function test_subuser_with_the_install_permissions_switches_only_when_the_setting_is_on(): void
+    {
+        $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $this->importNeoForgeEgg();
+        $this->fakeModrinthApi('neoforge', '1.21.1');
+
+        $this->assertFalse(ModpacksPage::canSwitchLoader());
+
+        config()->set('modpacks-plus.allow_user_loader_switch', true);
+        $this->assertTrue(ModpacksPage::canSwitchLoader());
+        Livewire::test(ModpacksPage::class)->call('switchLoaderAndInstall', Mrpack::PACK_ID, Mrpack::VERSION_ID)->assertOk();
+        $this->assertSame(1, PackInstall::query()->whereNotNull('loader_switch')->count());
+    }
+
+    public function test_subuser_with_the_setting_off_gets_403_on_a_direct_switch_call(): void
+    {
+        $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $this->importNeoForgeEgg();
+        $this->fakeModrinthApi('neoforge', '1.21.1');
+        $this->forbidSwitch();
+
+        Livewire::test(ModpacksPage::class)->call('switchLoaderAndInstall', Mrpack::PACK_ID, Mrpack::VERSION_ID)->assertForbidden();
+    }
+
+    #[DataProvider('eachInstallPermission')]
+    public function test_the_setting_never_lets_a_subuser_without_every_install_permission_switch(SubuserPermission $missing): void
+    {
+        config()->set('modpacks-plus.allow_user_loader_switch', true);
+        $granted = array_values(array_filter(self::INSTALL_PERMISSIONS, fn (SubuserPermission $permission) => $permission !== $missing));
+        $this->actingOn([SubuserPermission::FileRead, ...$granted]);
+        $this->importNeoForgeEgg();
+        $this->fakeModrinthApi('neoforge', '1.21.1');
+        $this->forbidSwitch();
+
+        $this->assertFalse(ModpacksPage::canSwitchLoader());
+        Livewire::test(ModpacksPage::class)->call('switchLoaderAndInstall', Mrpack::PACK_ID, Mrpack::VERSION_ID)->assertForbidden();
+    }
+
+    public function test_with_no_matching_egg_nothing_changes_and_the_message_names_the_egg(): void
+    {
+        $server = $this->actingOn();
+        $this->fakeModrinthApi('neoforge', '1.21.1');
+        $this->actingAsRootAdminOn($server);
+        $eggBefore = $server->fresh()?->egg_id;
+
+        Livewire::test(ModpacksPage::class)
+            ->call('switchLoaderAndInstall', Mrpack::PACK_ID, Mrpack::VERSION_ID)
+            ->assertNotified(trans('modpacks-plus::strings.install.refused'));
+
+        $this->assertSame(0, PackInstall::query()->count());
+        $this->assertSame($eggBefore, $server->fresh()?->egg_id);
+        Queue::assertNothingPushed();
+
+        /** @var ModpacksPage $page */
+        $page = Livewire::test(ModpacksPage::class)->instance();
+        $text = (string) (new \ReflectionMethod($page, 'switchDescription'))->invoke($page, ['loader' => 'neoforge', 'minecraft' => '1.21.1']);
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.reasons.egg_missing', ['detail' => 'NeoForge'])), $text);
+        $this->assertStringContainsString('NeoForge', $text);
+    }
+
+    public function test_switch_confirm_lists_exactly_what_resets_escaped(): void
+    {
+        $server = $this->actingOn();
+        $this->importNeoForgeEgg('Neo<b>Forge</b>');
+        $mount = Mount::query()->create(['uuid' => (string) Str::uuid(), 'name' => 'shared-maps', 'source' => '/srv/maps', 'target' => '/maps']);
+        $mount->eggs()->attach($server->egg_id);
+        $server->mounts()->attach($mount->id);
+        $open = Mount::query()->create(['uuid' => (string) Str::uuid(), 'name' => 'open-mount', 'source' => '/srv/open', 'target' => '/open']);
+        $server->mounts()->attach($open->id);
+        $server->forceFill(['startup' => 'java -jar <fabric>.jar', 'image' => 'ghcr.io/pelican-eggs/yolks:java_17'])->save();
+        $this->actingAsRootAdminOn($server);
+
+        /** @var ModpacksPage $page */
+        $page = Livewire::test(ModpacksPage::class)->instance();
+        $html = (string) (new \ReflectionMethod($page, 'switchDescription'))->invoke($page, ['loader' => 'neoforge', 'minecraft' => '1.21.1']);
+
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.install.reset_startup', ['from' => 'java -jar <fabric>.jar', 'to' => 'java @unix_args.txt'])), $html);
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.install.reset_image', ['from' => 'ghcr.io/pelican-eggs/yolks:java_17', 'to' => 'ghcr.io/pelican-eggs/yolks:java_21'])), $html);
+        $this->assertStringContainsString('MC_VERSION, NEOFORGE_VERSION', $html);
+        $this->assertStringContainsString('MINECRAFT_VERSION', $html);
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.install.reset_mounts', ['mounts' => 'shared-maps'])), $html);
+        $this->assertStringNotContainsString('open-mount', $html);
+        $this->assertStringContainsString('Neo&lt;b&gt;Forge&lt;/b&gt;', $html);
+        $this->assertStringNotContainsString('<b>Forge</b>', $html);
+        $this->assertStringNotContainsString('<fabric>', $html);
     }
 }

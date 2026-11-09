@@ -2,11 +2,9 @@
 
 namespace DrMxrcy\ModpacksPlus\Support;
 
-use Illuminate\Support\Str;
-
 /**
  * Whether a pack version can go onto a server as it is (same loader, same Minecraft
- * version). Loader switching is a later item, so anything else is "Needs <loader> <version>".
+ * version); anything else is "Needs <loader> <version>" (a loader switch, plan 35).
  */
 final class VersionMatch
 {
@@ -28,6 +26,6 @@ final class VersionMatch
         $loader = $loaderOk ? $serverLoader : ($loaders[0] ?? ($version['loaders'][0] ?? '?'));
         $minecraft = $versionOk ? $serverMinecraft : ($version['game_versions'][0] ?? '?');
 
-        return trim(Str::headline((string) $loader).' '.$minecraft);
+        return trim(ServerTarget::loaderName((string) $loader).' '.$minecraft);
     }
 }
