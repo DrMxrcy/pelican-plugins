@@ -1,0 +1,41 @@
+players-plus/tests/Feature/ActivityViewTest.php
+  s_1d8485e49bfacb::t_fdc52dd6865846 1-236
+players-plus/README.md
+  s_1d8485e49bfacb::t_8a7ed3476992e1 9-10,65-76,85-87
+players-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_04d7e5d7dd23d1 20-44
+players-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_ac1952d6ea77a2 20-44
+players-plus/resources/views/widgets/activity-heatmap.blade.php
+  s_1d8485e49bfacb::t_e5c273de00c02a 1-47
+players-plus/src/Filament/Server/Pages/ActivityPage.php
+  s_1d8485e49bfacb::t_a98c147ae9c626 1-62
+players-plus/src/Filament/Server/Widgets/ActivityHeatmapWidget.php
+  s_1d8485e49bfacb::t_17b77188b8d5f5 1-70
+players-plus/src/Filament/Server/Widgets/ActivityStatsWidget.php
+  s_1d8485e49bfacb::t_a189464a9a9e4c 1-48
+players-plus/src/Filament/Server/Widgets/PlayerCountChartWidget.php
+  s_1d8485e49bfacb::t_2cb10dac97ef20 1-99
+players-plus/src/Support/ActivityStats.php
+  s_1d8485e49bfacb::t_e052c9c5cdba9a 208,223-225
+players-plus/src/Support/ActivityViewer.php
+  s_1d8485e49bfacb::t_f91bf87ef426dc 1-27
+players-plus/tests/TestCase.php
+  s_1d8485e49bfacb::t_cf4d8dc7156b05 16,48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "41a5179f250490b044c44748404acceb1b4cd77a",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}

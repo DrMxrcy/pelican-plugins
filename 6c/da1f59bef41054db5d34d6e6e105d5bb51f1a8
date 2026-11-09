@@ -1,0 +1,27 @@
+players-plus/tests/Feature/RollupTest.php
+  s_1d8485e49bfacb::t_f4406caff5e1e0 1-152
+players-plus/database/migrations/2026_11_09_000005_create_pp_hourly_table.php
+  s_1d8485e49bfacb::t_667727a539f868 1-37
+players-plus/src/Console/Commands/RollupCommand.php
+  s_1d8485e49bfacb::t_92ea1d5da07d4e 1-75
+players-plus/src/Models/HourlyRollup.php
+  s_1d8485e49bfacb::t_1e05da40931717 1-48
+players-plus/src/Providers/PlayersPlusServiceProvider.php
+  s_1d8485e49bfacb::t_01cc6e47543da4 7,28-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6cda1f59bef41054db5d34d6e6e105d5bb51f1a8",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
