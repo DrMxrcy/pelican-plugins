@@ -8,6 +8,7 @@ use App\Models\Server;
 use App\Models\User;
 use DrMxrcy\PlayersPlus\Enums\ModerationAction;
 use DrMxrcy\PlayersPlus\Support\ConsoleText;
+use DrMxrcy\PlayersPlus\Support\ModerationLists;
 use DrMxrcy\PlayersPlus\Support\PlayerName;
 use DrMxrcy\PlayersPlus\Support\Settings;
 use LogicException;
@@ -83,6 +84,9 @@ class ModerationService
         if ($status < 200 || $status >= 300) {
             throw new ModerationException(ModerationException::FAILED);
         }
+
+        // The server rewrites the list files right after; the next read must not be the cached one.
+        ModerationLists::forget($server);
 
         // The panel's own event for console commands, so it reads like one typed in the console.
         Activity::event('server:console.command')

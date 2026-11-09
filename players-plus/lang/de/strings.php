@@ -74,6 +74,33 @@ return [
     'tabs' => [
         'online' => 'Online',
         'all' => 'Alle Spieler',
+        'banned' => 'Gebannt',
+        'ops' => 'Operatoren',
+        'whitelist' => 'Whitelist',
+    ],
+
+    'lists' => [
+        'description' => 'Aus :file, alle :seconds Sekunden aktualisiert.',
+        'error_title' => 'Die Liste konnte nicht gelesen werden',
+        'error_body' => ':file konnte nicht gelesen werden oder ist kein gültiges JSON. Prüfe sie im Dateimanager.',
+        'reason' => 'Grund',
+        'source' => 'Gebannt von',
+        'banned_at' => 'Gebannt',
+        'expires' => 'Läuft ab',
+        'forever' => 'Nie',
+        'level' => 'Stufe',
+        'banned' => [
+            'heading' => 'Gebannte Spieler',
+            'empty' => 'Niemand ist gebannt',
+        ],
+        'ops' => [
+            'heading' => 'Operatoren',
+            'empty' => 'Keine Operatoren',
+        ],
+        'whitelist' => [
+            'heading' => 'Whitelist',
+            'empty' => 'Niemand steht auf der Whitelist',
+        ],
     ],
 
     'all' => [

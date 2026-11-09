@@ -8,6 +8,7 @@ use DrMxrcy\PlayersPlus\Enums\SampleStatus;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\Support\Minecraft;
+use DrMxrcy\PlayersPlus\Support\ModerationLists;
 use DrMxrcy\PlayersPlus\Support\PlayerList;
 use DrMxrcy\PlayersPlus\Support\Settings;
 use Filament\Facades\Filament;
@@ -28,8 +29,9 @@ use Livewire\Attributes\Url;
 
 /**
  * Players of one Minecraft server: "Online now" from the newest stored sample, and "All
- * players" from the stored player records. Opening or refreshing this page never queries
- * the game server or the daemon.
+ * players" from the stored player records; opening or refreshing those two tabs never
+ * queries the game server or the daemon. The Banned, Operators and Whitelist tabs (users
+ * with file.read-content only) read the server's list files through the daemon, cached.
  */
 class PlayersPage extends Page implements HasTable
 {
@@ -38,6 +40,14 @@ class PlayersPage extends Page implements HasTable
     public const TAB_ONLINE = 'online';
 
     public const TAB_ALL = 'all';
+
+    public const TAB_BANNED = ModerationLists::BANNED;
+
+    public const TAB_OPS = ModerationLists::OPS;
+
+    public const TAB_WHITELIST = ModerationLists::WHITELIST;
+
+    private const LIST_TABS = [self::TAB_BANNED, self::TAB_OPS, self::TAB_WHITELIST];
 
     protected static string|\BackedEnum|null $navigationIcon = 'tabler-users';
 
@@ -89,7 +99,8 @@ class PlayersPage extends Page implements HasTable
 
     private function normalizeTab(): void
     {
-        if (!in_array($this->tab, [self::TAB_ONLINE, self::TAB_ALL], true)) {
+        $tabs = [self::TAB_ONLINE, self::TAB_ALL, ...(self::canViewLists() ? self::LIST_TABS : [])];
+        if (!in_array($this->tab, $tabs, true)) {
             $this->tab = self::TAB_ONLINE;
         }
     }
@@ -97,6 +108,36 @@ class PlayersPage extends Page implements HasTable
     private function showingAll(): bool
     {
         return $this->tab === self::TAB_ALL;
+    }
+
+    /** The list tab being shown, or null; checked against the permission on every call. */
+    private function showingList(): ?string
+    {
+        return in_array($this->tab, self::LIST_TABS, true) && self::canViewLists() ? $this->tab : null;
+    }
+
+    /** The list files are server files: only users who could open them themselves see them. */
+    public static function canViewLists(): bool
+    {
+        $server = Filament::getTenant();
+
+        return $server instanceof Server && (user()?->can(SubuserPermission::FileReadContent, $server) ?? false);
+    }
+
+    /**
+     * @param  ModerationLists::BANNED|ModerationLists::OPS|ModerationLists::WHITELIST  $list
+     * @return array{state: string, entries: list<array{name: string, uuid: string|null, reason: string|null, source: string|null, created: int|null, expires: int|null, level: int|null}>}
+     */
+    public function listState(string $list): array
+    {
+        if (!self::canViewLists()) {
+            return ['state' => ModerationLists::STATE_ERROR, 'entries' => []];
+        }
+
+        /** @var Server $server */
+        $server = Filament::getTenant();
+
+        return ModerationLists::read($server, $list);
     }
 
     public function sample(): ?Sample
@@ -113,7 +154,77 @@ class PlayersPage extends Page implements HasTable
 
     public function table(Table $table): Table
     {
+        $list = $this->showingList();
+        if ($list !== null) {
+            return $this->listTable($table, $list);
+        }
+
         return $this->showingAll() ? $this->allPlayersTable($table) : $this->onlineTable($table);
+    }
+
+    /**
+     * @param  ModerationLists::BANNED|ModerationLists::OPS|ModerationLists::WHITELIST  $list
+     */
+    private function listTable(Table $table, string $list): Table
+    {
+        $date = fn (?int $timestamp) => $timestamp === null ? null : Carbon::createFromTimestamp($timestamp);
+
+        $columns = [
+            ImageColumn::make('avatar')
+                ->label('')
+                ->state(fn (array $record) => PlayerList::avatarUrl($record['name'], $record['uuid']))
+                ->imageSize(32)
+                ->grow(false),
+            TextColumn::make('name')
+                ->label(trans('players-plus::strings.page.name'))
+                ->description(fn (array $record) => $record['uuid']),
+        ];
+
+        if ($list === ModerationLists::BANNED) {
+            $columns[] = TextColumn::make('reason')
+                ->label(trans('players-plus::strings.lists.reason'))
+                ->placeholder('—')
+                ->wrap();
+            $columns[] = TextColumn::make('source')
+                ->label(trans('players-plus::strings.lists.source'))
+                ->placeholder('—');
+            $columns[] = TextColumn::make('created')
+                ->label(trans('players-plus::strings.lists.banned_at'))
+                ->state(fn (array $record) => $date($record['created']))
+                ->since()
+                ->dateTimeTooltip()
+                ->placeholder('—');
+            $columns[] = TextColumn::make('expires')
+                ->label(trans('players-plus::strings.lists.expires'))
+                ->state(fn (array $record) => $date($record['expires']))
+                ->dateTime()
+                ->placeholder(trans('players-plus::strings.lists.forever'));
+        }
+
+        if ($list === ModerationLists::OPS) {
+            $columns[] = TextColumn::make('level')
+                ->label(trans('players-plus::strings.lists.level'))
+                ->placeholder('—')
+                ->badge()
+                ->color('gray');
+        }
+
+        return $table
+            ->records(function () use ($list) {
+                $rows = [];
+                foreach ($this->listState($list)['entries'] as $entry) {
+                    $rows[strtolower($entry['name'])] ??= $entry;
+                }
+
+                return $rows;
+            })
+            ->heading(trans("players-plus::strings.lists.$list.heading"))
+            ->description(trans('players-plus::strings.lists.description', ['file' => ModerationLists::FILES[$list], 'seconds' => ModerationLists::CACHE_SECONDS]))
+            ->paginated(false)
+            ->columns($columns)
+            ->emptyStateIcon('tabler-list')
+            ->emptyStateHeading(trans("players-plus::strings.lists.$list.empty"))
+            ->emptyStateDescription(null);
     }
 
     private function onlineTable(Table $table): Table
@@ -242,7 +353,8 @@ class PlayersPage extends Page implements HasTable
     public function content(Schema $schema): Schema
     {
         $status = fn () => $this->sample()?->status;
-        $online = fn () => !$this->showingAll();
+        $online = fn () => $this->tab === self::TAB_ONLINE;
+        $listError = fn () => ($list = $this->showingList()) !== null && $this->listState($list)['state'] === ModerationLists::STATE_ERROR;
 
         return $schema->components([
             Tabs::make(trans('players-plus::strings.page.title'))
@@ -257,7 +369,24 @@ class PlayersPage extends Page implements HasTable
                     self::TAB_ALL => Tab::make(self::TAB_ALL)
                         ->label(trans('players-plus::strings.tabs.all'))
                         ->icon('tabler-users'),
+                    self::TAB_BANNED => Tab::make(self::TAB_BANNED)
+                        ->label(trans('players-plus::strings.tabs.banned'))
+                        ->icon('tabler-ban')
+                        ->visible(fn () => self::canViewLists()),
+                    self::TAB_OPS => Tab::make(self::TAB_OPS)
+                        ->label(trans('players-plus::strings.tabs.ops'))
+                        ->icon('tabler-shield-star')
+                        ->visible(fn () => self::canViewLists()),
+                    self::TAB_WHITELIST => Tab::make(self::TAB_WHITELIST)
+                        ->label(trans('players-plus::strings.tabs.whitelist'))
+                        ->icon('tabler-list-check')
+                        ->visible(fn () => self::canViewLists()),
                 ]),
+            Callout::make(trans('players-plus::strings.lists.error_title'))
+                ->description(fn () => trans('players-plus::strings.lists.error_body', ['file' => ModerationLists::FILES[$this->showingList() ?? ModerationLists::OPS]]))
+                ->icon('tabler-file-alert')
+                ->color('danger')
+                ->visible($listError),
             Callout::make(trans('players-plus::strings.page.no_data_title'))
                 ->description(trans('players-plus::strings.page.no_data_body', ['minutes' => Settings::pollInterval()]))
                 ->icon('tabler-clock')

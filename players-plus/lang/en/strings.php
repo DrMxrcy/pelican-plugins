@@ -74,6 +74,33 @@ return [
     'tabs' => [
         'online' => 'Online',
         'all' => 'All players',
+        'banned' => 'Banned',
+        'ops' => 'Operators',
+        'whitelist' => 'Whitelist',
+    ],
+
+    'lists' => [
+        'description' => 'From :file, refreshed every :seconds seconds.',
+        'error_title' => 'The list could not be read',
+        'error_body' => ':file could not be read or is not valid JSON. Check it in the file manager.',
+        'reason' => 'Reason',
+        'source' => 'Banned by',
+        'banned_at' => 'Banned',
+        'expires' => 'Expires',
+        'forever' => 'Never',
+        'level' => 'Level',
+        'banned' => [
+            'heading' => 'Banned players',
+            'empty' => 'Nobody is banned',
+        ],
+        'ops' => [
+            'heading' => 'Operators',
+            'empty' => 'No operators',
+        ],
+        'whitelist' => [
+            'heading' => 'Whitelist',
+            'empty' => 'Nobody is on the whitelist',
+        ],
     ],
 
     'all' => [
