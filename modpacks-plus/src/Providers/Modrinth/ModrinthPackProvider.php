@@ -247,6 +247,7 @@ class ModrinthPackProvider implements PackProvider
 
         $files = [];
         $unmarked = [];
+        $markedServer = [];
         foreach (is_array($index['files'] ?? null) ? $index['files'] : [] as $file) {
             if (!is_array($file)) {
                 throw new PackUnavailableException('bad_index', 'files');
@@ -256,6 +257,10 @@ class ModrinthPackProvider implements PackProvider
             $marked = is_string($env['server'] ?? null);
             if (!$marked) {
                 $unmarked[count($files)] = true;
+            } elseif ($env['server'] !== 'unsupported') {
+                // Packs often mark every file server:required (Fabulously Optimized does), so
+                // a client-only mod's own Modrinth side is checked too.
+                $markedServer[count($files)] = true;
             }
             $files[] = PlanFile::fromArray([
                 'path' => $file['path'] ?? '',
@@ -266,7 +271,7 @@ class ModrinthPackProvider implements PackProvider
             ]);
         }
 
-        [$files, $clientOnly] = $this->applyProjectSides($files, $unmarked);
+        [$files, $clientOnly] = $this->applyProjectSides($files, $unmarked, $markedServer);
 
         $plan = $validator->validate($this->emptyPlan($packId, $version, $archive)->with([
             'minecraftVersion' => $minecraft,
@@ -286,24 +291,72 @@ class ModrinthPackProvider implements PackProvider
      * Plan 30 fix: a file the pack doesn't mark (no env.server) takes its Modrinth project's
      * server_side, looked up by sha512, so client-only mods (Sodium, EMF/ETF, …) are not
      * installed; files Modrinth doesn't know, or whose side is unknown, stay. An explicit
-     * env.server always wins. Client-only folders are skipped by the validator, so not looked up.
+     * env.server "unsupported" always wins. A file the pack marks server required/optional is
+     * skipped only when its Modrinth project says server_side "unsupported" (packs often mark
+     * every file required); if that second lookup fails, the pack's markers stand.
+     * Client-only folders are skipped by the validator, so not looked up.
      *
      * @param  array<int, PlanFile>  $files
      * @param  array<int, true>  $unmarked  indexes of files without env.server
+     * @param  array<int, true>  $markedServer  indexes of files the pack marks server required/optional
      * @return array{array<int, PlanFile>, array<int, array{path: string, project: string}>}
      *
-     * @throws PackUnavailableException the lookup failed (nothing is guessed through an outage)
+     * @throws PackUnavailableException the lookup for unmarked files failed (nothing is guessed through an outage)
      */
-    private function applyProjectSides(array $files, array $unmarked): array
+    private function applyProjectSides(array $files, array $unmarked, array $markedServer = []): array
+    {
+        [$files, $clientOnly] = $this->applyUnmarkedSides($files, $unmarked);
+
+        $hashes = $this->lookupHashes($files, $markedServer);
+        if ($hashes === []) {
+            return [$files, $clientOnly];
+        }
+
+        try {
+            $sides = $this->matcher->projectSides(array_values($hashes));
+        } catch (PackUnavailableException) {
+            return [$files, $clientOnly];
+        }
+
+        foreach ($hashes as $i => $sha512) {
+            $side = $sides[$sha512] ?? null;
+            if ($side !== null && $side['server_side'] === 'unsupported') {
+                $files[$i] = $files[$i]->with(['side' => 'unsupported']);
+                $clientOnly[] = ['path' => $files[$i]->path, 'project' => $side['project_slug']];
+            }
+        }
+
+        return [$files, $clientOnly];
+    }
+
+    /**
+     * @param  array<int, PlanFile>  $files
+     * @param  array<int, true>  $indexes
+     * @return array<int, string> index => lowercase sha512
+     */
+    private function lookupHashes(array $files, array $indexes): array
     {
         $hashes = [];
-        foreach (array_keys($unmarked) as $i) {
+        foreach (array_keys($indexes) as $i) {
             $sha512 = $files[$i]->hashes['sha512'] ?? null;
             if ($sha512 !== null && !PlanValidator::isClientOnlyOverride($files[$i]->path)) {
                 $hashes[$i] = strtolower($sha512);
             }
         }
 
+        return $hashes;
+    }
+
+    /**
+     * @param  array<int, PlanFile>  $files
+     * @param  array<int, true>  $unmarked
+     * @return array{array<int, PlanFile>, array<int, array{path: string, project: string}>}
+     *
+     * @throws PackUnavailableException
+     */
+    private function applyUnmarkedSides(array $files, array $unmarked): array
+    {
+        $hashes = $this->lookupHashes($files, $unmarked);
         if ($hashes === []) {
             return [$files, []];
         }

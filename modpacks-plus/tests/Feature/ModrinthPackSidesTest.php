@@ -69,7 +69,7 @@ class ModrinthPackSidesTest extends TestCase
      * @param  array<string, string>  $projectOf  path => Modrinth project id (files not listed are not on Modrinth)
      * @param  array<string, string>  $sideOf  project id => server_side
      */
-    private function resolve(array $indexFiles, array $projectOf, array $sideOf, bool $lookupFails = false): InstallPlan
+    private function resolve(array $indexFiles, array $projectOf, array $sideOf, bool $lookupFails = false, bool $projectsFail = false): InstallPlan
     {
         $archive = Mrpack::zip(['modrinth.index.json' => Mrpack::index($indexFiles)]);
 
@@ -92,7 +92,7 @@ class ModrinthPackSidesTest extends TestCase
         Http::fake([
             'api.modrinth.com/v2/version/'.Mrpack::VERSION_ID => Http::response(Mrpack::version($archive)),
             'api.modrinth.com/v2/version_files' => $lookupFails ? Http::response('down', 503) : Http::response($lookup === [] ? '{}' : $lookup, 200, ['Content-Type' => 'application/json']),
-            'api.modrinth.com/v2/projects*' => Http::response($projects),
+            'api.modrinth.com/v2/projects*' => $projectsFail ? Http::response('down', 503) : Http::response($projects),
             Mrpack::ARCHIVE_URL => Http::response($archive),
             '*' => Http::response('unexpected', 500),
         ]);
@@ -143,17 +143,44 @@ class ModrinthPackSidesTest extends TestCase
         Http::assertSent(fn (Request $request) => str_contains($request->url(), '/v2/projects?'));
     }
 
-    public function test_an_explicit_env_server_beats_the_project_side(): void
+    /** Packs like Fabulously Optimized mark every file server:required; Modrinth's "unsupported" still wins. */
+    public function test_a_client_only_mod_the_pack_marks_server_required_is_skipped(): void
     {
-        $required = Mrpack::file('mods/sodium.jar', 'sodium', 'https://cdn.modrinth.com/data/X/versions/v/sodium.jar', 'required');
+        $sodium = Mrpack::file('mods/sodium.jar', 'sodium', 'https://cdn.modrinth.com/data/X/versions/v/sodium.jar', 'required');
+        $lithium = Mrpack::file('mods/lithium.jar', 'lithium', 'https://cdn.modrinth.com/data/L/versions/l/lithium.jar', 'required');
 
-        $plan = $this->resolve([$required], ['mods/sodium.jar' => 'SODIUM01'], ['SODIUM01' => 'unsupported']);
+        $plan = $this->resolve(
+            [$sodium, $lithium],
+            ['mods/sodium.jar' => 'SODIUM01', 'mods/lithium.jar' => 'LITHIUM1'],
+            ['SODIUM01' => 'unsupported', 'LITHIUM1' => 'optional'],
+        );
 
-        $this->assertSame(['mods/sodium.jar'], self::paths($plan));
-        $this->assertSame([], $plan->skippedClientFiles);
+        $this->assertSame(['mods/lithium.jar'], self::paths($plan));
+        $this->assertSame(['mods/sodium.jar'], $plan->skippedClientFiles);
+        $this->assertSame([['path' => 'mods/sodium.jar', 'project' => 'sodium01-slug']], array_map(
+            fn (array $entry) => ['path' => $entry['path'], 'project' => $entry['project']],
+            $plan->clientOnlyBy,
+        ));
+    }
+
+    public function test_a_file_the_pack_marks_server_unsupported_stays_skipped_whatever_modrinth_says(): void
+    {
+        $file = Mrpack::file('mods/hud.jar', 'hud', 'https://cdn.modrinth.com/data/H/versions/h/hud.jar', 'unsupported');
+
+        $plan = $this->resolve([$file], ['mods/hud.jar' => 'HUD00001'], ['HUD00001' => 'required']);
+
+        $this->assertSame([], self::paths($plan));
+        $this->assertSame(['mods/hud.jar'], $plan->skippedClientFiles);
+    }
+
+    public function test_a_failed_lookup_for_marked_files_keeps_the_packs_markers(): void
+    {
+        $required = Mrpack::file('mods/lithium.jar', 'lithium', 'https://cdn.modrinth.com/data/L/versions/l/lithium.jar', 'required');
+
+        $plan = $this->resolve([$required], ['mods/lithium.jar' => 'LITHIUM1'], ['LITHIUM1' => 'unsupported'], projectsFail: true);
+
+        $this->assertSame(['mods/lithium.jar'], self::paths($plan));
         $this->assertSame([], $plan->clientOnlyBy);
-        // Every file is marked, so no project lookup is needed.
-        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/v2/projects'));
     }
 
     public function test_resource_and_shader_pack_files_are_never_written(): void
