@@ -25,8 +25,8 @@ _Full work log — every item, including internal/dev work. The curated public c
 - Browse, install, and update datapacks from the panel.
 
 ### 🐛 Fixed
-- Fresh install overwrites an untracked file with the same name
-- Importing a new plugin build over an older one marks the plugin Crashed until re-enabled
+- Installing a mod never overwrites a file you added yourself with the same name.
+- Documented how to update the plugin and recover if the panel marks it Crashed.
 
 ## v0.3.0 — 2026-11-08
 
@@ -36,7 +36,7 @@ _Full work log — every item, including internal/dev work. The curated public c
 - One click shows which installed mods have no download for your current Minecraft version.
 
 ### 🐛 Fixed
-- Dependencies installed automatically show no author in the Installed tab
+- Mods installed as dependencies now show their author.
 
 ## v0.2.0 — 2026-11-08
 
@@ -47,10 +47,10 @@ _Full work log — every item, including internal/dev work. The curated public c
 - The mod list only offers projects that have a download for your exact Minecraft version and loader.
 
 ### 🐛 Fixed
-- Enforce subuser file permissions on the Modrinth pages and actions
-- saveModMetadata/removeModMetadata overwrite metadata when reading it fails
-- Installed tab row keeps its old state after installing another version from the Versions modal
-- Page header labels ignore the panel language
+- Subusers can only install, update or remove mods when they have the matching file permissions.
+- Your installed mods list stays intact even if the server briefly can't be reached during an install.
+- Confirmed the Installed list refreshes after installing another version.
+- The page header now follows your panel language.
 
 ### ⚡ Improved
 - Requests to Modrinth now identify the plugin, as Modrinth asks.
