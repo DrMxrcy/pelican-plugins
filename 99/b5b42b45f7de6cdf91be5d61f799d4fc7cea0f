@@ -1,0 +1,43 @@
+modpacks-plus/tests/Feature/DiskBudgetInstallTest.php
+  s_1d8485e49bfacb::t_eb20afe72f0481 1-224
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_cde5a6b9cd04a2 145,232-234
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_f5bebf0239137c 145,232-234
+modpacks-plus/src/Exceptions/NotEnoughDiskException.php
+  s_1d8485e49bfacb::t_5c8f96f66d2ee7 1-16
+modpacks-plus/src/Filament/Server/Components/InstallProgress.php
+  s_1d8485e49bfacb::t_bd8fc010c71eb5 7,61-62,74-79
+modpacks-plus/src/Jobs/Steps/PrepareStep.php
+  s_1d8485e49bfacb::t_9ed37a611132e1 7,12-13,15,57-58,60-70,100-127
+modpacks-plus/src/Providers/CurseForge/CurseForgePackProvider.php
+  s_1d8485e49bfacb::t_76fb016b4a6d2b 98
+modpacks-plus/src/Services/PackSizes.php
+  s_1d8485e49bfacb::t_fc6f6e50c9fcb3 1-34
+modpacks-plus/src/Services/ServerDiskUsage.php
+  s_1d8485e49bfacb::t_03eca38a37953c 1-37
+modpacks-plus/src/Support/PlanValidator.php
+  s_1d8485e49bfacb::t_1bfa07f38913af 9,128-129,135,602-606
+modpacks-plus/tests/Support/FakeServerDisk.php
+  s_1d8485e49bfacb::t_f8a2a840633eb0 1-21
+modpacks-plus/tests/Support/InstallScenario.php
+  s_1d8485e49bfacb::t_4e38c2fc491191 17,34-35,54-57,88-89
+modpacks-plus/tests/Unit/PlanValidatorDiskBudgetTest.php
+  s_1d8485e49bfacb::t_abc629d4050632 1-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "99b5b42b45f7de6cdf91be5d61f799d4fc7cea0f",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
