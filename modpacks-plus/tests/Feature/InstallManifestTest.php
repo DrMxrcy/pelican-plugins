@@ -145,7 +145,7 @@ class InstallManifestTest extends TestCase
             'manifest' => [
                 ['path' => 'mods/ok.jar', 'size' => 3, 'hash' => 'sha1:'.sha1('abc')],
                 ['path' => '../escape.jar', 'size' => 3, 'hash' => 'sha1:'.sha1('abc')],
-                ['path' => 'mods/bad-hash.jar', 'size' => 3, 'hash' => 'md5:'.md5('abc')],
+                ['path' => 'mods/bad-hash.jar', 'size' => 3, 'hash' => 'sha256:'.hash('sha256', 'abc')],
                 ['path' => 'mods/short.jar', 'size' => 3, 'hash' => 'sha512:abc'],
                 ['path' => 'mods/negative.jar', 'size' => -1, 'hash' => 'sha1:'.sha1('abc')],
                 'not an entry',

@@ -97,7 +97,9 @@ class AtLauncherInstallTest extends TestCase
         $this->assertSame('cf-bytes', $this->files->files['mods/cf-mod.jar'] ?? null);
         $this->assertArrayNotHasKey('mods/client.jar', $this->files->files);
         $this->assertSame('a=1', $this->files->files['config/a.toml'] ?? null);
-        $this->assertSame("level-name=world\n", $this->files->files['server.properties']);
+        // Plan 36: the pack's server.properties is merged (its level-name never applies, the ports follow the allocation).
+        $port = (int) $server->allocation?->port;
+        $this->assertSame("level-name=world\nserver-port=$port\nquery.port=$port\n", $this->files->files['server.properties']);
         $this->assertArrayNotHasKey('start.sh', $this->files->files);
         $this->assertSame([], $this->files->violations);
         $this->assertSame([], $this->files->callsOf('pull'));
@@ -120,6 +122,8 @@ class AtLauncherInstallTest extends TestCase
         Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'curseforge.com'));
         $this->assertSame(1, $install->summary['md5_verified'] ?? null);
         $this->assertStringContainsString('md5', (string) InstallProgress::summary($install, true));
+        // Plan 36: the md5-only file is in the installed-files list, so the pack can be updated.
+        $this->assertSame('md5:'.md5('cf-bytes'), ($install->manifestEntries() ?? [])['mods/cf-mod.jar']['hash'] ?? null);
     }
 
     public function test_an_md5_mismatch_from_atlaunchers_cdn_is_never_written(): void

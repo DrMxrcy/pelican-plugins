@@ -14,7 +14,8 @@ use DrMxrcy\ModpacksPlus\Support\PlanValidator;
  * its size and hash, recorded at finalize. An update diffs the previous manifest against the
  * new version (PackDiff) and compares the server's files with it to find user changes.
  *
- * Entries: `{path, size, hash, kept}`, `hash` = `sha512:<hex>` or `sha1:<hex>`. Downloads use
+ * Entries: `{path, size, hash, kept}`, `hash` = `sha512:<hex>`, `sha1:<hex>` or (ATLauncher md5-only
+ * files, plan 32) `md5:<hex>`. Downloads use
  * the plan's strongest hash; overrides the sha512 of the archive entry written. `kept` marks a
  * file the user changed and an update kept: recorded with the pack's hash, so it still reads
  * as user-modified next time. Protected, client-only and skipped files are never recorded.
@@ -22,7 +23,7 @@ use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 final class InstallManifest
 {
     /** Hash algorithms a manifest entry may carry (hex lengths). */
-    public const ALGORITHMS = ['sha512' => 128, 'sha1' => 40];
+    public const ALGORITHMS = ['sha512' => 128, 'sha1' => 40, 'md5' => 32];
 
     /**
      * The manifest of a validated plan: downloads first, then overrides replacing the same path
@@ -41,7 +42,9 @@ final class InstallManifest
             if ($validator->isProtected($file->path)) {
                 continue;
             }
-            [$algorithm, $digest] = PlanValidator::preferredHash($file->hashes, $file->path);
+            // The digest the download was checked against (ATLauncher's md5 only for its md5-only
+            // files, plan 32); here it only tells whether the user changed the file since.
+            [$algorithm, $digest] = PlanValidator::fileHash($file);
             $entries[$file->path] = ['path' => $file->path, 'size' => $file->size, 'hash' => $algorithm.':'.$digest];
         }
 

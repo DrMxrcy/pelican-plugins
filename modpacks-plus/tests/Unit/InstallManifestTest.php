@@ -52,7 +52,8 @@ class InstallManifestTest extends TestCase
     public function test_split_and_match(): void
     {
         $this->assertSame(['sha1', sha1('a')], InstallManifest::splitHash('SHA1:'.strtoupper(sha1('a'))));
-        $this->assertNull(InstallManifest::splitHash('md5:'.md5('a')));
+        $this->assertSame(['md5', md5('a')], InstallManifest::splitHash('md5:'.md5('a')));
+        $this->assertNull(InstallManifest::splitHash('sha256:'.hash('sha256', 'a')));
         $this->assertNull(InstallManifest::splitHash('sha1:zz'));
         $this->assertNull(InstallManifest::splitHash(sha1('a')));
         $this->assertTrue(InstallManifest::matches('sha512:'.hash('sha512', 'x'), 'x'));
