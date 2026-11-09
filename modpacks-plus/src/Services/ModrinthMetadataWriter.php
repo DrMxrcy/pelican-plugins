@@ -8,6 +8,7 @@ use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthClient;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
+use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Illuminate\Support\Facades\Cache;
@@ -65,17 +66,27 @@ class ModrinthMetadataWriter
     /**
      * What happened, for the install summary. `status` is one of: written, unchanged (every
      * match already recorded, kept or conflicting), nothing (no mod of the pack is on
-     * Modrinth), lookup_failed, unreadable, invalid, busy, write_failed.
+     * Modrinth), lookup_failed, unreadable, invalid (also when the plan downloads the file
+     * itself), busy, write_failed. `skipped` lists jars whose project the project lookup
+     * left out.
      *
-     * @return array{status: string, added: int, updated: int, already: int, kept: list<string>, conflicts: list<string>}
+     * @return array{status: string, added: int, updated: int, already: int, kept: list<string>, conflicts: list<string>, skipped: list<string>}
      */
     public function record(Server $server, ServerFiles $files, PackInstall $install): array
     {
-        $result = ['status' => 'nothing', 'added' => 0, 'updated' => 0, 'already' => 0, 'kept' => [], 'conflicts' => []];
+        $result = ['status' => 'nothing', 'added' => 0, 'updated' => 0, 'already' => 0, 'kept' => [], 'conflicts' => [], 'skipped' => []];
 
         $plan = $install->installPlan();
         if ($plan === null) {
             return $result;
+        }
+
+        // Defence in depth behind PlanValidator (pack_ships_metadata): the file was downloaded
+        // from the pack, so its contents can't be trusted or merged into.
+        foreach ($plan->files as $file) {
+            if (PlanValidator::isModrinthMetadata($file->path)) {
+                return ['status' => 'invalid'] + $result;
+            }
         }
 
         try {
@@ -103,7 +114,12 @@ class ModrinthMetadataWriter
         if ($projects === null) {
             return ['status' => 'lookup_failed'] + $result;
         }
-        $matches = array_filter($matches, fn (array $version) => isset($projects[$version['project_id']]));
+        foreach ($matches as $filename => $version) {
+            if (!isset($projects[$version['project_id']])) {
+                $result['skipped'][] = (string) $filename;
+                unset($matches[$filename]);
+            }
+        }
         if ($matches === []) {
             return $result;
         }
@@ -281,8 +297,8 @@ class ModrinthMetadataWriter
      * @param  array<string, array{project_id: string, version_id: string, version_number: string}>  $matches
      * @param  array<string, array{slug: string, title: string}>  $projects
      * @param  array<string, string>  $tag
-     * @param  array{status: string, added: int, updated: int, already: int, kept: list<string>, conflicts: list<string>}  $result
-     * @return array{status: string, added: int, updated: int, already: int, kept: list<string>, conflicts: list<string>}
+     * @param  array{status: string, added: int, updated: int, already: int, kept: list<string>, conflicts: list<string>, skipped: list<string>}  $result
+     * @return array{status: string, added: int, updated: int, already: int, kept: list<string>, conflicts: list<string>, skipped: list<string>}
      */
     private function merge(Server $server, ServerFiles $files, array $matches, array $projects, array $tag, array $result): array
     {

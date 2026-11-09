@@ -317,7 +317,37 @@ class ModrinthMetadataWriterTest extends TestCase
         $result = $this->record();
 
         $this->assertSame(1, $result['added']);
+        $this->assertSame(['lithium.jar'], $result['skipped']);
         $this->assertSame(['sodium.jar'], array_column(json_decode($this->files->files[self::PATH], true)['installed_mods'], 'filename'));
+    }
+
+    public function test_a_plan_that_downloads_the_metadata_file_itself_is_refused(): void
+    {
+        $this->fakeModrinth();
+        $this->files->seed([self::PATH => '{"installed_mods": []}']);
+
+        // Defence in depth behind PlanValidator's pack_ships_metadata.
+        $result = $this->record($this->install([
+            self::file('mods/sodium.jar', 'sodium-bytes'),
+            self::file('MODS/.Modrinth-Metadata.json', '{"installed_mods": []}'),
+        ]));
+
+        $this->assertSame('invalid', $result['status']);
+        $this->assertSame([], $this->files->callsOf('read'));
+        $this->assertSame([], $this->files->callsOf('write'));
+        Http::assertNothingSent();
+    }
+
+    public function test_a_directory_at_the_metadata_path_is_unreadable(): void
+    {
+        $this->fakeModrinth();
+        $this->files->seed([self::PATH.'/' => '']);
+
+        $result = $this->record();
+
+        $this->assertSame('unreadable', $result['status']);
+        $this->assertSame([], $this->files->callsOf('read'));
+        $this->assertSame([], $this->files->callsOf('write'));
     }
 
     public function test_an_oversized_file_is_unreadable_and_never_downloaded(): void

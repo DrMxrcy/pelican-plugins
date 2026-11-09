@@ -321,6 +321,12 @@ final class PlanValidator
         foreach ($plan->files as $file) {
             $path = $this->normalisePath($file->path);
 
+            // Plan 33: only a hostile or broken pack lists the file Modrinth Plus trusts as a
+            // download (with a URL and hash of its choosing), client-only or not.
+            if (self::isModrinthMetadata($path)) {
+                throw new UnsafePlanException('pack_ships_metadata', $path);
+            }
+
             if ($file->side === 'unsupported') {
                 $skipped[] = $path;
 

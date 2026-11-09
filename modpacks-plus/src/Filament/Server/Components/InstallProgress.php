@@ -143,7 +143,7 @@ final class InstallProgress
             ]);
         }
 
-        foreach (['kept', 'conflicts'] as $list) {
+        foreach (['kept', 'conflicts', 'skipped'] as $list) {
             if (!empty($result[$list]) && is_array($result[$list])) {
                 $lines[] = trans('modpacks-plus::strings.summary.metadata_'.$list, ['files' => implode(', ', array_map('strval', $result[$list]))]);
             }

@@ -192,4 +192,12 @@ class ModrinthMetadataHandoffTest extends TestCase
         $this->assertSame('lookup_failed', $install->summary['modrinth_metadata']['status'] ?? null);
         $this->assertArrayNotHasKey(self::PATH, $this->files->files);
     }
+
+    public function test_the_summary_lists_mods_skipped_for_a_missing_project(): void
+    {
+        $install = new PackInstall();
+        $install->summary = ['modrinth_metadata' => ['status' => 'written', 'added' => 1, 'updated' => 0, 'skipped' => ['lithium.jar']]];
+
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.summary.metadata_skipped', ['files' => 'lithium.jar'])), InstallProgress::summary($install)->toHtml());
+    }
 }

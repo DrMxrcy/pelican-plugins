@@ -513,6 +513,26 @@ class PlanValidatorTest extends TestCase
         ];
     }
 
+    /** @return array<string, array{string, string}> */
+    public static function metadataDownloads(): array
+    {
+        return [
+            'mods' => ['mods/.modrinth-metadata.json', 'required'],
+            'plugins, other case' => ['Plugins/.MODRINTH-metadata.json', 'required'],
+            'even when marked client-only' => ['mods/.modrinth-metadata.json', 'unsupported'],
+        ];
+    }
+
+    /** Plan 33 review: only a hostile or broken pack lists the metadata file as a download. */
+    #[DataProvider('metadataDownloads')]
+    public function test_a_pack_listing_the_modrinth_metadata_file_as_a_download_is_rejected(string $path, string $side): void
+    {
+        $this->assertRejected(fn () => $this->validator()->validate($this->plan([
+            $this->file(['path' => 'mods/ok.jar']),
+            $this->file(['path' => $path, 'side' => $side, 'urls' => ['https://github.com/o/r/releases/download/v1/meta.json']]),
+        ])), 'pack_ships_metadata');
+    }
+
     /** Plan 33 review: a pack must not be able to pre-seed what Modrinth Plus trusts as installed. */
     #[DataProvider('metadataOverrides')]
     public function test_an_override_of_the_modrinth_metadata_file_is_skipped(string $entry, string $path): void
