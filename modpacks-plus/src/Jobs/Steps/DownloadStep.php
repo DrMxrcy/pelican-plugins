@@ -56,6 +56,8 @@ class DownloadStep extends InstallStep
 
         $index = (int) $install->progressValue('download_index', 0);
         $done = 0;
+        // An update (plan 36) leaves unchanged files and the user's kept changes alone.
+        $skip = array_flip(array_filter((array) $install->progressValue('write_skip', []), 'is_string'));
 
         while ($index < count($plan->files)) {
             if ($done >= $batch || $this->outOfTime()) {
@@ -63,14 +65,16 @@ class DownloadStep extends InstallStep
                 return StepResult::again();
             }
 
-            // Plan 32: a panel fetch only starts with time left in this job for it and the write.
-            if (in_array($plan->files[$index]->verify, PlanFile::PANEL_FETCHED, true) && PanelDownload::timeout($this->elapsedSeconds()) === null) {
-                return StepResult::again();
-            }
+            if (!isset($skip[$plan->files[$index]->path])) {
+                // Plan 32: a panel fetch only starts with time left in this job for it and the write.
+                if (in_array($plan->files[$index]->verify, PlanFile::PANEL_FETCHED, true) && PanelDownload::timeout($this->elapsedSeconds()) === null) {
+                    return StepResult::again();
+                }
 
-            $result = $this->placeOne($install, $server, $engine, $validator, $plan->files[$index], $index, $caps);
-            if ($result !== null) {
-                return $result;
+                $result = $this->placeOne($install, $server, $engine, $validator, $plan->files[$index], $index, $caps);
+                if ($result !== null) {
+                    return $result;
+                }
             }
 
             $index++;

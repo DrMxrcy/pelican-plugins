@@ -29,6 +29,11 @@ return [
         'mirror' => (bool) env('MODPACKS_PLUS_CURSEFORGE_MIRROR', false),
     ],
 
+    // server.properties keys kept from the server's own file when a pack ships one (plan 36), comma
+    // separated. Unset: the default list (PropertiesPreserver::DEFAULT_KEYS). level-name is always
+    // kept and the ports always follow the panel allocation, whatever this says.
+    'preserved_properties' => env('MODPACKS_PLUS_PRESERVED_PROPERTIES'),
+
     // Files pulled per download job; cancel takes effect between batches.
     'download_batch' => (int) env('MODPACKS_PLUS_DOWNLOAD_BATCH', 10),
 

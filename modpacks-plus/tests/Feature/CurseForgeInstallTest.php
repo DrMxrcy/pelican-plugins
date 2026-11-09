@@ -200,7 +200,11 @@ class CurseForgeInstallTest extends TestCase
             $this->assertArrayNotHasKey($launcher, $this->files->files);
         }
         $this->assertSame('eula=true', $this->files->files['eula.txt']);
-        $this->assertSame("level-name=world\n", $this->files->files['server.properties']);
+        // Plan 36: the server pack's server.properties is merged, never written over the server's;
+        // its level-name can't repoint the world, and the ports follow the allocation.
+        $port = (int) $server->allocation?->port;
+        $this->assertSame("level-name=world\nserver-port=$port\nquery.port=$port\n", $this->files->files['server.properties']);
+        $this->assertSame("level-name=world\n", $this->files->files[$install->moved_aside_path.'/server.properties'] ?? null);
         $this->assertSame('level', $this->files->files['world/level.dat']);
         $this->assertSame([], $this->files->violations);
 

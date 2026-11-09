@@ -53,6 +53,8 @@ class OverridesStep extends InstallStep
         // filesystems are, so `Mods/x.jar` is a different (pre-existing) file than `mods/x.jar`.
         $downloaded = array_flip(array_map(fn (PlanFile $file) => $file->path, $plan->files));
         $files = $this->files();
+        // An update (plan 36) leaves unchanged files and the user's kept changes alone.
+        $skip = array_flip(array_filter((array) $install->progressValue('write_skip', []), 'is_string'));
 
         try {
             while ($index < count($plan->overrides)) {
@@ -68,7 +70,7 @@ class OverridesStep extends InstallStep
 
                 if ($validator->isProtected($entry->path)) {
                     $install->addLog('warning', 'override_protected', ['path' => $entry->path]);
-                } else {
+                } elseif (!isset($skip[$entry->path])) {
                     $pending = $install->progressValue('pending_override');
                     $stat = $files->stat($server, $entry->path);
 

@@ -109,6 +109,62 @@ class PropertiesPreserverTest extends TestCase
         $this->assertSame(['path' => 'C:\\\\'], PropertiesPreserver::values("path=C:\\\\\n"));
     }
 
+    public function test_a_pack_never_sets_level_name_even_when_the_server_has_none(): void
+    {
+        $merged = PropertiesPreserver::merge("motd=hi\n", "level-name=mods\nmotd=pack\npvp=true\n", [], 25565);
+
+        $this->assertArrayNotHasKey('level-name', PropertiesPreserver::values($merged));
+        $this->assertSame("motd=pack\npvp=true\nserver-port=25565\nquery.port=25565\n", $merged);
+
+        // Nor with an empty preserved list and no server file at all.
+        $this->assertArrayNotHasKey('level-name', PropertiesPreserver::values(PropertiesPreserver::merge('', "level-name=../../etc\n", [], null)));
+    }
+
+    public function test_a_pack_never_sets_the_ports(): void
+    {
+        // With an allocation port: the allocation wins over the pack.
+        $values = PropertiesPreserver::values(PropertiesPreserver::merge("motd=x\n", "server-port=1\nquery.port=2\n", [], 25570));
+        $this->assertSame(['25570', '25570'], [$values['server-port'], $values['query.port']]);
+
+        // Without one: the server's values, and the pack's never written when the server has none.
+        $values = PropertiesPreserver::values(PropertiesPreserver::merge("server-port=25565\n", "server-port=1\nquery.port=2\n", [], null));
+        $this->assertSame('25565', $values['server-port']);
+        $this->assertArrayNotHasKey('query.port', $values);
+        $this->assertSame("motd=x\n", PropertiesPreserver::merge("motd=x\n", "server-port=1\nquery.port=2\n", [], 0));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function hostileLevelNames(): array
+    {
+        return [
+            'traversal' => ['../outside'],
+            'absolute' => ['/etc'],
+            'backslash' => ['a\\b'],
+            'mods' => ['mods'],
+            'config subfolder' => ['config/world'],
+            'own folder' => ['.modpacks-plus/x'],
+            'case' => ['MODS'],
+            'empty' => [''],
+        ];
+    }
+
+    #[DataProvider('hostileLevelNames')]
+    public function test_a_hostile_level_name_on_the_server_fails_closed(string $levelName): void
+    {
+        $this->expectException(UnsafePlanException::class);
+        $this->expectExceptionMessageMatches('/unsafe_level_name/');
+
+        PropertiesPreserver::merge("level-name=$levelName\n", "motd=pack\n", PropertiesPreserver::DEFAULT_KEYS, 25565);
+    }
+
+    public function test_safe_level_names_pass(): void
+    {
+        foreach (['world', 'survival', 'saves/world', 'my world'] as $name) {
+            PropertiesPreserver::assertLevelName($name);
+        }
+        $this->addToAssertionCount(1);
+    }
+
     public function test_the_admin_list_is_sanitised(): void
     {
         $this->assertSame(['motd', 'pvp', 'query.port'], PropertiesPreserver::keys("motd, pvp\nquery.port ,motd"));

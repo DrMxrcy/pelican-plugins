@@ -103,14 +103,25 @@ final class InstallProgress
             $lines[] = trans('modpacks-plus::strings.summary.backup_skipped');
         }
 
-        if (!empty($summary['moved'])) {
+        $update = is_array($summary['update'] ?? null) ? $summary['update'] : null;
+        if ($update !== null) {
+            array_push($lines, ...self::updateLines($update, (string) ($summary['moved_aside_path'] ?? '')));
+        } elseif (!empty($summary['moved'])) {
             $lines[] = trans('modpacks-plus::strings.summary.moved', [
                 'folders' => implode(', ', array_map('strval', (array) $summary['moved'])),
                 'path' => (string) ($summary['moved_aside_path'] ?? ''),
             ]);
         }
 
-        if (isset($summary['files_total'])) {
+        if (!empty($summary['fresh_world']) && is_array($summary['fresh_world'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.fresh_world', ['paths' => implode(', ', array_map('strval', $summary['fresh_world'])), 'path' => (string) ($summary['moved_aside_path'] ?? '')]);
+        }
+
+        if (is_string($summary['properties'] ?? null) && trans()->has('modpacks-plus::strings.summary.properties.'.$summary['properties'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.properties.'.$summary['properties'], ['path' => (string) ($summary['moved_aside_path'] ?? '')]);
+        }
+
+        if (isset($summary['files_total']) && $update === null) {
             $lines[] = trans('modpacks-plus::strings.summary.downloaded', ['done' => $summary['downloaded'] ?? 0, 'total' => $summary['files_total']]);
         }
         if (isset($summary['overrides_total'])) {
@@ -190,6 +201,38 @@ final class InstallProgress
         }
 
         return new HtmlString('<ul>'.implode('', array_map(fn (string $line) => '<li>'.e($line).'</li>', $lines)).'</ul>'.self::manualList($summary['manual_files'] ?? null));
+    }
+
+    /**
+     * What an update did (plan 36): counts, the user's files it kept or moved, dropped files.
+     *
+     * @param  array<string, mixed>  $update
+     * @return array<int, string>
+     */
+    private static function updateLines(array $update, string $aside): array
+    {
+        $list = fn (string $key): string => implode(', ', array_map('strval', is_array($update[$key] ?? null) ? $update[$key] : []));
+        $lines = [trans('modpacks-plus::strings.summary.update', [
+            'added' => (int) ($update['added'] ?? 0),
+            'changed' => (int) ($update['changed'] ?? 0),
+            'removed' => (int) ($update['removed'] ?? 0),
+            'unchanged' => (int) ($update['unchanged'] ?? 0),
+        ])];
+
+        if (!empty($update['kept_modified'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.update_kept', ['paths' => $list('kept_modified')]);
+        }
+        if (!empty($update['overwritten'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.update_overwritten', ['paths' => $list('overwritten'), 'path' => $aside]);
+        }
+        if (!empty($update['removed_paths'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.update_removed', ['paths' => $list('removed_paths'), 'path' => $aside]);
+        }
+        if (!empty($update['not_ours'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.update_not_ours', ['paths' => $list('not_ours'), 'path' => $aside]);
+        }
+
+        return $lines;
     }
 
     /**

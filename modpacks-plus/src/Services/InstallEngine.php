@@ -19,9 +19,12 @@ use DrMxrcy\ModpacksPlus\Jobs\Steps\MoveAsideStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\OverridesStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\PrepareStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\PreserveStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\PropertiesStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\ReinstallStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\RestorePreservedStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\SnapshotStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\UpdateApplyStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\UpdateDiffStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
@@ -50,7 +53,30 @@ class InstallEngine
         MoveAsideStep::KEY => MoveAsideStep::class,
         DownloadStep::KEY => DownloadStep::class,
         OverridesStep::KEY => OverridesStep::class,
+        PropertiesStep::KEY => PropertiesStep::class,
         FinalizeStep::KEY => FinalizeStep::class,
+    ];
+
+    /** The update steps (step key => job class, plan 36). */
+    public const UPDATE_STEPS = [
+        UpdateDiffStep::KEY => UpdateDiffStep::class,
+        UpdateApplyStep::KEY => UpdateApplyStep::class,
+    ];
+
+    /**
+     * Run order of an update to a newer version of the installed pack (plan 36): decide per
+     * file (old manifest, new version, the server's files), move what goes aside, write only
+     * what is new or changed, merge server.properties.
+     */
+    public const UPDATE_ORDER = [
+        PrepareStep::KEY,
+        BackupStep::KEY,
+        UpdateDiffStep::KEY,
+        UpdateApplyStep::KEY,
+        DownloadStep::KEY,
+        OverridesStep::KEY,
+        PropertiesStep::KEY,
+        FinalizeStep::KEY,
     ];
 
     /** The loader-switch steps (step key => job class). */
@@ -81,6 +107,7 @@ class InstallEngine
         RestorePreservedStep::KEY,
         DownloadStep::KEY,
         OverridesStep::KEY,
+        PropertiesStep::KEY,
         FinalizeStep::KEY,
     ];
 
@@ -99,6 +126,10 @@ class InstallEngine
         ReinstallStep::KEY => 10,
         AwaitReinstallStep::KEY => 20,
         RestorePreservedStep::KEY => 20,
+        // Include waiting for the server to stop.
+        UpdateDiffStep::KEY => 30,
+        UpdateApplyStep::KEY => 30,
+        PropertiesStep::KEY => 20,
     ];
 
     /** A chain whose heartbeat is older than this is considered lost and resumed. */
@@ -112,11 +143,20 @@ class InstallEngine
      * A loader switch passes its target (the caller checked who may switch):
      *
      * @param  array{loader: string, minecraft: string, egg_id: int, egg_name: string}|null  $loaderSwitch
+     * @param  array{update?: bool, fresh_world?: bool, overwrite_changes?: bool}  $options  plan 36: `update` applies
+     *                                                                                       the version as a diff of the
+     *                                                                                       installed same pack (never
+     *                                                                                       with a loader switch)
      *
      * @throws InstallRefusedException
      */
-    public function start(Server $server, ?User $user, string $provider, string $packId, string $versionId, string $name, ?string $versionNumber = null, ?string $icon = null, ?array $loaderSwitch = null): PackInstall
+    public function start(Server $server, ?User $user, string $provider, string $packId, string $versionId, string $name, ?string $versionNumber = null, ?string $icon = null, ?array $loaderSwitch = null, array $options = []): PackInstall
     {
+        $update = !empty($options['update']);
+        if ($update && $loaderSwitch !== null) {
+            throw new InstallRefusedException('update_needs_switch');
+        }
+
         // Waits re-dispatch themselves; the sync queue would run them inline, forever.
         if (config('queue.default') === 'sync') {
             throw new InstallRefusedException('queue_required');
@@ -145,7 +185,22 @@ class InstallEngine
                 throw new InstallRefusedException('preserved_pending', (string) $pending->preserved_path);
             }
 
-            $order = $loaderSwitch !== null ? self::SWITCH_ORDER : array_keys(self::STEPS);
+            // The pack this one replaces: the newest installed one (plan 36).
+            $previous = PackInstall::query()->where('server_id', $server->id)->where('status', PackInstall::STATUS_INSTALLED)->latest('id')->first();
+            if ($update && ($previous === null || $previous->provider !== $provider || $previous->pack_id !== $packId || $previous->manifestEntries() === null)) {
+                throw new InstallRefusedException('update_no_manifest', (string) $previous?->name);
+            }
+            $mode = match (true) {
+                $update => PackInstall::MODE_UPDATE,
+                $previous !== null && ($previous->provider !== $provider || $previous->pack_id !== $packId) => PackInstall::MODE_SWITCH,
+                default => PackInstall::MODE_INSTALL,
+            };
+
+            $order = match (true) {
+                $loaderSwitch !== null => self::SWITCH_ORDER,
+                $update => self::UPDATE_ORDER,
+                default => array_keys(self::STEPS),
+            };
             $first = $order[0];
             $install = PackInstall::query()->create([
                 'server_id' => $server->id,
@@ -157,6 +212,12 @@ class InstallEngine
                 'version_number' => $versionNumber !== null ? mb_strimwidth($versionNumber, 0, 250, '…') : null,
                 'icon' => $icon !== null && str_starts_with($icon, 'https://') ? $icon : null,
                 'status' => PackInstall::STATUS_INSTALLING,
+                'mode' => $mode,
+                'options' => [
+                    'fresh_world' => !$update && !empty($options['fresh_world']),
+                    'overwrite_changes' => $update && !empty($options['overwrite_changes']),
+                ],
+                'previous_install_id' => $previous?->id,
                 'current_step' => $first,
                 'seq' => 1,
                 'steps' => array_map(fn (string $key) => ['key' => $key, 'status' => PackInstall::STEP_PENDING, 'started_at' => null, 'finished_at' => null], $order),
@@ -248,7 +309,7 @@ class InstallEngine
     /** @return class-string<InstallStep>|null */
     public static function stepClass(?string $step): ?string
     {
-        return $step === null ? null : (self::STEPS[$step] ?? self::SWITCH_STEPS[$step] ?? null);
+        return $step === null ? null : (self::STEPS[$step] ?? self::SWITCH_STEPS[$step] ?? self::UPDATE_STEPS[$step] ?? null);
     }
 
     /**
@@ -367,6 +428,11 @@ class InstallEngine
             // Plan 32 security review: files checked only against ATLauncher's md5.
             'md5_verified' => $plan !== null ? count(array_filter($plan->files, fn (PlanFile $file) => $file->verify === PlanFile::VERIFY_ATLAUNCHER_MD5)) : 0,
             'modrinth_metadata' => $install->progressValue('modrinth_metadata'),
+            // Plan 36: install, switch or update, and what an update did per file.
+            'mode' => $install->mode,
+            'update' => $install->mode === PackInstall::MODE_UPDATE ? $install->progressValue('update_summary') : null,
+            'properties' => $install->progressValue('properties'),
+            'fresh_world' => $install->progressValue('fresh_world_moved'),
             'loader_switch' => $install->isLoaderSwitch() ? [
                 'loader' => $install->loader_switch['loader'] ?? null,
                 'minecraft' => $install->loader_switch['minecraft'] ?? null,

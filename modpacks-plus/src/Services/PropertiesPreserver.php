@@ -3,6 +3,7 @@
 namespace DrMxrcy\ModpacksPlus\Services;
 
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
+use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 
 /**
  * Merges a pack's `server.properties` into the server's own (plan 36). Pure.
@@ -10,8 +11,14 @@ use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
  * The server's file is the base: its comments, blank lines, key order and keys the pack
  * doesn't know are kept as they are. Then:
  * - a key in the preserved list keeps the server's value (when the server has the key);
- * - `level-name` is always preserved: it says where the world is, and no pack may repoint it;
- * - the port keys (`server-port`, `query.port`) always follow the panel allocation;
+ * - `level-name` never comes from the pack: it says where the world is, and a pack naming it
+ *   (`mods`, `config`, `../x`) could make a pack folder the world or move the world out of the
+ *   protected set. The server's value is kept; without one the pack's line is dropped (the
+ *   server then uses its default, `world`). A level-name that is written is checked like a world
+ *   path (relative, no `..` or backslash) and may not be a pack or move-aside folder
+ *   (`unsafe_level_name`);
+ * - the port keys (`server-port`, `query.port`) always follow the panel allocation; without one
+ *   the server's values are kept and the pack's never used;
  * - every other key the pack sets takes the pack's value; keys only the pack has are appended.
  *
  * Java properties allow escaped keys and line continuations, which could hide or fake a key.
@@ -31,6 +38,9 @@ final class PropertiesPreserver
 
     /** Always set to the server's allocation port. */
     public const PORT_KEYS = ['server-port', 'query.port'];
+
+    /** Top-level folders a world may never be named (pack folders the install moves, the plugin's own). */
+    public const NOT_WORLD_FOLDERS = ['mods', 'config', 'defaultconfigs', 'kubejs', 'scripts', '.modpacks-plus'];
 
     /** A key the admin list may contain. */
     public const KEY_PATTERN = '/^[A-Za-z0-9._\-]{1,64}$/';
@@ -150,13 +160,16 @@ final class PropertiesPreserver
         $incomingLines = self::parse($incoming);
         $incomingValues = self::values($incoming);
 
-        $keep = array_flip(array_merge($preserved, self::ALWAYS_KEYS, $port === null ? self::PORT_KEYS : []));
         $forced = $port !== null && $port > 0 && $port <= 65535 ? array_fill_keys(self::PORT_KEYS, (string) $port) : [];
+        // Never from the pack: level-name always, the ports when there is no allocation port.
+        $serverOnly = array_flip(array_merge(self::ALWAYS_KEYS, $forced === [] ? self::PORT_KEYS : []));
+        $keep = array_flip($preserved) + $serverOnly;
 
         $final = function (string $key) use ($keep, $forced, $baseValues, $incomingValues): string {
             return match (true) {
                 isset($forced[$key]) => $forced[$key],
                 isset($keep[$key]) && array_key_exists($key, $baseValues) => $baseValues[$key],
+                // Server-only keys the server lacks are not written (see the loops below).
                 array_key_exists($key, $incomingValues) => $incomingValues[$key],
                 default => $baseValues[$key] ?? '',
             };
@@ -180,7 +193,7 @@ final class PropertiesPreserver
 
         foreach ($incomingLines as $line) {
             $key = (string) $line['key'];
-            if ($line['type'] === 'pair' && !isset($seen[$key])) {
+            if ($line['type'] === 'pair' && !isset($seen[$key]) && !isset($serverOnly[$key])) {
                 $seen[$key] = true;
                 $out[] = $key.'='.$final($key);
             }
@@ -192,6 +205,10 @@ final class PropertiesPreserver
             }
         }
 
+        if (array_key_exists('level-name', $baseValues)) {
+            self::assertLevelName($baseValues['level-name']);
+        }
+
         $eol = str_contains($current, "\r\n") ? "\r\n" : "\n";
         $merged = implode($eol, $out).$eol;
         if (strlen($merged) > self::MAX_BYTES) {
@@ -199,5 +216,20 @@ final class PropertiesPreserver
         }
 
         return $merged;
+    }
+
+    /**
+     * A level-name that may be written: a relative world path (no `..`, not absolute, no
+     * backslash or control character) whose first folder is not a pack or move-aside folder.
+     *
+     * @throws UnsafePlanException `unsafe_level_name`
+     */
+    public static function assertLevelName(string $value): void
+    {
+        $first = strtolower(explode('/', $value)[0]);
+        if ($value === '' || str_contains($value, '\\') || preg_match('/[\x00-\x1F\x7F]/', $value)
+            || !PlanValidator::isSafeRelativePath($value) || in_array($first, self::NOT_WORLD_FOLDERS, true)) {
+            throw new UnsafePlanException('unsafe_level_name', $value);
+        }
     }
 }
