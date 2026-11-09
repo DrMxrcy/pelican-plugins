@@ -21,6 +21,10 @@ use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Services\JavaImagePicker;
 use DrMxrcy\ModpacksPlus\Services\LoaderEggResolver;
 use DrMxrcy\ModpacksPlus\Services\PackProviders;
+use DrMxrcy\ModpacksPlus\Services\PackSizes;
+use DrMxrcy\ModpacksPlus\Services\ServerDiskUsage;
+use DrMxrcy\ModpacksPlus\Support\Caps;
+use DrMxrcy\ModpacksPlus\Support\DiskBudget;
 use DrMxrcy\ModpacksPlus\Support\EggVariableMap;
 use DrMxrcy\ModpacksPlus\Support\ServerTarget;
 use DrMxrcy\ModpacksPlus\Support\VersionMatch;
@@ -47,6 +51,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 
@@ -91,6 +96,15 @@ class ModpacksPage extends Page implements HasTable
     private array $switchTargets = [];
 
     private bool $latestInstallLoaded = false;
+
+    /** Plan 38: the disk budget, read lazily (confirm modal / install button), once per request. */
+    private ?DiskBudget $diskBudget = null;
+
+    /** Seconds the node's disk usage is reused between requests of the page. */
+    private const DISK_USAGE_CACHE_SECONDS = 15;
+
+    /** Timeout for the node's disk usage call from the page. */
+    private const DISK_USAGE_TIMEOUT = 2;
 
     /** Which provider the table lists (PackProviders::IDS); read through source(). */
     public string $source = ModrinthPackProvider::ID;
@@ -848,24 +862,134 @@ class ModpacksPage extends Page implements HasTable
         return null;
     }
 
-    /** @param  array{id: string, version_number: string, name: string}  $version */
+    /** @param  array{id: string, version_number: string, name: string, file?: array{size: int}|null}  $version */
     private function makeInstallAction(int $index, string $packId, array $version, string $title, string $source = ModrinthPackProvider::ID): Action
     {
         $versionId = $version['id'];
 
         return Action::make('install_'.$index)
-            ->label(trans('modpacks-plus::strings.actions.install'))
+            ->label(fn () => $this->wontFit($source, $packId, $version) !== null ? trans('modpacks-plus::strings.install.no_room') : trans('modpacks-plus::strings.actions.install'))
             ->icon('tabler-download')
             ->color('success')
             // Hidden without the install permissions; installPack() re-checks them anyway.
             ->visible(fn () => static::canInstall())
             ->authorize(fn () => static::canInstall())
-            ->disabled(fn () => $this->activeInstall() !== null)
+            // Plan 38: a version known not to fit is disabled with the reason; the prepare step
+            // is still the real check for everything else.
+            ->disabled(fn () => $this->activeInstall() !== null || $this->wontFit($source, $packId, $version) !== null)
+            ->tooltip(fn () => $this->wontFit($source, $packId, $version))
             ->requiresConfirmation()
             ->modalHeading(trans('modpacks-plus::strings.install.confirm_heading', ['name' => $title, 'version' => $version['version_number']]))
-            ->modalDescription(trans('modpacks-plus::strings.install.confirm_body', ['folders' => 'mods/, config/, defaultconfigs/, kubejs/, scripts/']))
+            ->modalDescription(fn () => $this->installDescription($source, $packId, $version))
             ->modalSubmitActionLabel(trans('modpacks-plus::strings.actions.install'))
             ->action(fn () => $this->installPack($packId, $versionId, $source));
+    }
+
+    /**
+     * Plan 38: the server's disk budget for the page. The node is asked only when the server has
+     * a disk limit, only from the confirm modal / install button (never for the pack list), with
+     * a short timeout, and its answer is reused for a few seconds. Unknown = the configured cap.
+     */
+    private function diskBudget(): DiskBudget
+    {
+        if ($this->diskBudget !== null) {
+            return $this->diskBudget;
+        }
+
+        $server = $this->server();
+        $diskMb = max(0, (int) $server->disk);
+        $used = null;
+        if ($diskMb > 0) {
+            $key = 'modpacks-plus:disk-used:'.$server->uuid;
+            $cached = Cache::get($key);
+            if (is_array($cached) && array_key_exists('used', $cached)) {
+                $used = is_int($cached['used']) ? $cached['used'] : null;
+            } else {
+                $used = app(ServerDiskUsage::class)->usedBytes($server, self::DISK_USAGE_TIMEOUT);
+                Cache::put($key, ['used' => $used], self::DISK_USAGE_CACHE_SECONDS);
+            }
+        }
+
+        return $this->diskBudget = DiskBudget::forServer($diskMb, $used, Caps::fromConfig());
+    }
+
+    /**
+     * The best size known for a pack version: the whole pack from an earlier check of this
+     * version (exact), else its download (a lower bound), else nothing.
+     *
+     * @param  array{id: string, file?: array{size: int}|null}  $version
+     * @return array{bytes: int, exact: bool}|null
+     */
+    private function packSize(string $source, string $packId, array $version): ?array
+    {
+        $known = PackSizes::known($source, $packId, $version['id']);
+        if ($known !== null) {
+            return ['bytes' => $known, 'exact' => true];
+        }
+
+        $download = $version['file']['size'] ?? null;
+
+        return is_int($download) && $download > 0 ? ['bytes' => $download, 'exact' => false] : null;
+    }
+
+    /**
+     * Why this version can't be installed here, or null when it may fit.
+     *
+     * @param  array{id: string, file?: array{size: int}|null}  $version
+     */
+    private function wontFit(string $source, string $packId, array $version): ?string
+    {
+        $size = $this->packSize($source, $packId, $version);
+        if ($size === null) {
+            return null;
+        }
+
+        $budget = $this->diskBudget();
+        if (!$budget->fitsDisk($size['bytes'])) {
+            return trans('modpacks-plus::strings.install.wont_fit', DiskBudget::detailParams($budget->detail($size['bytes'])));
+        }
+
+        if ($size['exact'] && $size['bytes'] > $budget->capBytes) {
+            return trans('modpacks-plus::strings.install.over_cap', ['size' => DiskBudget::human($size['bytes']), 'cap' => DiskBudget::human($budget->capBytes)]);
+        }
+
+        return null;
+    }
+
+    /**
+     * The confirm text plus the pack size against the server's free space.
+     *
+     * @param  array{id: string, file?: array{size: int}|null}  $version
+     */
+    private function installDescription(string $source, string $packId, array $version): HtmlString
+    {
+        $lines = [trans('modpacks-plus::strings.install.confirm_body', ['folders' => 'mods/, config/, defaultconfigs/, kubejs/, scripts/'])];
+
+        $size = $this->packSize($source, $packId, $version);
+        $lines[] = match (true) {
+            $size === null => trans('modpacks-plus::strings.install.pack_size_unknown'),
+            $size['exact'] => trans('modpacks-plus::strings.install.pack_size', ['size' => DiskBudget::human($size['bytes'])]),
+            default => trans('modpacks-plus::strings.install.pack_download', ['size' => DiskBudget::human($size['bytes'])]),
+        };
+
+        $budget = $this->diskBudget();
+        $cap = DiskBudget::human($budget->capBytes);
+        $lines[] = match (true) {
+            !$budget->limited() => trans('modpacks-plus::strings.install.disk_unlimited', ['cap' => $cap]),
+            !$budget->usageKnown() => trans('modpacks-plus::strings.install.disk_unknown', ['cap' => $cap]),
+            default => trans('modpacks-plus::strings.install.disk_free', [
+                'free' => DiskBudget::human($budget->freeBytes() ?? 0),
+                'limit' => DiskBudget::human($budget->limitBytes),
+                'headroom' => DiskBudget::human($budget->headroomBytes),
+            ]),
+        };
+
+        $reason = $this->wontFit($source, $packId, $version);
+        if ($reason !== null) {
+            $lines[] = $reason;
+        }
+
+        return new HtmlString(implode('', array_map(fn (string $line) => '<p>'.e($line).'</p>', $lines)));
     }
 
     /**

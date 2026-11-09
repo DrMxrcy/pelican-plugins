@@ -53,9 +53,20 @@ Checked before anything is written to the server; archive entries are checked ag
   left (a download's timeout is one deadline across its redirect hops, at most one hop), and a step whose
   request failed because the time ran out continues in a fresh job (at most 5 times). The byte cap of a
   panel download is also enforced on the file being written, not only by progress callbacks.
-- Caps (config / env): 1000 files, 256 MB per file, 100 MB archive, 4 GB total, 20 000 archive entries,
-  32 MB per panel-fetched file (`max_panel_fetch_bytes`; such files are held in the worker's memory),
-  16 MB per override file (`max_override_bytes`). A pack over a cap is refused before anything is written.
+- Caps (config / env): 1000 files, 256 MB per file, 100 MB archive, 20 GB total (`max_total_bytes`), 20 000
+  archive entries, 32 MB per panel-fetched file (`max_panel_fetch_bytes`; such files are held in the worker's
+  memory), 16 MB per override file (`max_override_bytes`). A pack over a cap is refused before anything is written.
+  The per-file caps protect the panel's memory and don't grow with the server's disk.
+- **Disk space.** The whole-pack limit follows the server's disk. On a server with a disk limit the pack
+  must fit the free space under it minus headroom (10 % of the limit, at least 512 MB:
+  `disk_headroom_percent`, `disk_headroom_min_mb`), and never more than `max_total_bytes`. The old
+  `mods/`, `config/`, … stay on disk in `.modpacks-plus/previous-*`, so they are not counted as freed.
+  The check runs while the pack is prepared, before the backup and before any file changes; a pack that
+  doesn't fit stops with its size, the free space and the limit ("needs 8 GB, 7 GB free of 10 GB").
+  Unlimited disk (`0`): `max_total_bytes` alone. If the node can't report the disk usage, `max_total_bytes`
+  applies and the install log says so; it is never treated as unlimited. The install confirm dialog shows the
+  pack size against the free space, and **Install** is disabled with the reason for a version known not to
+  fit (the node is only asked from the dialog and the button, never when the pack list loads).
 - Overrides only a game client uses — `resourcepacks/`, `shaderpacks/`, `screenshots/`, `options.txt`,
   `optionsof.txt`, `optionsshaders.txt` — are skipped whatever their size and listed in the summary
   (after the same path checks as every other entry).
@@ -270,6 +281,11 @@ direct calls get 403.
   ATLauncher*); md5 is a weak hash, so this trusts ATLauncher's CDN as much as its manifest.
 - FTB searches fetch each listed pack's details one by one (cached for 10 minutes), so the first page of
   results can take a few seconds.
+- Before a version has been checked once, the confirm dialog only knows its download size (for Modrinth
+  packs that's the small `.mrpack`, not the mods), so **Install** is only disabled ahead of time for a
+  version whose full size an earlier install attempt found (remembered for 7 days) or whose download
+  alone can't fit. Every install is still checked against the disk while it is prepared. The disk usage
+  the node reports may lag a little behind writes made just before.
 
 ## After installing or updating
 
