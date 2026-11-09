@@ -4,7 +4,9 @@ namespace DrMxrcy\PlayersPlus\Tests\Feature;
 
 use DrMxrcy\PlayersPlus\Console\Commands\PollPlayersCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\PruneSamplesCommand;
+use DrMxrcy\PlayersPlus\Console\Commands\RollupCommand;
 use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayersPage;
+use DrMxrcy\PlayersPlus\Models\HourlyRollup;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\PlayerSession;
 use DrMxrcy\PlayersPlus\Models\Sample;
@@ -79,10 +81,13 @@ class PluginResourcesTest extends TestCase
         $this->assertSame('pp_sessions', (new PlayerSession())->getTable());
         $this->assertContains('pp_players', $tables);
         $this->assertContains('pp_sessions', $tables);
+        $this->assertSame('pp_hourly', (new HourlyRollup())->getTable());
+        $this->assertContains('pp_hourly', $tables);
 
         $this->assertStringStartsWith('players-plus', (string) PlayersPage::getSlug());
         $this->assertStringStartsWith('players-plus:', (new PollPlayersCommand())->getName());
         $this->assertStringStartsWith('players-plus:', (new PruneSamplesCommand())->getName());
+        $this->assertStringStartsWith('players-plus:', (new RollupCommand())->getName());
 
         $translations = 0;
         $cacheKeys = 0;
