@@ -47,7 +47,10 @@ class OnlineViewTest extends TestCase
         parent::tearDown();
     }
 
-    /** @param  array<int, SubuserPermission>  $permissions  empty = the owner */
+    /**
+     * @param  list<string>  $tags
+     * @param  array<int, SubuserPermission>  $permissions  empty = the owner
+     */
     private function account(array $tags = ['minecraft'], array $permissions = []): Server
     {
         [$user, $server] = $this->generateTestAccount($permissions);

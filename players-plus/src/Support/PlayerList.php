@@ -28,8 +28,8 @@ final class PlayerList
 
         $rows = [];
         foreach ($sample->players ?? [] as $player) {
-            $name = (string) ($player['name'] ?? '');
-            if ($name === '') {
+            $name = is_array($player) ? ($player['name'] ?? null) : null;
+            if (!is_string($name) || $name === '') {
                 continue;
             }
             $uuid = isset($player['uuid']) && is_string($player['uuid']) ? $player['uuid'] : null;

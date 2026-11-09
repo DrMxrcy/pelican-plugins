@@ -17,7 +17,7 @@ use Illuminate\Support\Carbon;
  * @property SampleStatus $status
  * @property int|null $online
  * @property int|null $max
- * @property list<array{name: string, uuid: string|null}>|null $players
+ * @property array<int, mixed>|null $players stored JSON: list of {name, uuid|null}
  * @property string|null $source query | ping
  * @property-read Server $server
  */
