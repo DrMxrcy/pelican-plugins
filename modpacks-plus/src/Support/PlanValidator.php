@@ -53,25 +53,36 @@ final class PlanValidator
 
     private const MAX_URL_LENGTH = 2048;
 
-    /** @var array<string, true> lowercase top-level names that are never written */
-    private array $protectedRoots = [];
+    /** @var array<string, true> lowercase normalised paths that are never written, moved or deleted */
+    private array $protectedPaths = [];
 
-    /** @param  array<int, string>  $worlds  world folder names (level-name, folders holding level.dat) */
+    /**
+     * @param  array<int, string>  $worlds  world folders relative to the server root: the
+     *                                      `level-name` (may be nested, e.g. `saves/world`) and
+     *                                      any folder holding `level.dat`
+     *
+     * @throws UnsafePlanException `unsafe_level_name` when a world path is empty or would resolve
+     *                             outside the server root: the world can't be located, so
+     *                             nothing may run (fail closed)
+     */
     public function __construct(private readonly Caps $caps, array $worlds = ['world'])
     {
         foreach (self::PROTECTED_FILES as $file) {
-            $this->protectedRoots[$file] = true;
+            $this->protectedPaths[$file] = true;
         }
-        $this->protectedRoots[self::OWN_FOLDER] = true;
+        $this->protectedPaths[self::OWN_FOLDER] = true;
 
         foreach (array_merge(['world'], $worlds) as $world) {
-            $world = strtolower(trim($world));
-            if ($world === '' || str_contains($world, '/')) {
-                continue;
+            try {
+                $world = $this->normalisePath($world);
+            } catch (UnsafePlanException) {
+                throw new UnsafePlanException('unsafe_level_name', $world);
             }
-            $this->protectedRoots[$world] = true;
-            $this->protectedRoots[$world.'_nether'] = true;
-            $this->protectedRoots[$world.'_the_end'] = true;
+
+            // Vanilla/Bukkit keep the other dimensions next to the world folder.
+            foreach (['', '_nether', '_the_end'] as $suffix) {
+                $this->protectedPaths[strtolower($world.$suffix)] = true;
+            }
         }
     }
 
@@ -140,12 +151,23 @@ final class PlanValidator
         return $stack !== [];
     }
 
-    /** Whether a normalised path touches a world, a player list, server.properties or `.modpacks-plus/`. */
+    /**
+     * Whether a normalised path touches a world, a player list, server.properties or
+     * `.modpacks-plus/`: it is one of them, lies inside one, or contains one (so moving
+     * or replacing it would take a world along, e.g. `saves` when the world is `saves/world`).
+     * Compared case-insensitively, which only ever protects more.
+     */
     public function isProtected(string $path): bool
     {
-        $root = strtolower(explode('/', $path, 2)[0]);
+        $path = strtolower($path);
 
-        return isset($this->protectedRoots[$root]);
+        foreach (array_keys($this->protectedPaths) as $protected) {
+            if ($path === $protected || str_starts_with($path, $protected.'/') || str_starts_with($protected, $path.'/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function isAllowedUrl(string $url): bool

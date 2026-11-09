@@ -428,6 +428,57 @@ class PlanValidatorTest extends TestCase
         $this->assertSame([$path], $plan->skippedOverrides);
     }
 
+    public function test_a_nested_level_name_protects_the_world_its_dimensions_and_its_parents(): void
+    {
+        $validator = $this->validator(worlds: ['saves/world']);
+
+        $this->assertTrue($validator->isProtected('saves/world'));
+        $this->assertTrue($validator->isProtected('saves/world/level.dat'));
+        $this->assertTrue($validator->isProtected('Saves/World/region/r.0.0.mca'));
+        $this->assertTrue($validator->isProtected('saves/world_nether/DIM-1/x'));
+        $this->assertTrue($validator->isProtected('saves/world_the_end/DIM1/x'));
+        // Moving or replacing a parent folder would take the world with it.
+        $this->assertTrue($validator->isProtected('saves'));
+        $this->assertFalse($validator->isProtected('saves/other/x'));
+        $this->assertFalse($validator->isProtected('savesx/world'));
+
+        $this->assertRejected(fn () => $validator->validate($this->plan([$this->file(['path' => 'saves/world/level.dat'])])), 'protected_path');
+        $this->assertRejected(fn () => $validator->validate($this->plan([$this->file(['path' => 'saves'])])), 'protected_path');
+
+        $plan = $validator->validate($this->plan([], [new OverrideEntry('overrides/saves/world/datapacks/x.zip', 'saves/world/datapacks/x.zip', 1)]));
+        $this->assertSame([], $plan->overrides);
+        $this->assertSame(['saves/world/datapacks/x.zip'], $plan->skippedOverrides);
+    }
+
+    public function test_a_world_inside_a_move_aside_folder_protects_that_folder(): void
+    {
+        // level-name=config/world: moving config/ aside would move the world.
+        $this->assertTrue($this->validator(worlds: ['config/world'])->isProtected('config'));
+        $this->assertFalse($this->validator(worlds: ['config/world'])->isProtected('config/sodium.toml'));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function unsafeLevelNames(): array
+    {
+        return [
+            'empty' => [''],
+            'parent traversal' => ['../world'],
+            'nested traversal' => ['saves/../../world'],
+            'dot' => ['.'],
+            'absolute' => ['/srv/world'],
+            'backslash' => ['saves\\world'],
+            'drive letter' => ['C:/world'],
+            'encoded' => ['%2e%2e/world'],
+            'trailing slash' => ['world/'],
+        ];
+    }
+
+    #[DataProvider('unsafeLevelNames')]
+    public function test_an_unsafe_level_name_fails_closed(string $levelName): void
+    {
+        $this->assertRejected(fn () => $this->validator(worlds: [$levelName]), 'unsafe_level_name');
+    }
+
     public function test_nested_files_named_like_protected_ones_are_allowed(): void
     {
         $validator = $this->validator();
