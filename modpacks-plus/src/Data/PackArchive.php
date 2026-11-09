@@ -5,6 +5,12 @@ namespace DrMxrcy\ModpacksPlus\Data;
 /** A pack archive (Modrinth .mrpack, or a provider's server pack) read by the panel. */
 final class PackArchive
 {
+    /** File name of a plan's archive in the install's panel work folder. */
+    public const WORK_FILE = 'pack.mrpack';
+
+    /** File name of a plan's server pack in the install's panel work folder. */
+    public const SERVER_PACK_WORK_FILE = 'server-pack.zip';
+
     /** @param  array<string, string>  $hashes  algorithm => lowercase hex digest */
     public function __construct(
         public readonly string $url,

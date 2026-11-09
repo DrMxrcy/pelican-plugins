@@ -67,6 +67,21 @@ class ModrinthPackProvider implements PackProvider
         return (bool) preg_match('/^[A-Za-z0-9_\-.]{1,64}$/', $id) && !in_array($id, ['.', '..'], true);
     }
 
+    public function sorts(): array
+    {
+        return self::SORTS;
+    }
+
+    public function packVersion(string $packId, string $versionId): array
+    {
+        $version = $this->version($versionId);
+        if ($version['project_id'] !== $packId) {
+            throw new PackUnavailableException('version_mismatch', $versionId);
+        }
+
+        return $version;
+    }
+
     public function search(?string $query, ?string $minecraftVersion, ?string $loader, array $categories = [], ?string $sort = null, int $page = 1, int $perPage = 20): array
     {
         $facets = [['project_type:modpack']];
@@ -203,7 +218,7 @@ class ModrinthPackProvider implements PackProvider
         // URL, declared size and hash format are checked before anything is downloaded.
         $validator->validate($this->emptyPlan($packId, $version, $archive));
 
-        $path = rtrim($workDir, '/').'/pack.mrpack';
+        $path = rtrim($workDir, '/').'/'.PackArchive::WORK_FILE;
         $this->fetchArchive($archive, $path, $validator);
 
         $reader = PackArchiveReader::open($path, $validator, $this->caps);

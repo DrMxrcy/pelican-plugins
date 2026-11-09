@@ -3,6 +3,7 @@
 namespace DrMxrcy\ModpacksPlus\Contracts;
 
 use DrMxrcy\ModpacksPlus\Data\InstallPlan;
+use DrMxrcy\ModpacksPlus\Data\PackArchive;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
@@ -18,6 +19,16 @@ use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 interface PackProvider
 {
     public function id(): string;
+
+    /** Whether $id can be one of this provider's pack or version ids; anything else never reaches a request. */
+    public static function isValidId(string $id): bool;
+
+    /**
+     * Sort keys search() understands (labels: modpacks-plus::strings.filters.sorts.<key>).
+     *
+     * @return array<int, string>
+     */
+    public function sorts(): array;
 
     /**
      * @param  array<int, string>  $categories
@@ -47,6 +58,25 @@ interface PackProvider
      * @throws PackUnavailableException
      */
     public function versions(string $packId): array;
+
+    /**
+     * One version of a pack, read again from the source (never from the browser).
+     *
+     * @return PackVersion
+     *
+     * @throws PackUnavailableException not found, or the version belongs to another pack
+     */
+    public function packVersion(string $packId, string $versionId): array;
+
+    /**
+     * Downloads a plan's archive (the pack, or its server pack) to $path on the panel and
+     * checks its size and hash; an existing file at $path that already matches is reused.
+     * Used again by the overrides step, which re-reads entries from it.
+     *
+     * @throws UnsafePlanException
+     * @throws PackUnavailableException
+     */
+    public function fetchArchive(PackArchive $archive, string $path, PlanValidator $validator): void;
 
     /**
      * Downloads what is needed to read the pack version (into $workDir, on the panel) and
