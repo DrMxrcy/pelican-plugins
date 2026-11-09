@@ -26,6 +26,9 @@ _Full work log — every item, including internal/dev work. The curated public c
 - (pending) Installing a modpack can switch your server to the mod loader the pack needs.
 - (pending) Update or change modpacks while your worlds, whitelist and bans stay safe, and get told when a pack update is out.
 
+### 🐛 Fixed
+- (pending) Client-only toggle is an unlabeled eye icon and shown client-only mods carry no badge on the All tab
+
 ## v0.4.0 — 2026-11-08
 
 ### ✨ New
