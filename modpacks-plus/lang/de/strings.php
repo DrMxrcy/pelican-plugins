@@ -9,6 +9,7 @@ return [
         'unsupported' => 'Auf diesem Server können noch keine Modpacks installiert werden',
         'installed_pack' => 'Installiertes Pack: :name :version',
         'progress' => ':name — :status',
+        'discarded_banner' => 'Am :date wurde eine Wiederherstellung verworfen: Welten und Spielerdateien eines Loader-Wechsels liegen weiter in :path.',
     ],
     'filters' => [
         'sort' => 'Sortierung',
@@ -92,7 +93,7 @@ return [
         'switched_hidden' => 'Gewechselt von :from zu :to.',
         'previous_hidden' => 'Vorher: Egg :egg (:count Egg-Einstellungen festgehalten)',
         'restore_discarded' => 'Wiederherstellung verworfen: Die beiseitegelegten Dateien bleiben in :path.',
-        'restore_skipped' => 'Konnte nicht zurückgelegt werden und bleibt in :path: :paths',
+        'restore_incomplete' => 'Wiederhergestellt: :restored, nicht wiederherstellbar: :failed (:paths). Sie liegen weiter in :path; "Vorherige Dateien wiederherstellen" erneut nutzen oder verwerfen.',
         'preserved_unexpected' => 'Gehört nicht zum Wechsel und bleibt in :path: :paths',
     ],
     'reasons' => [
@@ -219,6 +220,7 @@ return [
         'restore_skipped' => ':path konnte nicht zurückgelegt werden (:detail); es bleibt, wo es ist.',
         'restore_reinstall_pending' => 'Wiederherstellung wartet: Die Neuinstallation läuft möglicherweise noch (bis :minutes Minuten nach der Anfrage).',
         'restore_discarded' => 'Ausstehende Wiederherstellung verworfen; die Dateien bleiben in :path.',
+        'restore_incomplete' => 'Wiederhergestellt: :restored, nicht wiederherstellbar: :failed (:paths); sie liegen weiter in :path. Die Wiederherstellung erneut anstoßen, sobald der Konflikt behoben ist.',
     ],
     'restore' => [
         'heading' => 'Vorherige Dateien wiederherstellen?',

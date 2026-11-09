@@ -994,25 +994,51 @@ class LoaderSwitchTest extends TestCase
         $this->assertSame(['notes.txt'], $install->progressValue('preserved_unexpected'));
     }
 
-    public function test_one_entry_that_cannot_move_back_does_not_fail_the_restore(): void
+    public function test_a_world_blocked_by_a_conflict_keeps_the_install_pending_until_a_retry_restores_it(): void
     {
         $install = $this->failedSwitchAwaitingRestore();
+        $server = $install->server ?? $this->fail('server');
         $replaced = '.modpacks-plus/replaced-test-'.$install->id;
         $install->setProgress('restore_replaced_path', $replaced);
         $install->save();
-        // Something is in the way of ops.json, and its keep-place is taken too.
-        $this->files->seed(['ops.json' => 'new list', "$replaced/ops.json" => 'older']);
+        // Something is in the way of the world, and its keep-place is taken too.
+        $this->files->seed(['world/level.dat' => 'new world', "$replaced/world/level.dat" => 'older']);
 
         $install = $this->restore($install);
 
-        $this->assertNotNull($install->restored_at);
-        $this->assertSame(['ops.json'], $install->progressValue('restore_skipped'));
-        $this->assertSame('[{"name":"owner"}]', $this->files->files[$install->preserved_path.'/ops.json'] ?? null);
-        $this->assertSame('new list', $this->files->files['ops.json'] ?? null);
+        // The others are back; the world is not, so nothing is "restored".
+        $this->assertNull($install->restored_at);
+        $this->assertNull($install->restore_requested_at);
+        $this->assertSame('level', $this->files->files[$install->preserved_path.'/world/level.dat'] ?? null);
+        $this->assertSame('new world', $this->files->files['world/level.dat'] ?? null);
+        $this->assertSame('[{"name":"owner"}]', $this->files->files['ops.json'] ?? null);
+        $this->assertSame(['restored' => 10, 'failed' => ['world']], $install->progressValue('restore_incomplete'));
+        $this->assertStringContainsString(
+            e(trans('modpacks-plus::strings.summary.restore_incomplete', ['restored' => 10, 'failed' => 1, 'paths' => 'world', 'path' => (string) $install->preserved_path])),
+            (string) InstallProgress::summary($install),
+        );
+        $this->assertTrue($install->hasPreservedPending());
+        $this->assertTrue($install->isRestorable());
+        $this->assertFalse($install->isRestoring());
+        $this->assertSame($install->id, PackInstall::restoreCandidate($server->id)?->id);
+        try {
+            $this->startSwitch($server);
+            $this->fail('expected preserved_pending');
+        } catch (InstallRefusedException $exception) {
+            $this->assertSame('preserved_pending', $exception->reason);
+        }
+
+        // The conflict is cleared; asking again puts the world back.
+        unset($this->files->files["$replaced/world/level.dat"]);
+        unset($this->files->dirs["$replaced/world"]);
+        $install = $this->restore($install);
+
+        $this->assertNotNull($install->restored_at, (string) json_encode(array_slice($install->log ?? [], -4)));
         $this->assertSame('level', $this->files->files['world/level.dat'] ?? null);
-        $this->assertSame('["friend"]', $this->files->files['whitelist.json'] ?? null);
-        $this->assertStringContainsString('ops.json', (string) InstallProgress::summary($install));
+        $this->assertSame('new world', $this->files->files["$replaced/world/level.dat"] ?? null);
+        $this->assertNull($install->progressValue('restore_incomplete'));
         $this->assertFalse($install->hasPreservedPending());
+        $this->assertSame([], $this->files->violations);
     }
 
     public function test_a_switch_that_fails_before_anything_moved_is_not_pending(): void

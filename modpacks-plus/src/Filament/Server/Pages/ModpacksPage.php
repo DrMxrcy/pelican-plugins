@@ -73,6 +73,9 @@ class ModpacksPage extends Page implements HasTable
 
     private const MAX_BODY_CHARS = 20000;
 
+    /** Days the page keeps pointing at the files of a discarded restore, whatever runs after it. */
+    private const DISCARDED_BANNER_DAYS = 7;
+
     private ?PackInstall $latestInstall = null;
 
     /** @var array<string, array{egg: Egg, image: array{label: string, image: string, java: int}}|InstallRefusedException> per loader|minecraft, this request */
@@ -204,6 +207,17 @@ class ModpacksPage extends Page implements HasTable
         $install = $this->latestInstall();
 
         return $install?->isActive() ? $install : null;
+    }
+
+    /** The newest install of this server whose restore was discarded in the last days, if any. */
+    private function recentlyDiscarded(): ?PackInstall
+    {
+        return PackInstall::query()->where('server_id', $this->server()->id)
+            ->whereNotNull('preserved_path')
+            ->where('restored_at', '>=', now()->subDays(self::DISCARDED_BANNER_DAYS))
+            ->orderByDesc('id')
+            ->get()
+            ->first(fn (PackInstall $install) => (bool) $install->progressValue('restore_discarded'));
     }
 
     private function lastInstalledPack(): ?PackInstall
@@ -779,6 +793,13 @@ class ModpacksPage extends Page implements HasTable
                 ->icon('tabler-alert-triangle')
                 ->color('warning')
                 ->visible(fn () => ServerTarget::minecraftVersion($server) === null || ServerTarget::loader($server) === null),
+            Callout::make(fn () => ($discarded = $this->recentlyDiscarded()) !== null ? trans('modpacks-plus::strings.page.discarded_banner', [
+                'date' => $discarded->restored_at?->timezone(user()->timezone ?? 'UTC')->toDayDateTimeString() ?? '',
+                'path' => (string) $discarded->preserved_path,
+            ]) : '')
+                ->icon('tabler-archive-off')
+                ->color('warning')
+                ->visible(fn () => $this->recentlyDiscarded() !== null),
             Callout::make(fn () => trans('modpacks-plus::strings.page.installed_pack', [
                 'name' => (string) $this->lastInstalledPack()?->name,
                 'version' => (string) $this->lastInstalledPack()?->version_number,

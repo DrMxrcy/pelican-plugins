@@ -807,4 +807,36 @@ class ModpacksPageTest extends TestCase
             ->call('discardPendingRestore')
             ->assertForbidden();
     }
+
+    public function test_an_incomplete_restore_keeps_restore_and_discard_and_blocks_installs(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $install = $this->failedSwitch($server);
+        $install->setProgress('restore_incomplete', ['restored' => 1, 'failed' => ['world']]);
+        $install->save();
+        $this->fakeModrinthApi();
+
+        Livewire::test(ModpacksPage::class)
+            ->assertSee(trans('modpacks-plus::strings.actions.restore'))
+            ->assertSee(trans('modpacks-plus::strings.actions.discard_restore'))
+            ->call('installPack', Mrpack::PACK_ID, Mrpack::VERSION_ID)
+            ->assertNotified(trans('modpacks-plus::strings.install.refused'));
+
+        $this->assertSame(1, PackInstall::query()->count());
+    }
+
+    public function test_a_discarded_restore_stays_on_the_page_for_seven_days(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $install = $this->failedSwitch($server);
+        Livewire::test(ModpacksPage::class)->call('discardPendingRestore');
+        $this->fakeModrinthApi();
+        // A later install finishes; the trace stays.
+        app(InstallEngine::class)->complete($this->runningInstall($server));
+
+        Livewire::test(ModpacksPage::class)->assertSee((string) $install->preserved_path);
+
+        $this->travel(8)->days();
+        Livewire::test(ModpacksPage::class)->assertDontSee((string) $install->preserved_path);
+    }
 }

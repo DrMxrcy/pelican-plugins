@@ -9,6 +9,7 @@ return [
         'unsupported' => 'Modpacks can\'t be installed on this server yet',
         'installed_pack' => 'Installed pack: :name :version',
         'progress' => ':name — :status',
+        'discarded_banner' => 'A restore was discarded on :date: worlds and player files of a loader switch are still in :path.',
     ],
     'filters' => [
         'sort' => 'Sort',
@@ -92,7 +93,7 @@ return [
         'switched_hidden' => 'Switched from :from to :to.',
         'previous_hidden' => 'Before: egg :egg (:count egg settings recorded)',
         'restore_discarded' => 'Restore discarded: the set-aside files stay in :path.',
-        'restore_skipped' => 'Could not be put back and left in :path: :paths',
+        'restore_incomplete' => 'Restored :restored, could not restore :failed: :paths. They are still in :path; use "Restore previous files" again, or discard.',
         'preserved_unexpected' => 'Not part of the switch and left in :path: :paths',
     ],
     'reasons' => [
@@ -219,6 +220,7 @@ return [
         'restore_skipped' => 'Could not put :path back (:detail); it stays where it is.',
         'restore_reinstall_pending' => 'Restore waiting: the reinstall may still be running (up to :minutes minutes after it was requested).',
         'restore_discarded' => 'Pending restore discarded; the files stay in :path.',
+        'restore_incomplete' => 'Restored :restored, could not restore :failed (:paths); they are still in :path. Ask for the restore again once the conflict is gone.',
     ],
     'restore' => [
         'heading' => 'Restore previous files?',

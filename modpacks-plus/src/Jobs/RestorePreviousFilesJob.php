@@ -208,8 +208,10 @@ class RestorePreviousFilesJob implements ShouldQueue
         }
 
         $done = $install->progressValue('restore_done', []);
+        // Entries this attempt could not move (kept across its re-dispatches, retried next attempt).
+        $skipped = $install->progressValue('restore_skipped', []);
         foreach ($todo as [$key, $root, $entry]) {
-            if (in_array($key, $done, true)) {
+            if (in_array($key, $done, true) || in_array($key, $skipped, true)) {
                 continue;
             }
             if (microtime(true) - $this->startedAt > self::BUDGET_SECONDS) {
@@ -221,20 +223,34 @@ class RestorePreviousFilesJob implements ShouldQueue
             try {
                 $result = $service->restore($files, $server, $root, $entry, $replaced);
                 RestoreLog::add($install, $result, $entry, $replaced);
+                $done[] = $key;
+                $install->setProgress('restore_done', $done);
             } catch (StepFailedException|UnsafePlanException $exception) {
-                // One entry that can't move never blocks the others: it stays where it is and
-                // is reported. (Daemon errors still end the job and are retried.)
-                $skipped = $install->progressValue('restore_skipped', []);
-                $skipped[] = $entry;
-                $install->setProgress('restore_skipped', array_values(array_unique($skipped)));
+                // One entry that can't move never stops the others, but it is not done: the
+                // install stays pending until it is back (or the restore is discarded).
+                // (Daemon errors still end the job and are retried by the queue.)
+                $skipped[] = $key;
+                $install->setProgress('restore_skipped', $skipped);
                 $install->addLog('warning', 'restore_skipped', ['path' => $entry, 'detail' => $exception->reason]);
             }
 
-            $done[] = $key;
-            $install->setProgress('restore_done', $done);
             $install->save();
         }
 
+        $install->setProgress('restore_skipped', []);
+
+        if ($skipped !== []) {
+            // Not restored: Restore can be asked for again, Discard stays available.
+            $names = array_map(fn (string $key) => substr($key, 2), $skipped);
+            $install->setProgress('restore_incomplete', ['restored' => count($done), 'failed' => $names]);
+            $install->addLog('error', 'restore_incomplete', ['restored' => count($done), 'failed' => count($names), 'paths' => implode(', ', $names), 'path' => (string) ($install->preserved_path ?? $install->moved_aside_path)]);
+            $install->restore_requested_at = null;
+            $install->save();
+
+            return;
+        }
+
+        $install->setProgress('restore_incomplete', null);
         $install->restored_at = now();
         $install->addLog('info', 'restore_finished', ['count' => count($done)]);
         $install->save();

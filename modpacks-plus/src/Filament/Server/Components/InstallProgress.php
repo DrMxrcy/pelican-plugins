@@ -129,9 +129,14 @@ final class InstallProgress
             $lines[] = trans('modpacks-plus::strings.summary.restoring');
         }
 
-        $skipped = $install->progressValue('restore_skipped', []);
-        if (is_array($skipped) && $skipped !== []) {
-            $lines[] = trans('modpacks-plus::strings.summary.restore_skipped', ['paths' => implode(', ', array_map('strval', $skipped)), 'path' => (string) $install->preserved_path]);
+        $incomplete = $install->progressValue('restore_incomplete');
+        if (is_array($incomplete) && is_array($incomplete['failed'] ?? null) && $incomplete['failed'] !== [] && $install->restored_at === null) {
+            $lines[] = trans('modpacks-plus::strings.summary.restore_incomplete', [
+                'restored' => (int) ($incomplete['restored'] ?? 0),
+                'failed' => count($incomplete['failed']),
+                'paths' => implode(', ', array_map('strval', $incomplete['failed'])),
+                'path' => (string) ($install->preserved_path ?? $install->moved_aside_path),
+            ]);
         }
         $unexpected = $install->progressValue('preserved_unexpected', []);
         if (is_array($unexpected) && $unexpected !== []) {
