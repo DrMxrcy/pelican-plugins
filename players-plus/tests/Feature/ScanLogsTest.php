@@ -141,8 +141,13 @@ class ScanLogsTest extends TestCase
     {
         (new PlayersPlusServiceProvider($this->app))->boot();
 
-        $scan = collect($this->app->make(Schedule::class)->events())
-            ->first(fn (Event $event) => str_contains((string) $event->command, 'players-plus:scan-logs'));
+        $events = collect($this->app->make(Schedule::class)->events());
+        $scan = $events->first(fn (Event $event) => str_contains((string) $event->command, 'players-plus:scan-logs'));
+
+        // Scanning sits next to the other scheduled commands, not in place of them.
+        foreach (['players-plus:poll', 'players-plus:rollup', 'players-plus:prune'] as $command) {
+            $this->assertNotNull($events->first(fn (Event $event) => str_contains((string) $event->command, $command)), $command);
+        }
 
         $this->assertNotNull($scan);
         $this->assertSame('*/5 * * * *', $scan->expression);
