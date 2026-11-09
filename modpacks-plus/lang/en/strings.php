@@ -286,6 +286,8 @@ return [
         'server_pack' => 'Using the server pack :name.',
         'server_pack_fallback' => 'The server pack can\'t be used (:reason); building from the manifest.',
         'manual_download' => 'Download manually: :name',
+        'manifest_recorded' => 'Recorded the :count installed pack files (for later updates).',
+        'manifest_failed' => 'The list of installed pack files could not be recorded (:detail), so this pack can\'t be updated in place later.',
     ],
     'restore' => [
         'heading' => 'Restore previous files?',

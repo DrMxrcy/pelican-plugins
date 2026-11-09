@@ -5,6 +5,7 @@ namespace DrMxrcy\ModpacksPlus\Models;
 use App\Models\Server;
 use App\Models\User;
 use DrMxrcy\ModpacksPlus\Data\InstallPlan;
+use DrMxrcy\ModpacksPlus\Services\InstallManifest;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -23,6 +24,10 @@ use Illuminate\Support\Carbon;
  * @property string|null $version_number
  * @property string|null $icon
  * @property string $status
+ * @property string $mode
+ * @property array<string, mixed>|null $options
+ * @property int|null $previous_install_id
+ * @property array<int, array{path: string, size: int, hash: string, kept: bool}>|null $manifest
  * @property string|null $current_step
  * @property int $seq
  * @property array<int, array{key: string, status: string, started_at: ?string, finished_at: ?string}>|null $steps
@@ -59,6 +64,15 @@ class PackInstall extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** A pack onto a server with no recorded pack (or the same pack again). */
+    public const MODE_INSTALL = 'install';
+
+    /** Another pack replacing the installed one (plan 36). */
+    public const MODE_SWITCH = 'switch';
+
+    /** A newer version of the installed pack, applied as a diff (plan 36). */
+    public const MODE_UPDATE = 'update';
+
     public const STEP_PENDING = 'pending';
 
     public const STEP_RUNNING = 'running';
@@ -87,6 +101,9 @@ class PackInstall extends Model
             'steps' => 'array',
             'log' => 'array',
             'plan' => 'array',
+            'manifest' => 'array',
+            'options' => 'array',
+            'previous_install_id' => 'integer',
             'progress' => 'array',
             'summary' => 'array',
             'loader_switch' => 'array',
@@ -195,6 +212,23 @@ class PackInstall extends Model
         $moved = $this->progressValue('moved', []);
 
         return is_array($moved) ? array_values(array_filter($moved, 'is_string')) : [];
+    }
+
+    /**
+     * The installed-files manifest, re-checked and keyed by path; null when none was recorded
+     * (installs from before plan 36, or one whose manifest could not be built).
+     *
+     * @return array<string, array{path: string, size: int, hash: string, kept: bool}>|null
+     */
+    public function manifestEntries(): ?array
+    {
+        return InstallManifest::entries($this->manifest);
+    }
+
+    /** One of the admin's update/switch choices (fresh_world, overwrite_changes). */
+    public function option(string $key): bool
+    {
+        return (bool) (($this->options ?? [])[$key] ?? false);
     }
 
     public function installPlan(): ?InstallPlan

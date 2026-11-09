@@ -286,6 +286,8 @@ return [
         'server_pack' => 'Verwende das Server-Pack :name.',
         'server_pack_fallback' => 'Das Server-Pack kann nicht verwendet werden (:reason); Aufbau aus dem Manifest.',
         'manual_download' => 'Manuell herunterladen: :name',
+        'manifest_recorded' => 'Die :count installierten Pack-Dateien wurden festgehalten (für spätere Updates).',
+        'manifest_failed' => 'Die Liste der installierten Pack-Dateien konnte nicht festgehalten werden (:detail); dieses Pack lässt sich später nicht direkt aktualisieren.',
     ],
     'restore' => [
         'heading' => 'Vorherige Dateien wiederherstellen?',
