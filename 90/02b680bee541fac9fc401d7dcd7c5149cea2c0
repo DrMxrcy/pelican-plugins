@@ -1,0 +1,32 @@
+modrinth-plus/tests/Feature/ModpackMetadataRoundTripTest.php
+  s_1d8485e49bfacb::t_70b5a7b79947b7 1-13,15-166,168-193
+  s_1d8485e49bfacb::t_45323cf0ac36a1 14,167
+modrinth-plus/README.md
+  s_1d8485e49bfacb::t_529461bd30a306 21-24
+modrinth-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_145d11dc759ce8 170-177
+modrinth-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_4daa4f0cdb14e7 170-177
+modrinth-plus/src/Filament/Server/Pages/MinecraftModrinthProjectPage.php
+  s_1d8485e49bfacb::t_3b50b4938e0af3 64,356,369,750-765,1235-1236,1241-1242,1380-1384,1589,1591-1595,1845-1855
+modrinth-plus/src/Services/MinecraftModrinthService.php
+  s_1d8485e49bfacb::t_71420a2b1af880 387,899,912,974-999,1567
+modrinth-plus/tests/Feature/ModpackBadgeTest.php
+  s_1d8485e49bfacb::t_c20d739f91bdbb 1-244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9002b680bee541fac9fc401d7dcd7c5149cea2c0",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
