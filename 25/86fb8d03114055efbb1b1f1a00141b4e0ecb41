@@ -1,0 +1,20 @@
+modrinth-plus/src/Services/MinecraftModrinthService.php
+  s_501b43856c653e::t_b8ac374aefe0b0 436-442,453-454,476-522
+  s_501b43856c653e::t_0e0b0d7b098c28 523-524
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2586fb8d03114055efbb1b1f1a00141b4e0ecb41",
+  "prompts": {},
+  "sessions": {
+    "s_501b43856c653e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5ed0bea9-bde8-4bb4-b0ab-a0087e5c85b8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
