@@ -5,6 +5,20 @@ return [
     // limit reached, throttled). Off by default: the install stops before any change instead.
     'allow_skip_backup' => (bool) env('MODPACKS_PLUS_ALLOW_SKIP_BACKUP', false),
 
+    // Switching a server's loader changes its egg and reinstalls it, which Pelican itself only
+    // lets admins do. Off: only admins (with "update server" on it) may switch. On: anyone
+    // holding the install permissions (settings.reinstall, file.create, file.delete, backup.create).
+    'allow_user_loader_switch' => (bool) env('MODPACKS_PLUS_ALLOW_USER_LOADER_SWITCH', false),
+
+    // The egg (id) a loader switch moves a server onto when several official eggs match. Empty:
+    // picked automatically (the one egg updated from pelican-eggs/minecraft), refused if ambiguous.
+    'loader_eggs' => [
+        'fabric' => is_numeric(env('MODPACKS_PLUS_EGG_FABRIC')) ? (int) env('MODPACKS_PLUS_EGG_FABRIC') : null,
+        'forge' => is_numeric(env('MODPACKS_PLUS_EGG_FORGE')) ? (int) env('MODPACKS_PLUS_EGG_FORGE') : null,
+        'neoforge' => is_numeric(env('MODPACKS_PLUS_EGG_NEOFORGE')) ? (int) env('MODPACKS_PLUS_EGG_NEOFORGE') : null,
+        'quilt' => is_numeric(env('MODPACKS_PLUS_EGG_QUILT')) ? (int) env('MODPACKS_PLUS_EGG_QUILT') : null,
+    ],
+
     // Files pulled per download job; cancel takes effect between batches.
     'download_batch' => (int) env('MODPACKS_PLUS_DOWNLOAD_BATCH', 10),
 

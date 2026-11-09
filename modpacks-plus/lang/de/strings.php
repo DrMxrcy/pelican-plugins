@@ -108,6 +108,11 @@ return [
         'duplicate_path' => 'Das Pack nennt denselben Pfad zweimal: :detail',
         'version_unsupported' => 'Das Loader-Egg kann nicht auf diese Version gesetzt werden: :detail',
         'loader_unsupported' => 'Zu diesem Loader kann nicht gewechselt werden: :detail',
+        'egg_missing' => 'Importiere zuerst das offizielle :detail-Egg (pelican-eggs/minecraft). Es wurde nichts geändert.',
+        'egg_unknown' => 'Dieses Egg ist für den Loader getaggt, ist aber kein offizielles pelican-eggs-Egg, daher sind seine Versionsvariablen unbekannt: :detail',
+        'egg_ambiguous' => 'Mehrere Eggs passen zu diesem Loader. Ein Admin wählt den Standard in den Modpacks-Plus-Einstellungen: :detail',
+        'egg_variables_missing' => 'Dem Loader-Egg fehlen die Versionsvariablen: :detail',
+        'no_java_image' => 'Das Loader-Egg hat kein Docker-Image mit der Java-Version, die diese Minecraft-Version braucht: :detail',
     ],
     'steps' => [
         'prepare' => 'Pack prüfen',
@@ -151,6 +156,12 @@ return [
     'settings' => [
         'allow_skip_backup' => 'Überspringen des Backups erlauben',
         'allow_skip_backup_help' => 'Kann ein Server kein Backup anlegen (keine Backup-Plätze, Limit erreicht oder gedrosselt), wird die Installation ohne Backup fortgesetzt. Aus: Die Installation stoppt, bevor etwas geändert wird.',
+        'allow_user_loader_switch' => 'Server-Nutzern das Wechseln des Loaders erlauben',
+        'allow_user_loader_switch_help' => 'Ein Loader-Wechsel ändert das Egg des Servers und installiert ihn neu, was Pelican nur Admins erlaubt. Aus: nur Admins können wechseln. An: alle mit den Installationsrechten (Neuinstallation, Dateien anlegen und löschen, Backups anlegen).',
+        'default_eggs' => 'Loader-Eggs',
+        'default_eggs_help' => 'Das Egg, auf das ein Server beim Wechsel zu einem Loader gesetzt wird. Automatisch wählt das eine offizielle pelican-eggs/minecraft-Egg; sind mehrere importiert, hier eines wählen.',
+        'default_egg' => 'Standard-Egg für :loader',
+        'default_egg_auto' => 'Automatisch',
         'saved' => 'Modpacks-Plus-Einstellungen gespeichert',
     ],
 ];

@@ -108,6 +108,11 @@ return [
         'duplicate_path' => 'The pack lists the same path twice: :detail',
         'version_unsupported' => 'The loader egg can\'t be set to this version: :detail',
         'loader_unsupported' => 'This loader can\'t be switched to: :detail',
+        'egg_missing' => 'Import the official :detail egg first (pelican-eggs/minecraft). Nothing was changed.',
+        'egg_unknown' => 'This egg is tagged for the loader but is not an official pelican-eggs egg, so its version variables are unknown: :detail',
+        'egg_ambiguous' => 'Several eggs match this loader. An admin picks the default in the Modpacks Plus settings: :detail',
+        'egg_variables_missing' => 'The loader egg lacks the version variables: :detail',
+        'no_java_image' => 'The loader egg has no Docker image with the Java this Minecraft version needs: :detail',
     ],
     'steps' => [
         'prepare' => 'Check the pack',
@@ -151,6 +156,12 @@ return [
     'settings' => [
         'allow_skip_backup' => 'Allow skipping the backup',
         'allow_skip_backup_help' => 'When a server cannot take a backup (no backup slots, limit reached or throttled), continue the install without one. Off: the install stops before changing anything.',
+        'allow_user_loader_switch' => 'Let server users switch loaders',
+        'allow_user_loader_switch_help' => 'Switching a loader changes the server\'s egg and reinstalls it, which Pelican only lets admins do. Off: only admins can switch. On: anyone with the install permissions (reinstall, create and delete files, create backups) can.',
+        'default_eggs' => 'Loader eggs',
+        'default_eggs_help' => 'The egg a server is moved to when it switches to a loader. Automatic picks the one official pelican-eggs/minecraft egg; when several are imported, pick one here.',
+        'default_egg' => 'Default :loader egg',
+        'default_egg_auto' => 'Automatic',
         'saved' => 'Modpacks Plus settings saved',
     ],
 ];
