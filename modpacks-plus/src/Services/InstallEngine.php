@@ -357,6 +357,9 @@ class InstallEngine
             'skipped_client_overrides' => $plan ? $plan->skippedClientOverrides : [],
             'skipped_pack_files' => $plan ? self::collapse($plan->skippedPackFiles) : [],
             'client_only_by' => $plan ? $plan->clientOnlyBy : [],
+            // Plan 30 fix: every skipped client file is listed with its reason (Modrinth project above).
+            'client_only_folder_files' => $plan ? $plan->skippedClientFolderFiles : [],
+            'client_only_pack_files' => $plan ? array_values(array_diff($plan->skippedClientFiles, array_column($plan->clientOnlyBy, 'path'), $plan->skippedClientFolderFiles)) : [],
             'manual_files' => $plan ? $plan->manualFiles : [],
             'server_pack' => $plan?->serverPack !== null,
             'server_pack_fallback' => $plan?->serverPackFallback,

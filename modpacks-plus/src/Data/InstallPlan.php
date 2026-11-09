@@ -22,13 +22,16 @@ final class InstallPlan
      * @param  array<int, array{name: string, url: ?string, reason: string}>  $manualFiles  files the user downloads
      *                                                                                      (never fetched), with a link
      *                                                                                      to the source's website
-     * @param  array<int, string>  $skippedPackFiles  server-pack start scripts, installers and bundled Java not written
+     * @param  array<int, string>  $skippedPackFiles  start scripts, installers, launcher files and bundled Java not written
+     *                                                (server packs, and top-level files entries of every provider)
      * @param  string|null  $serverPackRoot  the folder inside $serverPack its files are under ('' = the zip root);
      *                                       without a server pack, set when $archive itself holds server
      *                                       files at that root (ATLauncher's Configs.zip, plan 32)
      * @param  array{reason: string, detail: string}|null  $serverPackFallback  why a server pack was not used
      * @param  array<int, array{path: string, project: string}>  $clientOnlyBy  skipped client files and the Modrinth
      *                                                                          project whose server_side said so
+     * @param  array<int, string>  $skippedClientFolderFiles  pack files under client-only folders (resourcepacks/,
+     *                                                        shaderpacks/, …), also in $skippedClientFiles
      */
     public function __construct(
         public readonly string $provider,
@@ -51,6 +54,7 @@ final class InstallPlan
         public readonly ?string $serverPackRoot = null,
         public readonly ?array $serverPackFallback = null,
         public readonly array $clientOnlyBy = [],
+        public readonly array $skippedClientFolderFiles = [],
     ) {}
 
     /**
@@ -94,6 +98,7 @@ final class InstallPlan
             'serverPackRoot' => $this->serverPackRoot,
             'serverPackFallback' => $this->serverPackFallback,
             'clientOnlyBy' => $this->clientOnlyBy,
+            'skippedClientFolderFiles' => $this->skippedClientFolderFiles,
         ], $changes);
 
         return new self(...$data);
@@ -137,6 +142,7 @@ final class InstallPlan
             'server_pack_root' => $this->serverPackRoot,
             'server_pack_fallback' => $this->serverPackFallback,
             'client_only_by' => $this->clientOnlyBy,
+            'skipped_client_folder_files' => $this->skippedClientFolderFiles,
         ];
     }
 
@@ -174,6 +180,7 @@ final class InstallPlan
                     ? ['path' => $entry['path'], 'project' => $entry['project']] : null,
                 $list('client_only_by'),
             ))),
+            skippedClientFolderFiles: array_values(array_filter($list('skipped_client_folder_files'), 'is_string')),
         );
     }
 }

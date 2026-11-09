@@ -446,6 +446,7 @@ final class PlanValidator
         $files = [];
         $skipped = $plan->skippedClientFiles;
         $skippedPack = $plan->skippedPackFiles;
+        $skippedFolder = $plan->skippedClientFolderFiles;
         $seen = [];
 
         foreach ($plan->files as $file) {
@@ -459,6 +460,15 @@ final class PlanValidator
 
             if ($file->side === 'unsupported') {
                 $skipped[] = $path;
+
+                continue;
+            }
+
+            // Plan 30 fix: resource/shader packs (and the other client-only override targets) listed
+            // in files are skipped like client-only overrides, whatever env.server says.
+            if (self::isClientOnlyOverride($path)) {
+                $skipped[] = $path;
+                $skippedFolder[] = $path;
 
                 continue;
             }
@@ -578,6 +588,7 @@ final class PlanValidator
             'skippedOverrides' => array_values(array_unique($skippedOverrides)),
             'skippedClientOverrides' => array_values(array_unique($skippedClient)),
             'skippedPackFiles' => array_values(array_unique($skippedPack)),
+            'skippedClientFolderFiles' => array_values(array_unique($skippedFolder)),
             'manualFiles' => $manual,
         ]);
 

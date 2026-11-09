@@ -143,6 +143,12 @@ final class InstallProgress
                 $summary['client_only_by'],
             ))]);
         }
+        if (!empty($summary['client_only_folder_files'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.client_only_folder_files', ['paths' => implode(', ', array_map('strval', (array) $summary['client_only_folder_files']))]);
+        }
+        if (!empty($summary['client_only_pack_files'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.client_only_pack_files', ['paths' => implode(', ', array_map('strval', (array) $summary['client_only_pack_files']))]);
+        }
         if (!empty($summary['skipped_pack_files'])) {
             $lines[] = trans('modpacks-plus::strings.summary.skipped_pack_files', ['paths' => implode(', ', array_map('strval', (array) $summary['skipped_pack_files']))]);
         }

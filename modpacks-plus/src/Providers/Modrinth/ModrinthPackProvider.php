@@ -8,6 +8,7 @@ use DrMxrcy\ModpacksPlus\Data\PackArchive;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
+use DrMxrcy\ModpacksPlus\Services\ModrinthMatcher;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PackArchiveReader;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
@@ -54,7 +55,12 @@ class ModrinthPackProvider implements PackProvider
 
     private const LOOKUP_CHUNK = 500;
 
-    public function __construct(private readonly ModrinthClient $client, private readonly Caps $caps) {}
+    private readonly ModrinthMatcher $matcher;
+
+    public function __construct(private readonly ModrinthClient $client, private readonly Caps $caps, ?ModrinthMatcher $matcher = null)
+    {
+        $this->matcher = $matcher ?? new ModrinthMatcher($client);
+    }
 
     public function id(): string
     {
@@ -240,20 +246,27 @@ class ModrinthPackProvider implements PackProvider
         [$minecraft, $loader, $loaderVersion] = self::target($index);
 
         $files = [];
+        $unmarked = [];
         foreach (is_array($index['files'] ?? null) ? $index['files'] : [] as $file) {
             if (!is_array($file)) {
                 throw new PackUnavailableException('bad_index', 'files');
             }
 
             $env = is_array($file['env'] ?? null) ? $file['env'] : [];
+            $marked = is_string($env['server'] ?? null);
+            if (!$marked) {
+                $unmarked[count($files)] = true;
+            }
             $files[] = PlanFile::fromArray([
                 'path' => $file['path'] ?? '',
                 'urls' => $file['downloads'] ?? [],
                 'size' => $file['fileSize'] ?? -1,
                 'hashes' => $file['hashes'] ?? [],
-                'side' => is_string($env['server'] ?? null) ? $env['server'] : 'required',
+                'side' => $marked ? $env['server'] : 'required',
             ]);
         }
+
+        [$files, $clientOnly] = $this->applyProjectSides($files, $unmarked);
 
         $plan = $validator->validate($this->emptyPlan($packId, $version, $archive)->with([
             'minecraftVersion' => $minecraft,
@@ -262,10 +275,55 @@ class ModrinthPackProvider implements PackProvider
             'packName' => is_string($index['name'] ?? null) && $index['name'] !== '' ? $index['name'] : $version['name'],
             'files' => $files,
             'overrides' => $overrides,
+            'clientOnlyBy' => $clientOnly,
         ]));
 
         // Second pass: now that each file knows how it will be verified, the read-back cap applies.
         return $validator->validate($this->assignVerification($plan));
+    }
+
+    /**
+     * Plan 30 fix: a file the pack doesn't mark (no env.server) takes its Modrinth project's
+     * server_side, looked up by sha512, so client-only mods (Sodium, EMF/ETF, …) are not
+     * installed; files Modrinth doesn't know, or whose side is unknown, stay. An explicit
+     * env.server always wins. Client-only folders are skipped by the validator, so not looked up.
+     *
+     * @param  array<int, PlanFile>  $files
+     * @param  array<int, true>  $unmarked  indexes of files without env.server
+     * @return array{array<int, PlanFile>, array<int, array{path: string, project: string}>}
+     *
+     * @throws PackUnavailableException the lookup failed (nothing is guessed through an outage)
+     */
+    private function applyProjectSides(array $files, array $unmarked): array
+    {
+        $hashes = [];
+        foreach (array_keys($unmarked) as $i) {
+            $sha512 = $files[$i]->hashes['sha512'] ?? null;
+            if ($sha512 !== null && !PlanValidator::isClientOnlyOverride($files[$i]->path)) {
+                $hashes[$i] = strtolower($sha512);
+            }
+        }
+
+        if ($hashes === []) {
+            return [$files, []];
+        }
+
+        $sides = $this->matcher->projectSides(array_values($hashes));
+
+        $clientOnly = [];
+        foreach ($hashes as $i => $sha512) {
+            $side = $sides[$sha512] ?? null;
+            if ($side === null) {
+                continue;
+            }
+
+            $files[$i] = $files[$i]->with(['side' => $side['server_side']]);
+            if ($side['server_side'] === 'unsupported') {
+                $clientOnly[] = ['path' => $files[$i]->path, 'project' => $side['project_slug']];
+            }
+        }
+
+        return [$files, $clientOnly];
     }
 
     /**
