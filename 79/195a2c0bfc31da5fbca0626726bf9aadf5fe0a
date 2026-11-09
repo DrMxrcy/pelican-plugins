@@ -1,0 +1,27 @@
+modrinth-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_93f7ccbf18a284 30-32,89
+modrinth-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_2096cd1ba233f0 30-32,89
+modrinth-plus/src/Filament/Server/Pages/MinecraftModrinthProjectPage.php
+  s_1d8485e49bfacb::t_695368acf3f47d 190-195,1419-1425
+modrinth-plus/tests/Feature/ClientOnlyFilterTest.php
+  s_1d8485e49bfacb::t_990c81a03d16ec 19,98-112,297
+modrinth-plus/tests/Feature/PlayersNeedItBadgeTest.php
+  s_1d8485e49bfacb::t_a6e5fb70344c66 13,147-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "79195a2c0bfc31da5fbca0626726bf9aadf5fe0a",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
