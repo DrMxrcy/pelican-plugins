@@ -2,11 +2,6 @@
 
 _Full work log — every item, including internal/dev work. The curated public changelog is CHANGELOG.md._
 
-## v0.6.0 — (in progress)
-
-### ⚡ Improved
-- (pending) Upstream the server-side filter as a PR to pelican-dev/plugins
-
 ## v0.5.0 — (in progress)
 
 ### ✨ New
