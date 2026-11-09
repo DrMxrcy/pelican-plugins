@@ -49,6 +49,9 @@ abstract class InstallStep implements ShouldQueue
     /** Seconds between checks while waiting for the server to stop. */
     public const STOP_POLL_SECONDS = 10;
 
+    /** Checks between two stop commands while the server keeps running (about a minute). */
+    public const STOP_RESEND_POLLS = 6;
+
     /**
      * Whether a cancel request ends the install at this step. A loader switch is not
      * cancellable from the moment worlds start moving aside until they are back: a cancel
@@ -229,10 +232,17 @@ abstract class InstallStep implements ShouldQueue
             return true;
         }
 
+        // The stop is sent again every STOP_RESEND_POLLS checks while the server keeps running
+        // (a lost or ignored stop must not leave the step waiting until its deadline).
         $key = 'stop_sent_'.static::KEY;
-        if (!$install->progressValue($key) && !in_array($state, ['missing', 'stopping'], true)) {
+        $polls = (int) $install->progressValue('stop_polls_'.static::KEY, 0);
+        $install->setProgress('stop_polls_'.static::KEY, $polls + 1);
+        $due = !$install->progressValue($key) || $polls % self::STOP_RESEND_POLLS === 0;
+        if ($due && !in_array($state, ['missing', 'stopping'], true)) {
+            if (!$install->progressValue($key)) {
+                $install->addLog('info', 'stopping_server', ['state' => $state]);
+            }
             $install->setProgress($key, true);
-            $install->addLog('info', 'stopping_server', ['state' => $state]);
             $engine->persist($install);
             $power->stop($server);
         } elseif (!$install->progressValue('stop_wait_logged_'.static::KEY)) {

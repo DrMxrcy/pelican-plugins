@@ -114,6 +114,26 @@ class PackDiffTest extends TestCase
         $this->assertSame(['b', 'c'], PackDiff::needsHash($old, $new, $disk));
     }
 
+    public function test_a_directory_is_never_moved_and_one_in_the_way_of_a_new_file_conflicts(): void
+    {
+        $dir = ['size' => PackDiff::DIRECTORY, 'hash' => null];
+        $old = self::manifest(['plugins' => 'p', 'config/x.toml' => 'x']);
+        $new = self::manifest(['config/x.toml' => 'x2', 'libraries' => 'l', 'config' => 'c']);
+        $disk = ['plugins' => $dir, 'config/x.toml' => $dir, 'libraries' => $dir, 'config' => $dir];
+
+        foreach ([false, true] as $overwrite) {
+            $plan = PackDiff::plan($old, $new, $disk, $overwrite);
+            // Removed by the new version, a folder now: left alone, never "modified".
+            $this->assertSame(['path' => 'plugins', 'kind' => 'removed', 'modified' => false, 'action' => 'none'], $plan['plugins']);
+            // Wanted as a file by the new version: conflict, whatever overwrite says.
+            foreach (['config/x.toml', 'libraries', 'config'] as $path) {
+                $this->assertSame('conflict', $plan[$path]['action'], $path);
+                $this->assertFalse($plan[$path]['modified'], $path);
+            }
+        }
+        $this->assertFalse(PackDiff::isModified(['size' => 1, 'hash' => 'sha1:'.sha1('x')], $dir));
+    }
+
     public function test_hash_comparison_ignores_case(): void
     {
         $old = ['m' => ['path' => 'm', 'size' => 1, 'hash' => 'SHA1:'.strtoupper(sha1('x'))]];

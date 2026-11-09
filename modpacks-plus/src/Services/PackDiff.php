@@ -15,7 +15,9 @@ namespace DrMxrcy\ModpacksPlus\Services;
  * - modified: the server's file differs from what the old version installed (size, else hash);
  * - action: write (nothing in the way), aside_write (move what is there aside, then write),
  *   aside (move aside, write nothing), keep (leave it, it is already right), keep_modified (the
- *   user's file stays and the pack's is not written), none (nothing there, nothing to write).
+ *   user's file stays and the pack's is not written), none (nothing there, nothing to write, or
+ *   a directory where the old version had a file: never moved), conflict (a directory where the
+ *   new version has a file: the update fails with path_conflict before anything moves).
  *
  * Nothing is ever deleted: "aside" means `.modpacks-plus/previous-<date>/`. A user-modified file
  * is only moved (never overwritten) and only when the admin ticked "overwrite my changes";
@@ -44,6 +46,12 @@ final class PackDiff
 
     public const NONE = 'none';
 
+    /** A directory is where the new version has a file: the update must stop (`path_conflict`). */
+    public const CONFLICT = 'conflict';
+
+    /** Size the caller reports for a directory. */
+    public const DIRECTORY = -1;
+
     /**
      * @param  array<string, array{path: string, size: int, hash: string, kept?: bool}>  $old
      * @param  array<string, array{path: string, size: int, hash: string, kept?: bool}>  $new
@@ -67,6 +75,14 @@ final class PackDiff
                 strtolower($before['hash']) !== strtolower($after['hash']) || $before['size'] !== $after['size'] => self::CHANGED,
                 default => self::UNCHANGED,
             };
+
+            // A directory is never moved by an update (the old version listed a file there; the
+            // folder is the user's), and one in the way of a new file stops the update.
+            if ($state !== null && $state['size'] < 0) {
+                $decisions[$path] = ['path' => $path, 'kind' => $kind, 'modified' => false, 'action' => $after !== null ? self::CONFLICT : self::NONE];
+
+                continue;
+            }
 
             $modified = $before !== null && $state !== null && self::isModified($before, $state);
 
@@ -94,6 +110,9 @@ final class PackDiff
      */
     public static function isModified(array $entry, array $state): bool
     {
+        if ($state['size'] < 0) {
+            return false;
+        }
         if ($state['size'] !== $entry['size']) {
             return true;
         }

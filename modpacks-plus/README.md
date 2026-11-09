@@ -49,6 +49,8 @@ the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft v
 - **Start a fresh world** (install and switch, off by default): the server is stopped and the world
   (`level-name` with `_nether`/`_the_end`) is moved into `.modpacks-plus/previous-<date>/`, never deleted;
   the summary says where. Ops, whitelist, bans, `usercache.json` and `server.properties` stay.
+- An update stops with "A folder is in the way" when the new version lists a file where the server has a
+  folder; folders are never moved by an update. `eula.txt` is never written by a pack (listed as skipped).
 - Worlds, `ops.json`, `whitelist.json`, `banned-*.json`, `usercache.json` and `server.properties` are never
   moved by an update or switch (only a fresh world moves the world, and a loader switch sets them aside
   and back). After a failed or cancelled update or switch, **Restore previous files** puts every moved file
@@ -57,7 +59,14 @@ the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft v
   its comments, order and keys; the pack's values apply except for the preserved keys (setting, default
   `level-name, level-seed, motd, max-players, white-list, enforce-whitelist, online-mode, difficulty,
   gamemode, pvp, view-distance, simulation-distance, spawn-protection, enable-query, query.port,
-  server-port`); `level-name` never comes from a pack and the ports always follow the panel allocation.
+  server-port`; an empty list means these defaults). A pack may only set gameplay keys (`motd`, `difficulty`, `gamemode`, `pvp`,
+  view and simulation distance, world generation, spawning, tick and network tuning, data packs;
+  the full list is `PropertiesPreserver::PACK_KEYS`). Every other key (RCON, query, `server-ip`, the
+  ports, `online-mode`, whitelist, permission levels, resource packs, `level-name`, and any key added
+  in a later Minecraft version) keeps the server's value, the pack's line is dropped, and the summary
+  names the dropped keys. The ports always follow the panel allocation; the preserved list can only
+  narrow what a pack sets.
+  If the install ends while the file is being replaced, the server's own is put back.
   The previous file is kept in `.modpacks-plus/previous-<date>/server.properties`. A file that can't be
   read safely (escaped keys, line continuations, an unsafe `level-name`) is left untouched.
 - **Update checks** (setting: off, daily or weekly; off by default): the scheduler reads each installed

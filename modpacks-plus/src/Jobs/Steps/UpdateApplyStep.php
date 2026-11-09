@@ -56,7 +56,12 @@ class UpdateApplyStep extends InstallStep
             }
 
             $target = "$aside/$path";
-            $atRoot = $files->stat($server, $path) !== null;
+            $stat = $files->stat($server, $path);
+            if ($stat !== null && $stat['directory']) {
+                // Only files the pack listed are ever moved; a folder there now is the user's.
+                throw new StepFailedException('path_conflict', $path);
+            }
+            $atRoot = $stat !== null;
             $atTarget = $files->stat($server, $target) !== null;
             if ($atRoot && $atTarget) {
                 throw new StepFailedException('move_aside_conflict', $target);

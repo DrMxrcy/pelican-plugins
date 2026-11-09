@@ -93,6 +93,8 @@ final class PlanValidator
         'banned-ips.json',
         'usercache.json',
         'server.properties',
+        // The admin's EULA acceptance (plan 36 review): a pack never replaces it.
+        'eula.txt',
     ];
 
     /** Where previous pack files are moved aside; packs never write here. */

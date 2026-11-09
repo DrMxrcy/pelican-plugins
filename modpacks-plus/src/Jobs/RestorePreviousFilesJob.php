@@ -8,6 +8,7 @@ use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
 use DrMxrcy\ModpacksPlus\Contracts\ServerPower;
 use DrMxrcy\ModpacksPlus\Exceptions\StepFailedException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\InstallStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\RestoreLog;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\PreservedFiles;
@@ -152,12 +153,19 @@ class RestorePreviousFilesJob implements ShouldQueue
         $power = app(ServerPower::class);
         $state = $power->state($server);
         if (!in_array($state, ServerPower::STOPPED, true)) {
-            if (!$install->progressValue('restore_stop_sent') && !in_array($state, ['missing', 'stopping'], true)) {
+            // Sent again every few checks while the server keeps running.
+            $polls = (int) $install->progressValue('restore_stop_polls', 0);
+            $install->setProgress('restore_stop_polls', $polls + 1);
+            $due = !$install->progressValue('restore_stop_sent') || $polls % InstallStep::STOP_RESEND_POLLS === 0;
+            if ($due && !in_array($state, ['missing', 'stopping'], true)) {
+                if (!$install->progressValue('restore_stop_sent')) {
+                    $install->addLog('info', 'stopping_server', ['state' => $state]);
+                }
                 $install->setProgress('restore_stop_sent', true);
-                $install->addLog('info', 'stopping_server', ['state' => $state]);
                 $install->save();
                 $power->stop($server);
             } else {
+                $install->save();
                 $this->waitOnce($install, 'waiting_stop', ['state' => $state]);
             }
             $this->again(self::WAIT_SECONDS);

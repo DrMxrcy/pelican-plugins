@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Services;
 
 use App\Models\Server;
 use App\Models\User;
+use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
 use DrMxrcy\ModpacksPlus\Data\InstallPlan;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
@@ -392,7 +393,45 @@ class InstallEngine
 
         if ($ended) {
             File::deleteDirectory($this->workDir($install));
+            $this->recoverProperties($install);
         }
+    }
+
+    /**
+     * An install that ends (failed, deadline, watchdog, cancel) while PropertiesStep was swapping
+     * server.properties may have left none in place: the server would start with defaults
+     * (whitelist off, a new world). Best effort, never replacing anything: the server's own copy
+     * (else the merged one) is moved back to the root, and the outcome logged.
+     */
+    private function recoverProperties(PackInstall $install): void
+    {
+        $server = $install->progressValue('properties_swapping') && $install->moved_aside_path !== null ? Server::query()->find($install->server_id) : null;
+        if ($server === null) {
+            return;
+        }
+
+        $file = PropertiesStep::FILE;
+        $worlds = $install->progressValue('worlds');
+        try {
+            $files = app(ServerFiles::class)->protecting(is_array($worlds) ? array_values(array_filter($worlds, 'is_string')) : []);
+            if ($files->stat($server, $file) === null) {
+                foreach ([$install->moved_aside_path.'/'.$file, $install->moved_aside_path.'/merged/'.$file] as $source) {
+                    if ($files->stat($server, $source) !== null) {
+                        $files->movePreserved($server, $source, $file);
+                        $install->addLog('warning', 'properties_recovered', ['path' => $source]);
+
+                        break;
+                    }
+                }
+            }
+            $install->setProgress('properties_swapping', null);
+        } catch (\Throwable $exception) {
+            report($exception);
+            $install->addLog('error', 'properties_recover_failed', ['path' => $install->moved_aside_path.'/'.$file]);
+        }
+
+        // The install has ended: its row is no longer guarded by the chain's seq.
+        $install->save();
     }
 
     /**
@@ -432,6 +471,7 @@ class InstallEngine
             'mode' => $install->mode,
             'update' => $install->mode === PackInstall::MODE_UPDATE ? $install->progressValue('update_summary') : null,
             'properties' => $install->progressValue('properties'),
+            'properties_dropped' => $install->progressValue('properties_dropped'),
             'fresh_world' => $install->progressValue('fresh_world_moved'),
             'loader_switch' => $install->isLoaderSwitch() ? [
                 'loader' => $install->loader_switch['loader'] ?? null,

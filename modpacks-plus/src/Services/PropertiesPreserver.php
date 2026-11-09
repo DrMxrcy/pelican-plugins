@@ -17,9 +17,15 @@ use DrMxrcy\ModpacksPlus\Support\PlanValidator;
  *   server then uses its default, `world`). A level-name that is written is checked like a world
  *   path (relative, no `..` or backslash) and may not be a pack or move-aside folder
  *   (`unsafe_level_name`);
- * - the port keys (`server-port`, `query.port`) always follow the panel allocation; without one
- *   the server's values are kept and the pack's never used;
- * - every other key the pack sets takes the pack's value; keys only the pack has are appended.
+ * - the port keys (`server-port`, `query.port`) always follow the panel allocation;
+ * - a pack may only set gameplay keys (PACK_KEYS, an allowlist). Every other key, today's
+ *   (RCON, query, server-ip, management server, JMX, online-mode, whitelist, permission levels,
+ *   resource packs, text filtering, transfers, command blocks, …) and any Mojang adds later, is
+ *   server-only: the server's value is kept, and without one the pack's line is dropped and
+ *   reported (mergeReport()). Not admin-editable: the preserved list can only narrow what a pack
+ *   sets, never widen it;
+ * - a gameplay key in the preserved list keeps the server's value (when the server has it);
+ * - every other gameplay key the pack sets takes the pack's value; new ones are appended.
  *
  * Java properties allow escaped keys and line continuations, which could hide or fake a key.
  * Like ServerProperties, either in either file fails closed (`properties_unmergeable`): the
@@ -33,8 +39,21 @@ final class PropertiesPreserver
         'gamemode', 'pvp', 'view-distance', 'simulation-distance', 'spawn-protection', 'enable-query', 'query.port', 'server-port',
     ];
 
-    /** Always kept, whatever the admin list says. */
-    public const ALWAYS_KEYS = ['level-name'];
+    /**
+     * The only keys a pack may set (gameplay). Everything else is server-only (parent ruling,
+     * plan 36 security review): an allowlist, so keys Mojang adds later stay the server's.
+     */
+    public const PACK_KEYS = [
+        'motd', 'difficulty', 'gamemode', 'force-gamemode', 'hardcore', 'pvp', 'view-distance', 'simulation-distance',
+        'spawn-protection', 'max-players', 'level-type', 'generator-settings', 'generate-structures', 'level-seed',
+        'allow-flight', 'allow-nether', 'spawn-monsters', 'spawn-animals', 'spawn-npcs', 'max-world-size', 'max-build-height',
+        'entity-broadcast-range-percentage', 'max-tick-time', 'sync-chunk-writes', 'network-compression-threshold',
+        'initial-enabled-packs', 'initial-disabled-packs', 'player-idle-timeout', 'rate-limit', 'max-chained-neighbor-updates',
+        'region-file-compression', 'pause-when-empty-seconds',
+    ];
+
+    /** Dropped pack key names reported at most. */
+    public const MAX_DROPPED = 50;
 
     /** Always set to the server's allocation port. */
     public const PORT_KEYS = ['server-port', 'query.port'];
@@ -71,7 +90,8 @@ final class PropertiesPreserver
             }
         }
 
-        return array_slice(array_keys($keys), 0, self::MAX_KEYS);
+        // An empty list means the defaults (server-only keys are kept whatever it says).
+        return $keys === [] ? self::DEFAULT_KEYS : array_slice(array_keys($keys), 0, self::MAX_KEYS);
     }
 
     /**
@@ -155,28 +175,41 @@ final class PropertiesPreserver
      */
     public static function merge(string $current, string $incoming, array $preserved, ?int $port): string
     {
+        return self::mergeReport($current, $incoming, $preserved, $port)['contents'];
+    }
+
+    /**
+     * merge(), plus the names of the pack's keys that were not applied because a pack may not set
+     * them (server-only keys and the ports), in the pack's order.
+     *
+     * @param  array<int, string>  $preserved
+     * @return array{contents: string, dropped: array<int, string>}
+     *
+     * @throws UnsafePlanException
+     */
+    public static function mergeReport(string $current, string $incoming, array $preserved, ?int $port): array
+    {
         $base = self::parse($current);
         $baseValues = self::values($current);
         $incomingLines = self::parse($incoming);
         $incomingValues = self::values($incoming);
 
         $forced = $port !== null && $port > 0 && $port <= 65535 ? array_fill_keys(self::PORT_KEYS, (string) $port) : [];
-        // Never from the pack: level-name always, the ports when there is no allocation port.
-        $serverOnly = array_flip(array_merge(self::ALWAYS_KEYS, $forced === [] ? self::PORT_KEYS : []));
-        $keep = array_flip($preserved) + $serverOnly;
+        $keep = array_flip($preserved);
 
         $final = function (string $key) use ($keep, $forced, $baseValues, $incomingValues): string {
             return match (true) {
                 isset($forced[$key]) => $forced[$key],
-                isset($keep[$key]) && array_key_exists($key, $baseValues) => $baseValues[$key],
-                // Server-only keys the server lacks are not written (see the loops below).
-                array_key_exists($key, $incomingValues) => $incomingValues[$key],
+                // Server-only keys the server lacks are never written (see the loops below).
+                (isset($keep[$key]) || self::isServerOnly($key)) && array_key_exists($key, $baseValues) => $baseValues[$key],
+                array_key_exists($key, $incomingValues) && !self::isServerOnly($key) => $incomingValues[$key],
                 default => $baseValues[$key] ?? '',
             };
         };
 
         $out = [];
         $seen = [];
+        $dropped = [];
         foreach ($base as $line) {
             if ($line['type'] !== 'pair') {
                 $out[] = $line['raw'];
@@ -193,7 +226,10 @@ final class PropertiesPreserver
 
         foreach ($incomingLines as $line) {
             $key = (string) $line['key'];
-            if ($line['type'] === 'pair' && !isset($seen[$key]) && !isset($serverOnly[$key])) {
+            if ($line['type'] === 'pair' && self::isServerOnly($key) && !in_array($key, $dropped, true) && count($dropped) < self::MAX_DROPPED) {
+                $dropped[] = mb_strimwidth($key, 0, 64, '…');
+            }
+            if ($line['type'] === 'pair' && !isset($seen[$key]) && !self::isServerOnly($key)) {
                 $seen[$key] = true;
                 $out[] = $key.'='.$final($key);
             }
@@ -215,7 +251,13 @@ final class PropertiesPreserver
             throw new UnsafePlanException('properties_unmergeable', 'too large');
         }
 
-        return $merged;
+        return ['contents' => $merged, 'dropped' => $dropped];
+    }
+
+    /** Whether a key never comes from a pack: anything not on the allowlist (exact, Minecraft's keys are lowercase). */
+    public static function isServerOnly(string $key): bool
+    {
+        return !in_array($key, self::PACK_KEYS, true);
     }
 
     /**

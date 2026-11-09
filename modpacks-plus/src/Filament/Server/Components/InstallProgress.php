@@ -120,6 +120,9 @@ final class InstallProgress
         if (is_string($summary['properties'] ?? null) && trans()->has('modpacks-plus::strings.summary.properties.'.$summary['properties'])) {
             $lines[] = trans('modpacks-plus::strings.summary.properties.'.$summary['properties'], ['path' => (string) ($summary['moved_aside_path'] ?? '')]);
         }
+        if (!empty($summary['properties_dropped']) && is_array($summary['properties_dropped'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.properties_dropped', ['keys' => implode(', ', array_map('strval', $summary['properties_dropped']))]);
+        }
 
         if (isset($summary['files_total']) && $update === null) {
             $lines[] = trans('modpacks-plus::strings.summary.downloaded', ['done' => $summary['downloaded'] ?? 0, 'total' => $summary['files_total']]);

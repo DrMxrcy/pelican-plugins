@@ -72,9 +72,10 @@ class PropertiesStep extends InstallStep
         $files = $this->files();
 
         if (!$install->progressValue('properties_swapping')) {
-            $current = $this->current($server);
             try {
-                $merged = PropertiesPreserver::merge($current ?? '', $this->packFile($install, $engine, $plan, $entry, $validator), PropertiesPreserver::keys(config('modpacks-plus.preserved_properties')), self::port($server));
+                $current = $this->current($server);
+                $report = PropertiesPreserver::mergeReport($current ?? '', $this->packFile($install, $engine, $plan, $entry, $validator), PropertiesPreserver::keys(config('modpacks-plus.preserved_properties')), self::port($server));
+                $merged = $report['contents'];
             } catch (UnsafePlanException $exception) {
                 // Fail closed for the merge: nothing is written, the server's file stays as it is
                 // (the pack's files are already in place, so the install itself carries on).
@@ -86,6 +87,9 @@ class PropertiesStep extends InstallStep
 
                 return StepResult::done();
             }
+
+            // The pack's keys a pack may not set (names only), for the summary.
+            $install->setProgress('properties_dropped', $report['dropped']);
 
             if ($current !== null && $merged === $current) {
                 $install->setProgress('properties', 'unchanged');
@@ -189,9 +193,21 @@ class PropertiesStep extends InstallStep
         }
     }
 
-    /** The server's server.properties, or null when it has none. */
+    /**
+     * The server's server.properties, or null when it has none.
+     *
+     * @throws UnsafePlanException `properties_unmergeable` when it is too large to merge
+     */
     private function current(Server $server): ?string
     {
+        $stat = $this->files()->stat($server, self::FILE);
+        if ($stat === null) {
+            return null;
+        }
+        if ($stat['directory'] || $stat['size'] > PropertiesPreserver::MAX_BYTES) {
+            throw new UnsafePlanException('properties_unmergeable', 'server.properties is too large or not a file');
+        }
+
         try {
             return $this->files()->read($server, self::FILE, PropertiesPreserver::MAX_BYTES);
         } catch (FileNotFoundException) {

@@ -85,6 +85,12 @@ class UpdateDiffStep extends InstallStep
         }
 
         $decisions = PackDiff::plan($old, $new, $disk, $install->option('overwrite_changes'));
+        foreach ($decisions as $path => $decision) {
+            if ($decision['action'] === PackDiff::CONFLICT) {
+                // Nothing has moved yet: a folder in the way of a file stops the update, as in an install.
+                throw new StepFailedException('path_conflict', $path);
+            }
+        }
         $moves = [];
         $skip = [];
         $kept = [];
@@ -139,7 +145,7 @@ class UpdateDiffStep extends InstallStep
             }
 
             $entry = ($listings[$directory] ?? [])[basename($path)] ?? null;
-            $states[$path] = $entry === null ? null : ['size' => $entry['directory'] ? -1 : $entry['size'], 'hash' => null];
+            $states[$path] = $entry === null ? null : ['size' => $entry['directory'] ? PackDiff::DIRECTORY : $entry['size'], 'hash' => null];
         }
 
         return $states;

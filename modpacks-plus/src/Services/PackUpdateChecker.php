@@ -22,8 +22,15 @@ class PackUpdateChecker
 {
     public const FREQUENCIES = ['off', 'daily', 'weekly'];
 
-    /** Distinct packs asked per run (API quota). */
+    /** Distinct packs asked per run (API quota); `modpacks-plus.update_check_max_packs` may lower it. */
     public const MAX_PACKS = 200;
+
+    public static function maxPacks(): int
+    {
+        $configured = config('modpacks-plus.update_check_max_packs');
+
+        return is_numeric($configured) && (int) $configured > 0 ? min((int) $configured, self::MAX_PACKS) : self::MAX_PACKS;
+    }
 
     public static function frequency(): string
     {
@@ -44,19 +51,21 @@ class PackUpdateChecker
 
         $latest = PackInstall::query()
             ->whereIn('id', PackInstall::query()->selectRaw('max(id)')->where('status', PackInstall::STATUS_INSTALLED)->groupBy('server_id'))
-            ->orderBy('id')
+            // Newest installs first: when the per-run cap is reached, the oldest are left out.
+            ->orderByDesc('id')
             ->with('server.user')
             ->get();
 
         $byPack = $latest->groupBy(fn (PackInstall $install) => $install->provider.'|'.$install->pack_id);
         $asked = 0;
+        $max = self::maxPacks();
 
         foreach ($byPack as $installs) {
             /** @var PackInstall $first */
             $first = $installs->first();
             if (!in_array($first->provider, PackProviders::IDS, true)
                 || ($first->provider === CurseForgePackProvider::ID && !CurseForgeClient::fromConfig()->configured())
-                || $asked >= self::MAX_PACKS) {
+                || $asked >= $max) {
                 $result['skipped'] += $installs->count();
 
                 continue;

@@ -12,6 +12,7 @@ use DrMxrcy\ModpacksPlus\Contracts\ServerPower;
 use DrMxrcy\ModpacksPlus\Data\InstallPlan;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\ModpacksPlusServiceProvider;
+use DrMxrcy\ModpacksPlus\Services\PropertiesPreserver;
 use DrMxrcy\ModpacksPlus\Tests\Support\Mrpack;
 use DrMxrcy\ModpacksPlus\Tests\Support\RecordingPlugin;
 use DrMxrcy\ModpacksPlus\Tests\TestCase;
@@ -190,6 +191,22 @@ class PackUpdateCheckTest extends TestCase
         Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'cdn.modrinth.com') || str_ends_with($request->url(), '.mrpack'));
     }
 
+    public function test_the_per_run_cap_leaves_out_the_oldest_installs(): void
+    {
+        config()->set('modpacks-plus.update_check_max_packs', 1);
+        [, $old] = $this->installed('modrinth', 'OLDPACK1');
+        [, $new] = $this->installed();
+        $this->versions = [self::version('VERSID02', '2.0.0'), self::version('VERSID01', '1.0.0')];
+        $this->fakeModrinth();
+
+        $this->check();
+
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'OLDPACK1'));
+        $this->assertTrue($new->fresh()?->update_available);
+        $this->assertNull($old->fresh()?->update_checked_at);
+    }
+
     public function test_one_request_per_pack_however_many_servers_run_it(): void
     {
         $this->installed();
@@ -225,6 +242,26 @@ class PackUpdateCheckTest extends TestCase
             $this->assertStringNotContainsString($secret, $data);
         }
         $this->assertTrue($install->fresh()?->update_available);
+    }
+
+    public function test_html_from_pack_metadata_never_reaches_the_notification(): void
+    {
+        [$server, $install] = $this->installed();
+        $install->forceFill(['name' => 'Pack<a href="https://evil.example/x">click</a><img src="https://evil.example/p.png" style="x">'])->save();
+        $server->forceFill(['name' => '<b>srv</b>'])->save();
+        $hostile = self::version('VERSID02', '<img src=https://evil.example/v.png>');
+        $this->versions = [$hostile, self::version('VERSID01', '1.0.0')];
+        $this->fakeModrinth();
+
+        $this->check();
+
+        $data = json_decode((string) DB::table('notifications')->value('data'), true);
+        $text = (string) ($data['title'] ?? '').' '.(string) ($data['body'] ?? '');
+        foreach (['<a', '<img', '<b>'] as $raw) {
+            $this->assertStringNotContainsString($raw, $text);
+        }
+        $this->assertStringContainsString('&lt;a href=', $text);
+        $this->assertStringContainsString('&lt;img src=', $text);
     }
 
     public function test_curseforge_without_a_key_or_the_mirror_is_never_asked(): void
@@ -280,7 +317,8 @@ class PackUpdateCheckTest extends TestCase
 
         $plugin->saveSettings(['update_check' => 'hourly"; rm -rf /', 'preserved_properties' => '']);
         $this->assertSame('off', $plugin->written['MODPACKS_PLUS_UPDATE_CHECK']);
-        $this->assertSame('', $plugin->written['MODPACKS_PLUS_PRESERVED_PROPERTIES']);
+        // An emptied list goes back to the defaults.
+        $this->assertSame(implode(',', PropertiesPreserver::DEFAULT_KEYS), $plugin->written['MODPACKS_PLUS_PRESERVED_PROPERTIES']);
 
         $plugin->saveSettings([]);
         $this->assertArrayNotHasKey('MODPACKS_PLUS_UPDATE_CHECK', $plugin->written);

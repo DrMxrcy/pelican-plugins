@@ -165,12 +165,101 @@ class PropertiesPreserverTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    /** @return array<string, array{string, string}> key => [pack value, server value] */
+    public static function serverOnlyKeys(): array
+    {
+        return [
+            'rcon on' => ['enable-rcon', 'true'],
+            'rcon password' => ['rcon.password', 'hunter2'],
+            'rcon port' => ['rcon.port', '25575'],
+            'query on' => ['enable-query', 'true'],
+            'query port' => ['query.port', '1'],
+            'server port' => ['server-port', '1'],
+            'bind address' => ['server-ip', '10.0.0.5'],
+            'management server on' => ['management-server-enabled', 'true'],
+            'management server host' => ['management-server-host', '0.0.0.0'],
+            'management server port' => ['management-server-port', '25585'],
+            'management server secret' => ['management-server-secret', 'x'],
+            'jmx' => ['enable-jmx-monitoring', 'true'],
+            'offline mode' => ['online-mode', 'false'],
+            'whitelist off' => ['white-list', 'false'],
+            'whitelist not enforced' => ['enforce-whitelist', 'false'],
+            'op level' => ['op-permission-level', '4'],
+            'function level' => ['function-permission-level', '4'],
+            'resource pack url' => ['resource-pack', 'https://evil.example/grab.zip'],
+            'resource pack hash' => ['resource-pack-sha1', 'abc'],
+            'resource pack prompt' => ['resource-pack-prompt', 'click'],
+            'resource pack id' => ['resource-pack-id', 'x'],
+            'require resource pack' => ['require-resource-pack', 'true'],
+            'level name' => ['level-name', 'mods'],
+            'mixed case' => ['Enable-RCON', 'true'],
+            'text filtering' => ['text-filtering-config', 'https://evil.example/f.json'],
+            'bug report link' => ['bug-report-link', 'https://evil.example'],
+            'transfers' => ['accepts-transfers', 'true'],
+            'command blocks' => ['enable-command-block', 'true'],
+            'ip logging' => ['log-ips', 'true'],
+            'status' => ['enable-status', 'false'],
+            'hidden players' => ['hide-online-players', 'true'],
+            'chat signing' => ['enforce-secure-profile', 'false'],
+            'unknown future key' => ['some-key-mojang-adds-in-2030', 'x'],
+            'gameplay key in odd case' => ['MOTD', 'x'],
+        ];
+    }
+
+    #[DataProvider('serverOnlyKeys')]
+    public function test_a_server_only_key_never_comes_from_the_pack(string $key, string $value): void
+    {
+        $this->assertTrue(PropertiesPreserver::isServerOnly($key));
+
+        // The server lacks it, no allocation port, an empty admin list: the pack's line is dropped.
+        $merged = PropertiesPreserver::merge("motd=hi\n", "$key=$value\npvp=true\n", [], null);
+        $this->assertSame("motd=hi\npvp=true\n", $merged, $key);
+
+        // The server has it: the server's value stays.
+        $merged = PropertiesPreserver::merge("$key=server-value\n", "$key=$value\n", [], null);
+        $this->assertSame("$key=server-value\n", $merged, $key);
+    }
+
+    public function test_every_allowlisted_gameplay_key_from_the_pack_is_applied(): void
+    {
+        foreach (PropertiesPreserver::PACK_KEYS as $key) {
+            $this->assertFalse(PropertiesPreserver::isServerOnly($key), $key);
+            $merged = PropertiesPreserver::mergeReport("$key=server\n", "$key=pack\n", [], null);
+            $this->assertSame("$key=pack\n", $merged['contents'], $key);
+            $this->assertSame([], $merged['dropped'], $key);
+        }
+    }
+
+    public function test_the_preserved_list_only_narrows_the_allowlist(): void
+    {
+        // A gameplay key on the list keeps the server's value.
+        $this->assertSame("motd=server\n", PropertiesPreserver::merge("motd=server\n", "motd=pack\n", ['motd'], null));
+        // Listing nothing never lets a server-only key through.
+        $this->assertSame("white-list=true\n", PropertiesPreserver::merge("white-list=true\n", "white-list=false\n", [], null));
+    }
+
+    public function test_dropped_pack_keys_are_reported_by_name(): void
+    {
+        $report = PropertiesPreserver::mergeReport(
+            "level-name=world\nmotd=hi\n",
+            "level-name=mods\nenable-rcon=true\nrcon.password=x\nmotd=pack\nserver-port=1\nenable-rcon=true\nfuture-key=1\n",
+            [],
+            25565,
+        );
+
+        $this->assertSame(['level-name', 'enable-rcon', 'rcon.password', 'server-port', 'future-key'], $report['dropped']);
+        $this->assertSame("level-name=world\nmotd=pack\nserver-port=25565\nquery.port=25565\n", $report['contents']);
+    }
+
     public function test_the_admin_list_is_sanitised(): void
     {
         $this->assertSame(['motd', 'pvp', 'query.port'], PropertiesPreserver::keys("motd, pvp\nquery.port ,motd"));
         $this->assertSame(['motd'], PropertiesPreserver::keys(['motd', 'bad key', "evil\nkey", 3, '']));
         $this->assertSame(PropertiesPreserver::DEFAULT_KEYS, PropertiesPreserver::keys(null));
-        $this->assertSame([], PropertiesPreserver::keys([]));
+        // An empty setting means the defaults.
+        $this->assertSame(PropertiesPreserver::DEFAULT_KEYS, PropertiesPreserver::keys([]));
+        $this->assertSame(PropertiesPreserver::DEFAULT_KEYS, PropertiesPreserver::keys(''));
+        $this->assertSame(PropertiesPreserver::DEFAULT_KEYS, PropertiesPreserver::keys(['bad key', '']));
         $this->assertCount(PropertiesPreserver::MAX_KEYS, PropertiesPreserver::keys(array_map(fn ($i) => "k$i", range(1, 500))));
     }
 }

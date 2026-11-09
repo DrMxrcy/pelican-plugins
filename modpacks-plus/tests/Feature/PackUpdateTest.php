@@ -15,6 +15,7 @@ use DrMxrcy\ModpacksPlus\Jobs\Steps\UpdateDiffStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
+use DrMxrcy\ModpacksPlus\Services\PropertiesPreserver;
 use DrMxrcy\ModpacksPlus\Tests\Support\InstallScenario;
 use DrMxrcy\ModpacksPlus\Tests\Support\Mrpack;
 use DrMxrcy\ModpacksPlus\Tests\Support\PackVersions;
@@ -414,6 +415,71 @@ class PackUpdateTest extends TestCase
         $this->assertSame("level-name=world\nmotd=A Minecraft Server\n", $this->files->files[$replaced[0]]);
     }
 
+    /** @return array<string, array{string}> */
+    public static function swapEndings(): array
+    {
+        return ['deadline' => ['deadline'], 'watchdog' => ['watchdog']];
+    }
+
+    #[DataProvider('swapEndings')]
+    public function test_an_install_ending_mid_swap_puts_server_properties_back(string $how): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->seedPlayerData();
+        $this->packVersion('VERSID01', '1.0.0', ['mods/a.jar' => 'a'], ['overrides/server.properties' => "pvp=false\n"]);
+        $crashed = false;
+        $this->files->afterMove = function (string $from) use (&$crashed) {
+            if ($from === 'server.properties' && !$crashed) {
+                $crashed = true;
+
+                throw new \RuntimeException('worker killed');
+            }
+        };
+
+        try {
+            $this->runVersion($server, 'VERSID01');
+        } catch (\RuntimeException) {
+        }
+        $this->files->afterMove = null;
+        $install = $this->latestInstall();
+        $this->assertArrayNotHasKey('server.properties', $this->files->files);
+
+        if ($how === 'deadline') {
+            $install->forceFill(['step_deadline_at' => now()->subMinute()])->save();
+            $this->app->call([new PropertiesStep($install->id, $install->seq), 'handle']);
+        } else {
+            $install->forceFill(['heartbeat_at' => now()->subHour(), 'resumes' => InstallEngine::MAX_RESUMES])->save();
+            app(InstallEngine::class)->watchdog();
+        }
+
+        $install->refresh();
+        $this->assertSame(PackInstall::STATUS_FAILED, $install->status);
+        // The server's own file is back in place, as it was.
+        $this->assertSame("motd=hi\nlevel-name=world\n", $this->files->files['server.properties'] ?? null);
+        $this->assertSame(1, collect($install->log)->where('key', 'properties_recovered')->count());
+        $this->assertNull($install->progressValue('properties_swapping'));
+        $this->assertSame([], $this->files->violations);
+    }
+
+    public function test_an_oversized_server_properties_on_the_server_is_skipped_not_a_failure(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->seedPlayerData();
+        $big = "level-name=world\n#".str_repeat('x', PropertiesPreserver::MAX_BYTES)."\n";
+        $this->packVersion('VERSID01', '1.0.0', ['mods/a.jar' => 'a'], ['overrides/server.properties' => "pvp=false\n"]);
+
+        // It grew past the cap after the install checked it (an install refuses one up front).
+        $install = $this->runVersion($server, 'VERSID01', between: function (InstallStep $job) use ($big) {
+            if ($job instanceof PropertiesStep) {
+                $this->files->files['server.properties'] = $big;
+            }
+        });
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame('unmergeable', $install->summary['properties'] ?? null);
+        $this->assertSame($big, $this->files->files['server.properties']);
+    }
+
     public function test_an_unmergeable_pack_properties_file_leaves_the_servers_untouched(): void
     {
         [, $server] = $this->scenarioServer();
@@ -440,7 +506,9 @@ class PackUpdateTest extends TestCase
         $install = $this->runVersion($server, 'VERSID01');
 
         $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
-        $this->assertSame("motd=hi\nserver-port=25565\nquery.port=25565\npvp=false\n", $this->files->files['server.properties']);
+        $this->assertSame("motd=hi\npvp=false\nserver-port=25565\nquery.port=25565\n", $this->files->files['server.properties']);
+        $this->assertSame(['level-name', 'server-port', 'query.port'], $install->summary['properties_dropped'] ?? null);
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.summary.properties_dropped', ['keys' => 'level-name, server-port, query.port'])), (string) InstallProgress::summary($install));
     }
 
     public function test_an_unsafe_level_name_on_the_server_leaves_its_file_untouched(): void
@@ -455,6 +523,68 @@ class PackUpdateTest extends TestCase
         $this->assertSame("level-name=config/world\n", $this->files->files['server.properties']);
         $this->assertSame('unmergeable', $install->summary['properties'] ?? null);
         $this->assertSame('level', $this->files->files['config/world/level.dat']);
+    }
+
+    /** @return array<string, array{string, bool}> */
+    public static function foldersInTheWay(): array
+    {
+        return [
+            'plugins' => ['plugins', false],
+            'config (overwrite on)' => ['config', true],
+            'libraries' => ['libraries', false],
+        ];
+    }
+
+    #[DataProvider('foldersInTheWay')]
+    public function test_a_new_version_naming_a_users_folder_as_a_file_fails_without_moving_it(string $folder, bool $overwrite): void
+    {
+        $server = $this->installedV1();
+        $this->files->seed(["$folder/user-data.yml" => 'mine', 'plugins/other.jar' => 'plugin']);
+        $this->packVersion('VERSID03', '3.0.0', ['mods/kept.jar' => 'kept-1', $folder => 'hostile']);
+        $before = $this->files->files;
+        $this->files->calls = [];
+
+        $install = $this->runVersion($server, 'VERSID03', ['update' => true, 'overwrite_changes' => $overwrite]);
+
+        $this->assertSame(PackInstall::STATUS_FAILED, $install->status);
+        $this->assertSame('path_conflict', $install->error);
+        $this->assertSame('mine', $this->files->files["$folder/user-data.yml"]);
+        // Failed before anything moved: every file is where it was.
+        $this->assertSame($before, $this->files->files);
+        $this->assertSame([], $this->files->argsOf('rename'));
+    }
+
+    public function test_a_folder_where_the_old_version_had_a_file_is_never_moved(): void
+    {
+        $server = $this->installedV1();
+        // mods/dropped.jar (dropped by version 2) is a folder now.
+        unset($this->files->files['mods/dropped.jar']);
+        $this->files->seed(['mods/dropped.jar/inner.txt' => 'mine']);
+
+        $install = $this->update($server, ['overwrite_changes' => true]);
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame('mine', $this->files->files['mods/dropped.jar/inner.txt']);
+        $this->assertNotContains('mods/dropped.jar', $install->movedFolders());
+    }
+
+    public function test_a_packs_eula_is_never_written_and_is_listed(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->seedPlayerData();
+        $this->packVersion('VERSID01', '1.0.0', ['mods/a.jar' => 'a'], ['overrides/eula.txt' => 'eula=false', 'server-overrides/eula.txt' => 'eula=false']);
+        $this->packVersion('VERSID02', '2.0.0', ['mods/a.jar' => 'a2'], ['overrides/eula.txt' => 'eula=false']);
+
+        $v1 = $this->runVersion($server, 'VERSID01');
+        $update = $this->update($server);
+
+        foreach ([$v1, $update] as $install) {
+            $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+            $this->assertContains('eula.txt', $install->summary['skipped_overrides'] ?? []);
+            $this->assertArrayNotHasKey('eula.txt', $install->manifestEntries() ?? []);
+        }
+        $this->assertSame('eula=true', $this->files->files['eula.txt']);
+        $this->assertNotContains('eula.txt', $this->files->callsOf('write'));
     }
 
     public function test_a_pack_without_server_properties_skips_the_merge(): void

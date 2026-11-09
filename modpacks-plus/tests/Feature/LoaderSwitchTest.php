@@ -460,15 +460,19 @@ class LoaderSwitchTest extends TestCase
 
         $install = $this->latestInstall();
         $this->assertSame(PreserveStep::KEY, $install->current_step);
-        $this->assertSame(1, $this->power->stops);
+        // Plan 36 review: a server that keeps running gets the stop again every few checks.
+        $polls = (int) $install->progressValue('stop_polls_'.PreserveStep::KEY);
+        $this->assertSame(intdiv($polls - 1, InstallStep::STOP_RESEND_POLLS) + 1, $this->power->stops);
+        $this->assertGreaterThan(1, $this->power->stops);
         $this->assertSame([], $this->files->argsOf('movePreserved'));
         $this->assertNull($install->preserved_path);
 
+        $stops = $this->power->stops;
         $this->power->state = 'offline';
         $this->runSwitch($server);
 
         $this->assertSame(PackInstall::STATUS_INSTALLED, $this->latestInstall()->status);
-        $this->assertSame(1, $this->power->stops);
+        $this->assertSame($stops, $this->power->stops);
     }
 
     public function test_a_server_started_during_the_reinstall_is_stopped_before_worlds_go_back(): void
