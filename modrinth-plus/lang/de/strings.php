@@ -61,6 +61,11 @@ return [
         'no_file_found' => 'Keine Datei gefunden',
     ],
 
+    'changelog' => [
+        'none' => 'Kein Änderungsprotokoll angegeben',
+        'more' => ':count weitere auf Modrinth',
+    ],
+
     'actions' => [
         'install_latest' => 'Neueste Version installieren',
         'install' => 'Installieren',

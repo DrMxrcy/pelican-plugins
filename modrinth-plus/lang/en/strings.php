@@ -61,6 +61,11 @@ return [
         'no_file_found' => 'No file found',
     ],
 
+    'changelog' => [
+        'none' => 'No changelog provided',
+        'more' => ':count more on Modrinth',
+    ],
+
     'actions' => [
         'install_latest' => 'Install latest version',
         'install' => 'Install',

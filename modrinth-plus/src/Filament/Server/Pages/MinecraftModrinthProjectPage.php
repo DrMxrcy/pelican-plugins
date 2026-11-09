@@ -12,6 +12,7 @@ use DrMxrcy\ModrinthPlus\Exceptions\InvalidLevelNameException;
 use DrMxrcy\ModrinthPlus\Exceptions\ServerPropertiesUnreadableException;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
 use DrMxrcy\ModrinthPlus\Services\MinecraftModrinthService;
+use DrMxrcy\ModrinthPlus\Support\Changelog;
 use DrMxrcy\ModrinthPlus\Support\Compatibility;
 use DrMxrcy\ModrinthPlus\Support\DependencyResolver;
 use DrMxrcy\ModrinthPlus\Support\Sides;
@@ -31,6 +32,8 @@ use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Schema;
 use Filament\Support\ArrayRecord;
 use Filament\Support\Components\Attributes\Unexposed;
+use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\Width;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
@@ -1002,6 +1005,62 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     }
 
     /**
+     * The changelogs of the versions updating $record brings in, newest first and capped at
+     * Changelog::LIMIT, from the versions cached for this render (no extra Modrinth request).
+     *
+     * @param  array<string, mixed>  $record
+     * @return array<int, Section|TextEntry>
+     */
+    protected function updateChangelogSchema(array $record): array
+    {
+        ['versions' => $versions, 'more' => $more] = Changelog::between(
+            $this->getCachedVersions($record['project_id']),
+            $this->getInstalledMod($record['project_id'])['version_id'] ?? null,
+        );
+
+        $components = [];
+        foreach ($versions as $index => $versionData) {
+            $components[] = Section::make((string) ($versionData['version_number'] ?? ''))
+                ->schema([$this->changelogEntry('update_changelog_' . $index, $versionData)->hiddenLabel()])
+                ->collapsible()
+                // A few fit open; past that only the version being installed starts open.
+                ->collapsed($index > 0 && count($versions) > 3)
+                ->compact();
+        }
+
+        if ($more > 0) {
+            $url = 'https://modrinth.com/' . rawurlencode((string) ($record['project_type'] ?? '')) . '/' . rawurlencode((string) ($record['slug'] ?? '')) . '/versions';
+
+            $components[] = TextEntry::make('update_changelog_more')
+                ->hiddenLabel()
+                ->state(new HtmlString(sprintf(
+                    '<a href="%s" target="_blank" rel="noopener noreferrer nofollow" class="fi-link">%s</a>',
+                    e($url),
+                    e(trans('modrinth-plus::strings.changelog.more', ['count' => $more])),
+                )));
+        }
+
+        return $components;
+    }
+
+    /**
+     * A version's changelog: Modrinth's markdown rendered safely (see Changelog::render()), or
+     * "No changelog provided".
+     *
+     * @param  array<string, mixed>  $versionData
+     */
+    protected function changelogEntry(string $name, array $versionData): TextEntry
+    {
+        $changelog = is_string($versionData['changelog'] ?? null) ? $versionData['changelog'] : null;
+        $html = Changelog::render($changelog);
+
+        return TextEntry::make($name)
+            ->state($html ?? trans('modrinth-plus::strings.changelog.none'))
+            ->prose($html !== null)
+            ->color($html === null ? 'gray' : null);
+    }
+
+    /**
      * The success body plus the dependencies that were pulled in.
      *
      * @param  array{installed: list<string>, failed: list<string>, manual: list<string>, skipped: list<string>, unchecked: list<string>, error: bool}  $report
@@ -1324,12 +1383,8 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                                     ->state(fn () => isset($versionData['date_published']) ? Carbon::parse($versionData['date_published'], 'UTC')->diffForHumans() : ''),
                             ];
 
-                            if (!empty($versionData['changelog'])) {
-                                $sectionComponents[] = TextEntry::make('changelog_' . $versionIndex)
-                                    ->label(trans('modrinth-plus::strings.version.changelog'))
-                                    ->state($versionData['changelog'])
-                                    ->markdown();
-                            }
+                            $sectionComponents[] = $this->changelogEntry('changelog_' . $versionIndex, $versionData)
+                                ->label(trans('modrinth-plus::strings.version.changelog'));
 
                             if (($versionData['id'] ?? null) === $installedVersionId) {
                                 $headerAction = Action::make('installed_' . $versionIndex)
@@ -1443,6 +1498,10 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->visible(fn (array $record) => !(static::usesClientOnlyFilter() && Sides::isClientOnly($record)) && $this->isUpdateAvailable($record))
                     ->authorize(fn () => static::canUpdate())
                     ->requiresConfirmation()
+                    // Wide and left-aligned: the dialog carries the changelogs of the versions skipped over.
+                    ->modalWidth(Width::TwoExtraLarge)
+                    ->modalAlignment(Alignment::Start)
+                    ->modalSubmitActionLabel(trans('modrinth-plus::strings.actions.update'))
                     ->modalHeading(static::modalHeading('update_heading'))
                     ->modalDescription(function (array $record) {
                         $installedMod = $this->getInstalledMod($record['project_id']);
@@ -1457,6 +1516,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                         return $warning === null ? $description : "$description $warning";
                     })
+                    ->schema(fn (array $record) => $this->updateChangelogSchema($record))
                     ->action(function (array $record) {
                         abort_unless(static::canUpdate(), 403);
                         abort_if(static::usesClientOnlyFilter() && Sides::isClientOnly($record), 403);
