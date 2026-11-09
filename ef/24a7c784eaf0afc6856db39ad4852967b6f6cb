@@ -1,0 +1,48 @@
+players-plus/tests/Feature/ModerationActionsTest.php
+  s_1d8485e49bfacb::t_7fe95575a8019d 1-335
+  s_1d8485e49bfacb::t_bd77048921afff 336-340
+players-plus/src/Filament/Server/Concerns/ModeratesPlayers.php
+  s_1d8485e49bfacb::t_4aad45996eb9d7 1-175
+players-plus/README.md
+  s_1d8485e49bfacb::t_502d566f1c98c2 11-13,80-96,107-108
+players-plus/src/Filament/Server/Pages/PlayerProfilePage.php
+  s_1d8485e49bfacb::t_5e89425705caed 7-8,14-15,41,92-107
+players-plus/src/Filament/Server/Pages/PlayersPage.php
+  s_1d8485e49bfacb::t_234e17aee1847c 7,9,16-17,43,99-124,243-248,250,286-289,349
+players-plus/src/PlayersPlusPlugin.php
+  s_1d8485e49bfacb::t_66c24654edd6bc 50,84-86,98
+players-plus/src/Services/ModerationService.php
+  s_1d8485e49bfacb::t_75cc14165809fe 88-89
+players-plus/src/Support/ModerationLists.php
+  s_1d8485e49bfacb::t_5bae30fb583dfc 34-36,59,73-79,145-149,151-152,160-164
+players-plus/tests/Unit/SettingsTest.php
+  s_1d8485e49bfacb::t_0af49294884ef6 55-56,72,79,81-97
+players-plus/lang/de/strings.php
+  s_1b16288581ce8b::t_5db7b8d5bc9346 17-18,152-180
+players-plus/lang/en/strings.php
+  s_1b16288581ce8b::t_39555d231e0df3 17-18,152-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ef24a7c784eaf0afc6856db39ad4852967b6f6cb",
+  "prompts": {},
+  "sessions": {
+    "s_1b16288581ce8b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-abff2df23b6fad697",
+        "model": "unknown"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    },
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
