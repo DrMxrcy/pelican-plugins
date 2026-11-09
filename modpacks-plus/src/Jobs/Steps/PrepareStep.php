@@ -4,11 +4,15 @@ namespace DrMxrcy\ModpacksPlus\Jobs\Steps;
 
 use App\Models\Server;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
+use DrMxrcy\ModpacksPlus\Exceptions\NotEnoughDiskException;
 use DrMxrcy\ModpacksPlus\Exceptions\StepFailedException;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Services\PackProviders;
+use DrMxrcy\ModpacksPlus\Services\PackSizes;
+use DrMxrcy\ModpacksPlus\Services\ServerDiskUsage;
 use DrMxrcy\ModpacksPlus\Support\Caps;
+use DrMxrcy\ModpacksPlus\Support\DiskBudget;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use DrMxrcy\ModpacksPlus\Support\ServerProperties;
 use DrMxrcy\ModpacksPlus\Support\ServerTarget;
@@ -50,11 +54,20 @@ class PrepareStep extends InstallStep
         }
 
         $worlds = $this->worlds($server);
-        $validator = new PlanValidator(Caps::fromConfig(), $worlds, PlanValidator::hostsFor($install->provider));
+        $caps = Caps::fromConfig();
+        $validator = new PlanValidator($caps, $worlds, PlanValidator::hostsFor($install->provider), $this->diskBudget($install, $server, $caps));
 
-        $plan = app(PackProviders::class)
-            ->get($install->provider)
-            ->resolvePlan($install->pack_id, $install->version_id, $validator, $engine->workDir($install));
+        try {
+            $plan = app(PackProviders::class)
+                ->get($install->provider)
+                ->resolvePlan($install->pack_id, $install->version_id, $validator, $engine->workDir($install));
+        } catch (NotEnoughDiskException $exception) {
+            // Lets the Modpacks page explain this version won't fit before anyone tries again.
+            PackSizes::remember($install->provider, $install->pack_id, $install->version_id, $exception->packBytes);
+
+            throw $exception;
+        }
+        PackSizes::remember($install->provider, $install->pack_id, $install->version_id, $plan->totalBytes());
 
         if ($plan->minecraftVersion !== $minecraft || $plan->loader !== $loader) {
             throw new StepFailedException('target_mismatch', trim($plan->loader.' '.$plan->minecraftVersion));
@@ -82,6 +95,34 @@ class PrepareStep extends InstallStep
         }
 
         return StepResult::done();
+    }
+
+    /**
+     * Plan 38: the whole-pack limit for this server, checked by the validator before the
+     * backup and before any file changes. The node is asked for usage only when the server
+     * has a disk limit; unknown usage falls back to the configured cap (logged), never to
+     * unlimited and never to a refusal.
+     */
+    private function diskBudget(PackInstall $install, Server $server, Caps $caps): DiskBudget
+    {
+        $diskMb = max(0, (int) $server->disk);
+        $used = $diskMb > 0 ? app(ServerDiskUsage::class)->usedBytes($server) : null;
+        $budget = DiskBudget::forServer($diskMb, $used, $caps);
+
+        if (!$budget->limited()) {
+            $install->addLog('info', 'disk_unlimited', ['cap' => DiskBudget::human($budget->capBytes)]);
+        } elseif (!$budget->usageKnown()) {
+            $install->addLog('warning', 'disk_usage_unknown', ['cap' => DiskBudget::human($budget->capBytes)]);
+        } else {
+            $install->addLog('info', 'disk_budget', [
+                'free' => DiskBudget::human($budget->freeBytes() ?? 0),
+                'limit' => DiskBudget::human($budget->limitBytes),
+                'headroom' => DiskBudget::human($budget->headroomBytes),
+                'allowed' => DiskBudget::human($budget->allowedBytes()),
+            ]);
+        }
+
+        return $budget;
     }
 
     /**

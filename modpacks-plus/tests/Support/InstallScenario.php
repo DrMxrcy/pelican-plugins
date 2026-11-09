@@ -14,6 +14,7 @@ use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
 use DrMxrcy\ModpacksPlus\Contracts\ServerPower;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\InstallStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
+use DrMxrcy\ModpacksPlus\Services\ServerDiskUsage;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -29,6 +30,8 @@ trait InstallScenario
     protected FakeServerFiles $files;
 
     protected FakeServerPower $power;
+
+    protected FakeServerDisk $disk;
 
     protected MockInterface $backups;
 
@@ -47,6 +50,10 @@ trait InstallScenario
 
         $this->power = new FakeServerPower();
         $this->app->instance(ServerPower::class, $this->power);
+
+        // Plan 38: no test ever reaches a real node for disk usage.
+        $this->disk = new FakeServerDisk();
+        $this->app->instance(ServerDiskUsage::class, $this->disk);
 
         $this->backupsCreated = 0;
         $this->backups = Mockery::mock(InitiateBackupService::class);
@@ -78,7 +85,8 @@ trait InstallScenario
 
         $egg = $this->cloneEggAndVariables($server->egg);
         $egg->forceFill(['tags' => $tags])->save();
-        $server->forceFill(['egg_id' => $egg->id])->save();
+        // Unlimited disk unless a test sets one (plan 38: a disk limit makes the pack fit its free space).
+        $server->forceFill(['egg_id' => $egg->id, 'disk' => 0])->save();
 
         $variable = EggVariable::factory()->create(['egg_id' => $egg->id, 'env_variable' => 'MINECRAFT_VERSION', 'default_value' => 'latest', 'user_viewable' => true]);
         ServerVariable::query()->create(['server_id' => $server->id, 'variable_id' => $variable->getKey(), 'variable_value' => $minecraft]);

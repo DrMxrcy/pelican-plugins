@@ -6,6 +6,7 @@ use DrMxrcy\ModpacksPlus\Data\InstallPlan;
 use DrMxrcy\ModpacksPlus\Data\OverrideEntry;
 use DrMxrcy\ModpacksPlus\Data\PackArchive;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
+use DrMxrcy\ModpacksPlus\Exceptions\NotEnoughDiskException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 
 /**
@@ -124,12 +125,14 @@ final class PlanValidator
      *                                      `level-name` (may be nested, e.g. `saves/world`) and
      *                                      any folder holding `level.dat`
      * @param  array<int, string>  $allowedHosts  the provider's download hosts (hostsFor())
+     * @param  ?DiskBudget  $budget  plan 38: the server's disk budget; the whole-pack limit is then
+     *                               min(configured cap, budget). Null: the configured cap alone
      *
      * @throws UnsafePlanException `unsafe_level_name` when a world path is empty or would resolve
      *                             outside the server root: the world can't be located, so
      *                             nothing may run (fail closed)
      */
-    public function __construct(private readonly Caps $caps, array $worlds = ['world'], array $allowedHosts = self::ALLOWED_HOSTS)
+    public function __construct(private readonly Caps $caps, array $worlds = ['world'], array $allowedHosts = self::ALLOWED_HOSTS, private readonly ?DiskBudget $budget = null)
     {
         $this->allowedHosts = array_values($allowedHosts);
 
@@ -594,6 +597,11 @@ final class PlanValidator
 
         if ($validated->totalBytes() > $this->caps->maxTotalBytes) {
             throw new UnsafePlanException('total_too_large', (string) $validated->totalBytes());
+        }
+
+        // Plan 38: on a disk-limited server the pack must also fit the free space minus headroom.
+        if ($this->budget !== null && !$this->budget->fitsDisk($validated->totalBytes())) {
+            throw new NotEnoughDiskException($this->budget->detail($validated->totalBytes()), $validated->totalBytes());
         }
 
         return $validated;

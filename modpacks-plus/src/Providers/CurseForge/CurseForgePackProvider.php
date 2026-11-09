@@ -95,7 +95,7 @@ class CurseForgePackProvider implements PackProvider
     public const CLASS_DATAPACKS = 6945;
 
     /** A server pack failing one of these falls back to the manifest build instead of failing the install. */
-    private const SERVER_PACK_FALLBACK_REASONS = ['archive_too_large', 'too_many_entries', 'file_too_large', 'override_too_large', 'total_too_large', 'too_many_files'];
+    private const SERVER_PACK_FALLBACK_REASONS = ['archive_too_large', 'too_many_entries', 'file_too_large', 'override_too_large', 'total_too_large', 'too_many_files', 'not_enough_disk'];
 
     /** Top-level folders a server pack itself has (so a lone one is not a wrapper folder). */
     private const SERVER_FOLDERS = ['mods', 'config', 'defaultconfigs', 'kubejs', 'scripts', 'resources', 'datapacks'];

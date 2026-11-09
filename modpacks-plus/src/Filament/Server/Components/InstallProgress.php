@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Filament\Server\Components;
 
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\ModrinthMetadataWriter;
+use DrMxrcy\ModpacksPlus\Support\DiskBudget;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\HtmlString;
@@ -57,7 +58,8 @@ final class InstallProgress
             $time = Carbon::parse($line['at'])->timezone($timezone ?? 'UTC')->format('H:i:s');
             $params = $line['params'];
             if ($line['key'] === 'failed' && is_string($params['reason'] ?? null)) {
-                $params['reason'] = self::reason($params['reason'], '');
+                // Plan 38: the disk message carries its sizes in the detail.
+                $params['reason'] = self::reason($params['reason'], $params['reason'] === 'not_enough_disk' ? (string) ($params['detail'] ?? '') : '');
             }
 
             $items .= '<li style="font-family: ui-monospace, monospace; font-size: 0.85em">'
@@ -69,7 +71,12 @@ final class InstallProgress
 
     public static function reason(string $reason, string $detail): string
     {
-        return trans('modpacks-plus::strings.reasons.'.$reason, ['detail' => $detail]);
+        $params = ['detail' => $detail];
+        if ($reason === 'not_enough_disk') {
+            $params += DiskBudget::detailParams($detail);
+        }
+
+        return trans('modpacks-plus::strings.reasons.'.$reason, $params);
     }
 
     public static function error(PackInstall $install): ?string
