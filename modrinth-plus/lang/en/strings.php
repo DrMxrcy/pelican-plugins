@@ -91,6 +91,10 @@ return [
         'none_installed' => 'Nothing is installed yet.',
         'all_compatible' => 'All :count installed projects have a version for this Minecraft version and loader.',
         'summary' => ':count of :total installed projects need attention:',
+        'banner' => [
+            'heading' => ':count installed project doesn\'t support Minecraft :version|:count installed projects don\'t support Minecraft :version',
+            'description' => 'Installed versions without a build for this Minecraft version and :loader may fail to load. Check compatibility to see which ones and whether an update helps.',
+        ],
         'status' => [
             'needs_update' => 'Update needed',
             'incompatible' => 'Incompatible',

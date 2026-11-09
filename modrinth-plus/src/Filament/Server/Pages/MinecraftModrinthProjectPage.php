@@ -43,6 +43,7 @@ use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 use Throwable;
 
 abstract class MinecraftModrinthProjectPage extends Page implements HasTable
@@ -64,6 +65,14 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
     /** @var array<int, array<string, mixed>>|null What "Update all" would update, for this request only. */
     protected ?array $updateAllCandidates = null;
+
+    /**
+     * Installed projects without a build for the server's Minecraft version + loader, for the
+     * banner at the top of the page; null until loadCompatibilityBanner() ran. Locked: only the
+     * server sets it.
+     */
+    #[Locked]
+    public ?int $incompatibleCount = null;
 
     /** Per-visit override of the hide_client_only config; Livewire state only, never persisted. */
     public bool $showClientOnly = false;
@@ -1879,6 +1888,57 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             ->schema(fn () => $this->compatibilitySchema());
     }
 
+    /**
+     * Works out the banner count from the cached compatibility summary. A Modrinth error, an
+     * unknown loader or an unreadable metadata file leave the banner hidden (count 0); only
+     * projects Modrinth positively has no build for are counted.
+     */
+    public function loadCompatibilityBanner(): void
+    {
+        if (!static::userCan(SubuserPermission::FileRead) || !static::$modrinthProjectType) {
+            $this->incompatibleCount = null;
+
+            return;
+        }
+
+        /** @var Server $server */
+        $server = Filament::getTenant();
+
+        try {
+            $summary = MinecraftModrinth::getCompatibilitySummary($server, static::$modrinthProjectType);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            $summary = null;
+        }
+
+        $this->incompatibleCount = $summary['incompatible'] ?? 0;
+    }
+
+    /** The banner above the table; its button opens the "Check compatibility" modal. */
+    protected function makeCompatibilityBanner(Server $server): Callout
+    {
+        return Callout::make(fn () => trans_choice('modrinth-plus::strings.compatibility.banner.heading', $this->incompatibleCount ?? 0, [
+            'count' => $this->incompatibleCount ?? 0,
+            'version' => MinecraftModrinth::getMinecraftVersion($server) ?? trans('modrinth-plus::strings.page.unknown'),
+        ]))
+            ->key('compatibility_banner')
+            ->description(fn () => trans('modrinth-plus::strings.compatibility.banner.description', [
+                'loader' => MinecraftModrinth::getLoaderFromServer($server, static::$modrinthProjectType)['display_name'] ?? trans('modrinth-plus::strings.page.unknown'),
+            ]))
+            ->icon('tabler-alert-triangle')
+            ->color('warning')
+            ->visible(fn () => ($this->incompatibleCount ?? 0) > 0 && static::userCan(SubuserPermission::FileRead))
+            ->actions([
+                Action::make('open_compatibility_check')
+                    ->label(trans('modrinth-plus::strings.compatibility.action'))
+                    ->icon('tabler-plug-connected')
+                    ->color('warning')
+                    ->authorize(fn () => static::userCan(SubuserPermission::FileRead))
+                    ->action(fn () => $this->replaceMountedAction('check_compatibility')),
+            ]);
+    }
+
     /** @return array<int, TextEntry> */
     protected function compatibilitySchema(): array
     {
@@ -1956,6 +2016,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->icon('tabler-alert-triangle')
                     ->color('warning')
                     ->visible(fn () => $this->projectFolderProblem() !== null),
+                $this->makeCompatibilityBanner($server),
                 Grid::make(3)
                     ->schema([
                         TextEntry::make('minecraft_version')
