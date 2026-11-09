@@ -1,0 +1,27 @@
+players-plus/src/Support/ActivityStats.php
+  s_1d8485e49bfacb::t_26d7f346fde147 1-281
+  s_1d8485e49bfacb::t_216cfb1b6c98e5 282
+players-plus/tests/Feature/ActivityStatsTest.php
+  s_1d8485e49bfacb::t_c6e19dc151364b 1-285
+  s_1d8485e49bfacb::t_47c36d079322da 286-287
+players-plus/src/Enums/ActivityRange.php
+  s_1d8485e49bfacb::t_6a63d3d4c61592 1-30
+players-plus/tests/Feature/PluginResourcesTest.php
+  s_1d8485e49bfacb::t_876b33ca7c6ce2 7,9,84-85,90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "11bfd9e56e3393931ff8a206043b821c724d767a",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
