@@ -6,8 +6,11 @@ use Carbon\CarbonImmutable;
 use DrMxrcy\PlayersPlus\Enums\ActivityRange;
 use DrMxrcy\PlayersPlus\Enums\SampleStatus;
 use DrMxrcy\PlayersPlus\Models\HourlyRollup;
+use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\Sample;
+use Illuminate\Contracts\Database\Query\Builder as BuilderContract;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Carbon;
 
 /**
@@ -21,6 +24,12 @@ use Illuminate\Support\Carbon;
  *
  * The *Query() methods are plain query builders so other views (the cross-server overview) can
  * reuse or extend them; the other methods run them, one query each.
+ *
+ * The cross-server methods (the "grouped" section, built with acrossServers()) take the server
+ * set as an argument, a list of ids or an id subquery, and ignore $serverId. Each metric is one
+ * query grouped by server_id, so the query count never grows with the number of servers.
+ *
+ * @phpstan-type OverviewRow array{status: SampleStatus|null, online: int|null, max: int|null, polled_at: CarbonImmutable|null, live: bool, peak_24h: int|null, average_7d: float|null, unique_7d: int}
  */
 final class ActivityStats
 {
@@ -39,6 +48,12 @@ final class ActivityStats
         ?CarbonImmutable $now = null,
     ) {
         $this->now = ($now ?? CarbonImmutable::now())->utc();
+    }
+
+    /** For the grouped cross-server methods only; the per-server methods would match nothing. */
+    public static function acrossServers(string $timezone = 'UTC', ?CarbonImmutable $now = null): self
+    {
+        return new self(0, $timezone, $now);
     }
 
     // ---- query builders ---------------------------------------------------------------------
@@ -91,13 +106,19 @@ final class ActivityStats
         $week = $this->startOfWeek();
         $average = $this->averageFrom();
 
-        return HourlyRollup::query()->toBase()
+        return $this->selectAverage(HourlyRollup::query()->toBase()
             ->where('server_id', $this->serverId)
             ->selectRaw('MAX(CASE WHEN hour_start >= ? THEN max_online END) AS week', [$week])
-            ->selectRaw('MAX(max_online) AS all_time')
+            ->selectRaw('MAX(max_online) AS all_time'), $average);
+    }
+
+    /** average_total and average_samples since $from, the sums behind the 7-day average. */
+    private function selectAverage(Builder $query, CarbonImmutable $from): Builder
+    {
+        return $query
             // Sample-weighted: sum(avg * n) / sum(n) is the average over every online sample.
-            ->selectRaw('SUM(CASE WHEN hour_start >= ? THEN avg_online * online_samples END) AS average_total', [$average])
-            ->selectRaw('SUM(CASE WHEN hour_start >= ? THEN online_samples END) AS average_samples', [$average]);
+            ->selectRaw('SUM(CASE WHEN hour_start >= ? THEN avg_online * online_samples END) AS average_total', [$from])
+            ->selectRaw('SUM(CASE WHEN hour_start >= ? THEN online_samples END) AS average_samples', [$from]);
     }
 
     /**
@@ -118,6 +139,112 @@ final class ActivityStats
             ->groupByRaw($cell);
     }
 
+    // ---- grouped cross-server query builders ------------------------------------------------
+
+    /**
+     * The newest sample of each server in $servers: server_id, polled_at, status, online, max.
+     * A server without samples has no row.
+     *
+     * @param  BuilderContract|list<int>  $servers
+     */
+    public function latestSamplesQuery(BuilderContract|array $servers): Builder
+    {
+        $latest = Sample::query()->toBase()
+            ->whereIn('server_id', $servers)
+            ->groupBy('server_id')
+            ->select('server_id')
+            ->selectRaw('MAX(polled_at) AS latest_at');
+
+        return Sample::query()->toBase()
+            ->joinSub($latest, 'pp_latest', fn (JoinClause $join) => $join
+                ->on('pp_samples.server_id', '=', 'pp_latest.server_id')
+                ->on('pp_samples.polled_at', '=', 'pp_latest.latest_at'))
+            ->select(['pp_samples.server_id', 'pp_samples.polled_at', 'pp_samples.status', 'pp_samples.online', 'pp_samples.max']);
+    }
+
+    /**
+     * Peak online per server over the last 24 hours (rolling), from raw online samples.
+     *
+     * @param  BuilderContract|list<int>  $servers
+     */
+    public function peak24hQuery(BuilderContract|array $servers): Builder
+    {
+        return Sample::query()->toBase()
+            ->whereIn('server_id', $servers)
+            ->where('status', SampleStatus::Online->value)
+            ->whereNotNull('online')
+            ->where('polled_at', '>=', $this->now->subDay())
+            ->groupBy('server_id')
+            ->select('server_id')
+            ->selectRaw('MAX(online) AS peak_24h');
+    }
+
+    /**
+     * The sums behind each server's 7-day average, the same rule as rollupSummaryQuery().
+     *
+     * @param  BuilderContract|list<int>  $servers
+     */
+    public function averageQuery(BuilderContract|array $servers): Builder
+    {
+        $from = $this->averageFrom();
+
+        return $this->selectAverage(HourlyRollup::query()->toBase()
+            ->whereIn('server_id', $servers)
+            ->where('hour_start', '>=', $from)
+            ->groupBy('server_id')
+            ->select('server_id'), $from);
+    }
+
+    /**
+     * Players seen on each server in the last 7 days (rolling). A UUID seen on two servers is two
+     * players: identities are per server.
+     *
+     * @param  BuilderContract|list<int>  $servers
+     */
+    public function uniquePlayersQuery(BuilderContract|array $servers): Builder
+    {
+        return Player::query()->toBase()
+            ->whereIn('server_id', $servers)
+            ->where('last_seen_at', '>=', $this->now->subDays(self::AVERAGE_DAYS))
+            ->groupBy('server_id')
+            ->select('server_id')
+            ->selectRaw('COUNT(*) AS players');
+    }
+
+    /**
+     * Players online right now across $servers: servers whose newest sample is online and fresh
+     * (PollHealth), and the sum of their counts.
+     *
+     * @param  BuilderContract|list<int>  $servers
+     */
+    public function totalsQuery(BuilderContract|array $servers): Builder
+    {
+        return Sample::query()->toBase()->newQuery()
+            ->fromSub($this->latestSamplesQuery($servers), 'pp_now')
+            ->where('status', SampleStatus::Online->value)
+            ->where('polled_at', '>=', PollHealth::freshFrom($this->now))
+            ->selectRaw('COUNT(*) AS servers_online')
+            ->selectRaw('SUM(online) AS players');
+    }
+
+    /**
+     * Players online summed over $servers per poll slot since $from (online samples only).
+     *
+     * @param  BuilderContract|list<int>  $servers
+     */
+    public function combinedSeriesQuery(BuilderContract|array $servers, CarbonImmutable $from): Builder
+    {
+        return Sample::query()->toBase()
+            ->whereIn('server_id', $servers)
+            ->where('status', SampleStatus::Online->value)
+            ->whereNotNull('online')
+            ->where('polled_at', '>=', $from->utc())
+            ->groupBy('polled_at')
+            ->orderBy('polled_at')
+            ->select('polled_at')
+            ->selectRaw('SUM(online) AS online');
+    }
+
     // ---- results ----------------------------------------------------------------------------
 
     /**
@@ -135,10 +262,7 @@ final class ActivityStats
     /** @return array{labels: list<string>, data: list<int|float|null>} */
     private function rawSeries(ActivityRange $range): array
     {
-        $length = Settings::pollInterval() * 60;
-        $count = intdiv($range->hours() * 3600, $length);
-        $last = intdiv($this->now->getTimestamp(), $length) * $length;
-        $first = $last - ($count - 1) * $length;
+        [$first, $length, $count] = $this->rawSlots($range);
 
         $data = array_fill(0, $count, null);
         foreach ($this->rawSeriesQuery(CarbonImmutable::createFromTimestampUTC($first))->get() as $row) {
@@ -149,12 +273,32 @@ final class ActivityStats
             $data[$slot] = max($data[$slot] ?? 0, (int) $row->online);
         }
 
+        return ['labels' => $this->rawLabels($first, $length, $count, $range), 'data' => $data];
+    }
+
+    /**
+     * One slot per poll interval over the range, the last one holding now.
+     *
+     * @return array{int, int, int} first slot (Unix seconds), slot length (seconds), slot count
+     */
+    private function rawSlots(ActivityRange $range): array
+    {
+        $length = Settings::pollInterval() * 60;
+        $count = intdiv($range->hours() * 3600, $length);
+        $last = intdiv($this->now->getTimestamp(), $length) * $length;
+
+        return [$last - ($count - 1) * $length, $length, $count];
+    }
+
+    /** @return list<string> */
+    private function rawLabels(int $first, int $length, int $count, ActivityRange $range): array
+    {
         $labels = [];
         for ($i = 0; $i < $count; $i++) {
             $labels[] = $this->label($first + $i * $length, $range);
         }
 
-        return ['labels' => $labels, 'data' => $data];
+        return $labels;
     }
 
     /** @return array{labels: list<string>, data: list<int|float|null>} */
@@ -229,6 +373,94 @@ final class ActivityStats
         }
 
         return $grid;
+    }
+
+    // ---- grouped cross-server results --------------------------------------------------------
+
+    /**
+     * Per-server overview rows keyed by server id, in the order given: the newest sample (live
+     * when online and fresh), the rolling 24 h peak, the 7-day average while online and the
+     * players seen in the last 7 days. Four queries for any number of servers; none for none.
+     *
+     * @param  list<int>  $serverIds
+     * @return array<int, OverviewRow>
+     */
+    public function overview(array $serverIds): array
+    {
+        if ($serverIds === []) {
+            return [];
+        }
+
+        $latest = $this->latestSamplesQuery($serverIds)->get()->keyBy('server_id');
+        $peaks = $this->peak24hQuery($serverIds)->pluck('peak_24h', 'server_id');
+        $averages = $this->averageQuery($serverIds)->get()->keyBy('server_id');
+        $players = $this->uniquePlayersQuery($serverIds)->pluck('players', 'server_id');
+        $freshFrom = PollHealth::freshFrom($this->now);
+
+        $rows = [];
+        foreach ($serverIds as $id) {
+            $sample = $latest->get($id);
+            $status = $sample === null ? null : SampleStatus::tryFrom((string) $sample->status);
+            $polledAt = $sample === null ? null : CarbonImmutable::parse($sample->polled_at, 'UTC');
+            $online = $status === SampleStatus::Online ? self::intOrNull($sample->online) : null;
+            $average = $averages->get($id);
+            $samples = (int) ($average->average_samples ?? 0);
+
+            $rows[$id] = [
+                'status' => $status,
+                'online' => $online,
+                'max' => $status === SampleStatus::Online ? self::intOrNull($sample->max) : null,
+                'polled_at' => $polledAt,
+                'live' => $online !== null && $polledAt !== null && $polledAt->gte($freshFrom),
+                'peak_24h' => self::intOrNull($peaks->get($id)),
+                'average_7d' => $samples > 0 ? round((float) $average->average_total / $samples, 1) : null,
+                'unique_7d' => (int) ($players->get($id) ?? 0),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Players online now and how many servers they are on, over live servers only (newest sample
+     * online and fresh). One query.
+     *
+     * @param  BuilderContract|list<int>  $servers
+     * @return array{players: int, servers_online: int}
+     */
+    public function totals(BuilderContract|array $servers): array
+    {
+        $row = $this->totalsQuery($servers)->first();
+
+        return [
+            'players' => (int) ($row->players ?? 0),
+            'servers_online' => (int) ($row->servers_online ?? 0),
+        ];
+    }
+
+    /**
+     * Last 24 hours, one slot per poll interval, players online summed over $servers. Slots
+     * where no server was online (or none was polled) are null, so the chart draws a gap. One
+     * query.
+     *
+     * @param  BuilderContract|list<int>  $servers
+     * @return array{labels: list<string>, data: list<int|null>}
+     */
+    public function combinedSeries(BuilderContract|array $servers): array
+    {
+        $range = ActivityRange::Day;
+        [$first, $length, $count] = $this->rawSlots($range);
+
+        $data = array_fill(0, $count, null);
+        foreach ($this->combinedSeriesQuery($servers, CarbonImmutable::createFromTimestampUTC($first))->get() as $row) {
+            $slot = intdiv(Carbon::parse($row->polled_at, 'UTC')->getTimestamp() - $first, $length);
+            if ($slot >= 0 && $slot < $count) {
+                // polled_at is the slot start, so one row per slot unless the interval changed.
+                $data[$slot] = max($data[$slot] ?? 0, (int) $row->online);
+            }
+        }
+
+        return ['labels' => $this->rawLabels($first, $length, $count, $range), 'data' => $data];
     }
 
     // ---- time helpers -----------------------------------------------------------------------
