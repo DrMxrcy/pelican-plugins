@@ -91,8 +91,13 @@ class PlayerIdentity
     private function seen(Player $player, string $name, Carbon $seenAt): Player
     {
         if ($player->name !== $name) {
-            $player->previous_names = self::pushName($player->previous_names ?? [], $player->name, $name);
-            $player->name = $name;
+            if ($seenAt->greaterThanOrEqualTo($player->last_seen_at)) {
+                $player->previous_names = self::pushName($player->previous_names ?? [], $player->name, $name);
+                $player->name = $name;
+            } else {
+                // An older sighting (a log backfill) under another name: history, not a rename.
+                $player->previous_names = self::pushName($player->previous_names ?? [], $name, $player->name);
+            }
         }
         if ($player->last_seen_at->lt($seenAt)) {
             $player->last_seen_at = $seenAt;

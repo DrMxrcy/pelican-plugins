@@ -3,6 +3,7 @@
 namespace DrMxrcy\PlayersPlus\Services;
 
 use App\Models\Server;
+use Closure;
 use DrMxrcy\PlayersPlus\Enums\SampleStatus;
 use DrMxrcy\PlayersPlus\Enums\SessionSource;
 use DrMxrcy\PlayersPlus\Models\Player;
@@ -30,6 +31,15 @@ use Illuminate\Support\Facades\DB;
  *
  * Runs inside the poll job. The only network access is the (cached) usercache read, done
  * before the lock and the transaction are taken.
+ *
+ * Log merge API (plan 28; call inside locked()): join and leave lines carry exact times and
+ * refine these sessions without ever counting a second twice.
+ * - mergeLogJoin(): a session starting up to overrideWindow() after the join starts at the
+ *   join instead (never before the player's previous session ended).
+ * - mergeLogLeave(): an open session started before the leave ends at it; a closed one ending
+ *   up to overrideWindow() after the leave ends at the leave. A join and leave nothing polled
+ *   become a closed session with source `log`, unless any session overlaps them.
+ * - Both are idempotent: a session already starting (ending) at the event time is left alone.
  */
 class SessionTracker
 {
@@ -43,14 +53,125 @@ class SessionTracker
         $entries = $sample->status === SampleStatus::Online ? PlayerList::entries($sample->players) : [];
         $usercache = in_array(null, array_column($entries, 'uuid'), true) ? $this->identity->usercache($server) : [];
 
+        // Another run still busy: the next sample re-derives the state from the open sessions.
+        $this->locked($server, fn () => $this->apply($server, $sample, $entries, $usercache));
+    }
+
+    /**
+     * Runs $work in one transaction under the server's tracking lock: one run per server at a
+     * time, so two runs (polls or log scans) can't both open or move a session for one player.
+     * False, without running it, when the lock is not free within $lockWaitSeconds.
+     */
+    public function locked(Server $server, Closure $work): bool
+    {
         try {
-            // One run per server at a time, so two runs can't both open a session for one player.
             Cache::lock("players-plus.track.$server->id", 60)->block(
                 $this->lockWaitSeconds,
-                fn () => DB::transaction(fn () => $this->apply($server, $sample, $entries, $usercache)),
+                fn () => DB::transaction(fn () => $work()),
             );
         } catch (LockTimeoutException) {
-            // Another run is still busy; the next sample re-derives the state from the open sessions.
+            return false;
+        }
+
+        return true;
+    }
+
+    /** How far a log time may be from a poll-built start or end and still replace it. */
+    public static function overrideWindow(): int
+    {
+        return 2 * Settings::pollInterval() * 60;
+    }
+
+    /**
+     * A `joined the game` line at $at. True when it is accounted for (a session now starts at
+     * it, or already covers it); false when no session matches yet, so the caller keeps it
+     * pending until a poll opens one or the leave line arrives.
+     */
+    public function mergeLogJoin(Player $player, Carbon $at): bool
+    {
+        if ($player->sessions()->where('started_at', $at)->exists()) {
+            return true;
+        }
+
+        $session = $player->sessions()
+            ->where('started_at', '>', $at)
+            ->where('started_at', '<=', $at->copy()->addSeconds(self::overrideWindow()))
+            ->orderBy('started_at')
+            ->first();
+        if ($session !== null) {
+            // Never reach back into the previous session.
+            $previousEnd = $player->sessions()->where('started_at', '<', $session->started_at)->whereNotNull('ended_at')->max('ended_at');
+            $start = $previousEnd === null ? $at->copy() : $at->copy()->max(Carbon::parse($previousEnd));
+            if ($start->lessThan($session->started_at)) {
+                $moved = PlayerSession::query()->whereKey($session->id)->where('started_at', $session->started_at)
+                    ->update(['started_at' => $start, 'source' => SessionSource::Log]);
+                if ($moved === 1 && $session->ended_at !== null) {
+                    Player::query()->whereKey($player->id)->increment('total_seconds', $session->started_at->getTimestamp() - $start->getTimestamp());
+                }
+                Player::query()->whereKey($player->id)->where('first_seen_at', '>', $start)->update(['first_seen_at' => $start]);
+            }
+
+            return true;
+        }
+
+        return $player->sessions()
+            ->where('started_at', '<', $at)
+            ->where(fn ($query) => $query->whereNull('ended_at')->orWhere('ended_at', '>', $at))
+            ->exists();
+    }
+
+    /**
+     * A `left the game` line at $at, with the pending join it closes (if one is waiting).
+     */
+    public function mergeLogLeave(Player $player, Carbon $at, ?Carbon $join = null): void
+    {
+        if ($player->sessions()->where('ended_at', $at)->exists()) {
+            return;
+        }
+
+        if ($join !== null && $join->lessThan($at)) {
+            $overlaps = $player->sessions()
+                ->where('started_at', '<', $at)
+                ->where(fn ($query) => $query->whereNull('ended_at')->orWhere('ended_at', '>', $join))
+                ->exists();
+            if (!$overlaps) {
+                PlayerSession::query()->create([
+                    'player_id' => $player->id,
+                    'started_at' => $join,
+                    'ended_at' => $at,
+                    'source' => SessionSource::Log,
+                ]);
+                Player::query()->whereKey($player->id)->increment('total_seconds', $at->getTimestamp() - $join->getTimestamp());
+                Player::query()->whereKey($player->id)->where('first_seen_at', '>', $join)->update(['first_seen_at' => $join]);
+                Player::query()->whereKey($player->id)->where('last_seen_at', '<', $at)->update(['last_seen_at' => $at]);
+
+                return;
+            }
+        }
+
+        $open = $player->sessions()->whereNull('ended_at')->where('started_at', '<=', $at)->orderBy('started_at')->first();
+        if ($open !== null) {
+            $this->close($open, $at, SessionSource::Log);
+
+            return;
+        }
+
+        $session = $player->sessions()
+            ->where('started_at', '<=', $at)
+            ->where('ended_at', '>', $at)
+            ->where('ended_at', '<=', $at->copy()->addSeconds(self::overrideWindow()))
+            ->orderBy('ended_at')
+            ->first();
+        if ($session?->ended_at === null) {
+            return;
+        }
+
+        $moved = PlayerSession::query()->whereKey($session->id)->where('ended_at', $session->ended_at)
+            ->update(['ended_at' => $at, 'source' => SessionSource::Log]);
+        if ($moved === 1) {
+            Player::query()->whereKey($player->id)->decrement('total_seconds', $session->ended_at->getTimestamp() - $at->getTimestamp());
+            // The poll that found the player gone is not a sighting; the leave line is.
+            Player::query()->whereKey($player->id)->where('last_seen_at', $session->ended_at)->update(['last_seen_at' => $at]);
         }
     }
 
@@ -121,12 +242,13 @@ class SessionTracker
         }
     }
 
-    private function close(PlayerSession $session, Carbon $at): void
+    private function close(PlayerSession $session, Carbon $at, ?SessionSource $source = null): void
     {
         $end = $at->greaterThan($session->started_at) ? $at->copy() : $session->started_at->copy();
 
         // Conditional update: a session already closed elsewhere is not counted twice.
-        $closed = PlayerSession::query()->whereKey($session->id)->whereNull('ended_at')->update(['ended_at' => $end]);
+        $closed = PlayerSession::query()->whereKey($session->id)->whereNull('ended_at')
+            ->update(['ended_at' => $end] + ($source === null ? [] : ['source' => $source]));
         if ($closed !== 1) {
             return;
         }
