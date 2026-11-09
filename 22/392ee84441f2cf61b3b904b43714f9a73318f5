@@ -1,0 +1,57 @@
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_080c95b66c96c1 88-104,146-148
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_5c3b87932284f1 57-58,76-77,133,180,186,204-205
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_aa993b756b6f88 57-58,76-77,133,180,186,204-205
+modpacks-plus/src/Filament/Server/Components/InstallProgress.php
+  s_1d8485e49bfacb::t_ab8372ff103eb9 82-86,129,141,147-149,155-156,159,161-175
+modpacks-plus/src/Filament/Server/Pages/ModpacksPage.php
+  s_1d8485e49bfacb::t_f47083c56af969 5,83-87,390-392,395-397,399-401,468-470,476-486,773,787
+modpacks-plus/src/Jobs/RestorePreviousFilesJob.php
+  s_1d8485e49bfacb::t_643bcb286f0c9b 19,46-52,73-92,137-142,189-191
+modpacks-plus/src/Jobs/Steps/BackupStep.php
+  s_1d8485e49bfacb::t_b5a49e7dcca012 61-62
+modpacks-plus/src/Jobs/Steps/ChangeEggStep.php
+  s_1d8485e49bfacb::t_ea4faa26056b82 14-15,35-83,133,135,144-145,148-149,163
+modpacks-plus/src/Jobs/Steps/PreserveStep.php
+  s_1d8485e49bfacb::t_dbb1af2ccf1d04 14,56-58,60-66
+modpacks-plus/src/Jobs/Steps/RestorePreservedStep.php
+  s_1d8485e49bfacb::t_5118ebc172aa73 48
+modpacks-plus/src/Jobs/Steps/SnapshotStep.php
+  s_1d8485e49bfacb::t_c00cd1fc7cea04 51-56,58,60-64,74,87
+modpacks-plus/src/Models/PackInstall.php
+  s_1d8485e49bfacb::t_9a6c1a85cc36cc 153,158-183
+modpacks-plus/src/Services/DaemonServerFiles.php
+  s_1d8485e49bfacb::t_e9cca58bc6e1fa 167-169,171-172,181-193
+modpacks-plus/src/Services/InstallEngine.php
+  s_1d8485e49bfacb::t_5bba4e2cd4d5b3 134,138-145
+modpacks-plus/src/Services/PreservedFiles.php
+  s_1d8485e49bfacb::t_d785fe69f510a8 61-82
+modpacks-plus/tests/Feature/DaemonServerFilesTest.php
+  s_1d8485e49bfacb::t_89a1e646034fa2 184-187,212-213
+modpacks-plus/tests/Feature/LoaderSwitchTest.php
+  s_1d8485e49bfacb::t_42d1023488b75b 6,11,34,140-143,662-890
+modpacks-plus/tests/Feature/ModpacksPageTest.php
+  s_1d8485e49bfacb::t_88c67649134b2c 5,439-440,657-759
+modpacks-plus/tests/Support/FakeServerFiles.php
+  s_1d8485e49bfacb::t_f92d7a14dab0b0 7-8,45-47,65,258-262,264,272-275
+modpacks-plus/tests/Support/InstallScenario.php
+  s_1d8485e49bfacb::t_410134311bf7a3 83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22392ee84441f2cf61b3b904b43714f9a73318f5",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
