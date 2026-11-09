@@ -36,6 +36,11 @@ class CompatibilityBannerTest extends TestCase
     /** @var array<int, array<string, string>>|null */
     private ?array $installed = [];
 
+    /** @var list<string> service methods called that write files or metadata */
+    private array $writes = [];
+
+    private bool $writesExpected = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -58,11 +63,30 @@ class CompatibilityBannerTest extends TestCase
         $service->shouldReceive('getProjects')->andReturn(['hits' => [], 'total_hits' => 0, 'versions' => []]);
         $service->shouldReceive('getProjectFolder')->andReturn('world/datapacks');
 
-        // Read-only feature: never touches files or metadata.
-        $service->shouldReceive('downloadFile')->never();
-        $service->shouldReceive('deleteFile')->never();
-        $service->shouldReceive('saveModMetadata')->never();
-        $service->shouldReceive('removeModMetadata')->never();
+        // Read-only feature: file and metadata writes are recorded and must not happen (see
+        // assertPostConditions()), except in the test that uninstalls through the page.
+        foreach (['downloadFile', 'deleteFile', 'saveModMetadata', 'removeModMetadata'] as $method) {
+            $service->shouldReceive($method)->andReturnUsing(function (...$args) use ($method) {
+                $this->writes[] = $method;
+
+                return $method === 'removeModMetadata' ? $this->uninstall($args[2]) : true;
+            });
+        }
+    }
+
+    protected function assertPostConditions(): void
+    {
+        if (!$this->writesExpected) {
+            $this->assertSame([], $this->writes);
+        }
+    }
+
+    /** Fake removeModMetadata(): drops the project from the installed list. */
+    private function uninstall(string $projectId): bool
+    {
+        $this->installed = array_values(array_filter($this->installed ?? [], fn (array $mod) => $mod['project_id'] !== $projectId));
+
+        return true;
     }
 
     protected function tearDown(): void
@@ -204,9 +228,9 @@ class CompatibilityBannerTest extends TestCase
         Http::assertSentCount(1);
 
         $page->callAction('scan_folder')
-            ->assertSet('incompatibleCount', null)
-            ->assertJs('$wire.loadCompatibilityBanner()')
-            ->assertDontSee($this->description());
+            // The old count stays until the queued reload replaces it: no flicker.
+            ->assertSet('incompatibleCount', 1)
+            ->assertJs('$wire.loadCompatibilityBanner()');
 
         // The summary cache was dropped: the next load asks Modrinth again.
         $this->forgetVersionsCache();
@@ -341,6 +365,46 @@ class CompatibilityBannerTest extends TestCase
         // uninstall it again
         $this->install(['old' => 'old2']);
         $this->page()->assertSet('incompatibleCount', 0)->assertDontSee($this->description());
+    }
+
+    public function test_uninstalling_through_the_page_reloads_the_banner_once_and_keeps_the_old_count_until_then(): void
+    {
+        $this->account();
+        $this->fakeModrinth();
+        $this->install(['ok' => 'ok1', 'gone' => 'g1']);
+
+        /** @var MockInterface $service */
+        $service = MinecraftModrinth::getFacadeRoot();
+        $service->shouldReceive('getInstalledModsFromModrinth')->andReturnUsing(fn (array $mods) => array_map(fn (array $mod) => [
+            'project_id' => $mod['project_id'],
+            'slug' => $mod['project_id'],
+            'title' => $mod['project_title'],
+            'description' => '',
+            'icon_url' => null,
+            'author' => 'someone',
+            'downloads' => 1,
+            'date_modified' => '2026-01-01T00:00:00Z',
+            'project_type' => 'mod',
+            'server_side' => 'required',
+            'client_side' => 'optional',
+        ], array_values($mods)));
+        $this->writesExpected = true;
+
+        $page = $this->page()
+            ->assertSee($this->heading(1))
+            ->set('activeTab', 'installed')
+            ->loadTable()
+            ->callAction(TestAction::make('uninstall')->table('0'))
+            ->assertSet('incompatibleCount', 1);
+
+        $this->assertSame(['deleteFile', 'removeModMetadata'], $this->writes);
+        $this->assertSame(['ok'], array_column($this->installed ?? [], 'project_id'));
+        $this->assertCount(1, array_filter($page->effects['xjs'] ?? [], fn (array $js) => $js['expression'] === '$wire.loadCompatibilityBanner()'));
+
+        // The queued reload: "gone" is uninstalled, so the banner goes away.
+        $page->call('loadCompatibilityBanner')
+            ->assertSet('incompatibleCount', 0)
+            ->assertDontSee($this->description());
     }
 
     public function test_read_only_subuser_sees_the_banner(): void

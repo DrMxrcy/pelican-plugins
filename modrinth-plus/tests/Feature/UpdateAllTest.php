@@ -237,6 +237,24 @@ class UpdateAllTest extends TestCase
         return array_values($notifications->map(fn (Notification $notification) => array_intersect_key($notification->toArray(), array_flip(['title', 'body', 'status'])))->all());
     }
 
+    /** Plan 16 review: update all forgets the installed state twice but reloads the banner once, keeping its count meanwhile. */
+    public function test_update_all_queues_one_banner_reload_and_keeps_the_banner_count(): void
+    {
+        $this->account();
+        $this->fakeServer();
+        MinecraftModrinth::shouldReceive('getCompatibilitySummary')->andReturn(['incompatible' => 2, 'unknown' => 0, 'total' => 5]);
+
+        $page = $this->page()
+            ->call('loadCompatibilityBanner')
+            ->assertSet('incompatibleCount', 2)
+            ->mountAction(TestAction::make('update_all')->table())
+            ->callMountedAction()
+            ->assertSet('incompatibleCount', 2);
+
+        $this->assertSame(['alpha-new.jar', 'beta-new.jar'], $this->downloads);
+        $this->assertCount(1, array_filter($page->effects['xjs'] ?? [], fn (array $js) => $js['expression'] === '$wire.loadCompatibilityBanner()'));
+    }
+
     public function test_updates_every_outdated_project_and_removes_the_old_jars(): void
     {
         $this->account();

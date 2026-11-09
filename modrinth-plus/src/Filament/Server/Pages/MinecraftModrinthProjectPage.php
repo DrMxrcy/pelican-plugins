@@ -75,6 +75,9 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     #[Locked]
     public ?int $incompatibleCount = null;
 
+    /** Whether this request already asked the browser to reload the banner (once is enough). */
+    protected bool $compatibilityBannerQueued = false;
+
     /** Per-visit override of the hide_client_only config; Livewire state only, never persisted. */
     public bool $showClientOnly = false;
 
@@ -299,6 +302,11 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
      */
     protected function queueCompatibilityBanner(): void
     {
+        if ($this->compatibilityBannerQueued) {
+            return;
+        }
+
+        $this->compatibilityBannerQueued = true;
         $this->js('$wire.loadCompatibilityBanner()');
     }
 
@@ -407,7 +415,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         if ($server instanceof Server && static::$modrinthProjectType) {
             MinecraftModrinthService::forgetCompatibilitySummary($server, static::$modrinthProjectType);
         }
-        $this->incompatibleCount = null;
+        // The old count stays on screen until the reload replaces it, so the banner doesn't flicker.
         $this->queueCompatibilityBanner();
 
         if ($refresh) {
