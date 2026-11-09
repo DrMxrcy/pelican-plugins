@@ -86,7 +86,8 @@ class PlayerCountChartWidget extends ChartWidget
     protected function getOptions(): array
     {
         return [
-            'animation' => false,
+            // An object, not false: Filament's chart.js sets options.animation.duration.
+            'animation' => ['duration' => 0],
             'spanGaps' => false,
             'interaction' => ['mode' => 'index', 'intersect' => false],
             'scales' => [
