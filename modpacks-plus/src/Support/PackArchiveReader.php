@@ -162,7 +162,9 @@ final class PackArchiveReader
                     continue;
                 }
 
-                $byTarget[strtolower($target)] = new OverrideEntry($name, $target, $entry['size']);
+                // Exact key: server-overrides/ replaces the same path; entries differing only
+                // in case are both kept and then refused by PlanValidator (duplicate_path).
+                $byTarget[$target] = new OverrideEntry($name, $target, $entry['size']);
             }
         }
 

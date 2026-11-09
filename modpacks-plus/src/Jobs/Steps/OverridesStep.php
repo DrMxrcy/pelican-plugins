@@ -48,7 +48,9 @@ class OverridesStep extends InstallStep
         $provider->fetchArchive($plan->archive, $path, $validator);
 
         $reader = PackArchiveReader::open($path, $validator, $caps);
-        $downloaded = array_flip(array_map(fn (PlanFile $file) => strtolower($file->path), $plan->files));
+        // Exactly the paths the download step wrote. Case-sensitive on purpose: server
+        // filesystems are, so `Mods/x.jar` is a different (pre-existing) file than `mods/x.jar`.
+        $downloaded = array_flip(array_map(fn (PlanFile $file) => $file->path, $plan->files));
         $files = $this->files();
 
         try {
@@ -72,7 +74,7 @@ class OverridesStep extends InstallStep
                     if ($stat !== null && $stat['directory']) {
                         throw new StepFailedException('path_conflict', $entry->path);
                     }
-                    if ($stat !== null && $pending !== $index && !isset($downloaded[strtolower($entry->path)])) {
+                    if ($stat !== null && $pending !== $index && !isset($downloaded[$entry->path])) {
                         $this->moveExistingAside($install, $server, $entry->path);
                     }
 

@@ -4,6 +4,8 @@ namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 
 use App\Enums\ServerState;
 use App\Exceptions\Service\Backup\TooManyBackupsException;
+use App\Models\Backup;
+use App\Models\BackupHost;
 use App\Models\Server;
 use App\Services\Backups\InitiateBackupService;
 use App\Tests\Traits\Integration\CreatesTestModels;
@@ -24,7 +26,9 @@ use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Queue;
+use Mockery;
 use Mockery\MockInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 /**
@@ -265,7 +269,7 @@ class InstallEngineTest extends TestCase
 
     private function tooManyBackups(): MockInterface
     {
-        $mock = \Mockery::mock(InitiateBackupService::class);
+        $mock = Mockery::mock(InitiateBackupService::class);
         $mock->shouldReceive('setIsLocked')->andReturnSelf();
         $mock->shouldReceive('handle')->andThrow(new TooManyBackupsException(0));
 
@@ -295,24 +299,106 @@ class InstallEngineTest extends TestCase
         $this->assertSame('old', $this->files->files['mods/old-mod.jar']);
     }
 
-    public function test_crash_after_backup_creation_reuses_the_backup(): void
+    public function test_crash_after_backup_creation_reuses_that_backup(): void
     {
         [, $server] = $this->scenarioServer();
         $this->scenarioPack();
 
-        $this->start($server);
-        $crashed = false;
-        $this->runJobs(between: function (InstallStep $job) use ($server, &$crashed) {
-            if ($job instanceof BackupStep && !$crashed) {
-                $crashed = true;
-                // The worker made the backup but died before storing its uuid.
-                app(InitiateBackupService::class)->setIsLocked(true)->handle($server, BackupStep::backupName($this->latestInstall()));
-            }
-            $this->finishBackups($server);
-        });
+        // The worker makes the backup, then dies before the uuid is stored.
+        $mock = Mockery::mock(InitiateBackupService::class);
+        $mock->shouldReceive('setIsLocked')->with(true)->andReturnSelf();
+        $mock->shouldReceive('handle')->once()->andReturnUsing(function (Server $server, string $name) {
+            $this->backupsCreated++;
+            Backup::factory()->create([
+                'server_id' => $server->id,
+                'backup_host_id' => BackupHost::factory()->create()->getKey(),
+                'name' => $name,
+                'is_locked' => true,
+                'is_successful' => true,
+            ]);
 
-        $this->assertSame(PackInstall::STATUS_INSTALLED, $this->latestInstall()->status);
+            throw new RuntimeException('worker killed');
+        });
+        $this->app->instance(InitiateBackupService::class, $mock);
+
+        $this->start($server);
+
+        try {
+            $this->runAll($server);
+            $this->fail('The simulated crash did not happen');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('worker killed', $exception->getMessage());
+        }
+
+        // The queue retries the same job.
+        $install = $this->latestInstall();
+        $this->assertNull($install->backup_uuid);
+        $this->app->call([new BackupStep($install->id, $install->seq), 'handle']);
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
         $this->assertSame(1, $this->backupsCreated);
+        $this->assertSame(Backup::query()->where('server_id', $server->id)->value('uuid'), $install->backup_uuid);
+    }
+
+    public function test_a_backup_someone_else_made_is_never_reused(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack();
+        $host = BackupHost::factory()->create()->getKey();
+
+        // Same-looking names, made by a subuser with backup.create or left from an earlier run.
+        $foreign = [
+            Backup::factory()->create(['server_id' => $server->id, 'backup_host_id' => $host, 'name' => 'Modpacks Plus install #1', 'is_locked' => true]),
+            Backup::factory()->create(['server_id' => $server->id, 'backup_host_id' => $host, 'name' => 'Modpacks Plus install #2', 'is_locked' => true]),
+        ];
+
+        $this->start($server);
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status);
+        $this->assertSame(1, $this->backupsCreated);
+        $this->assertNotContains($install->backup_uuid, array_map(fn ($backup) => $backup->getAttribute('uuid'), $foreign));
+    }
+
+    /** @return array<string, array{array<string, mixed>}> */
+    public static function untrustedRecoveryCandidates(): array
+    {
+        return [
+            'unlocked' => [['is_locked' => false]],
+            'older than the install' => [['created_at' => now()->subDay()]],
+            'other nonce' => [['name_nonce' => 'ffffffffffffffffffffffffffffffff']],
+        ];
+    }
+
+    /** @param  array<string, mixed>  $state */
+    #[DataProvider('untrustedRecoveryCandidates')]
+    public function test_crash_recovery_only_accepts_the_installs_own_locked_backup(array $state): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack();
+
+        $install = $this->start($server);
+        $nonce = '0123456789abcdef0123456789abcdef';
+        $install->setProgress('backup_nonce', $nonce);
+        $install->save();
+
+        $planted = Backup::factory()->create([
+            'server_id' => $server->id,
+            'backup_host_id' => BackupHost::factory()->create()->getKey(),
+            'name' => BackupStep::backupName($install, $state['name_nonce'] ?? $nonce),
+            'is_locked' => $state['is_locked'] ?? true,
+            'created_at' => $state['created_at'] ?? now(),
+        ]);
+
+        $this->runAll($server);
+
+        $install->refresh();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status);
+        $this->assertSame(1, $this->backupsCreated);
+        $this->assertNotSame($planted->getAttribute('uuid'), $install->backup_uuid);
     }
 
     public function test_worker_killed_mid_download_resumes_without_duplicate_downloads_or_backups(): void
@@ -584,6 +670,25 @@ class InstallEngineTest extends TestCase
         } catch (InstallRefusedException $exception) {
             $this->assertSame('queue_required', $exception->reason);
         }
+    }
+
+    public function test_an_override_differing_only_in_case_from_a_download_does_not_overwrite_an_existing_file(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack([
+            'overrides/Mods/sodium.jar' => 'override bytes',
+        ]);
+        // A pre-existing file whose path differs from the downloaded mods/sodium.jar only in case.
+        $this->files->seed(['Mods/sodium.jar' => 'existing bytes']);
+
+        $this->start($server);
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame('sodium-bytes', $this->files->files['mods/sodium.jar']);
+        $this->assertSame('override bytes', $this->files->files['Mods/sodium.jar']);
+        $this->assertSame('existing bytes', $this->files->files[$install->moved_aside_path.'/Mods/sodium.jar'] ?? null);
     }
 
     public function test_a_file_in_the_way_is_moved_aside_not_overwritten(): void

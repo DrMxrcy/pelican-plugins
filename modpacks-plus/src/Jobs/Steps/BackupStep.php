@@ -15,8 +15,14 @@ use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 /**
  * A locked backup through Pelican's InitiateBackupService, never with `override`
  * (no old backup is ever deleted to make room). Its uuid is stored on the record and
- * the backup is named after the install, so a re-run reuses it instead of making a
- * second one. Waits (re-dispatching) until the daemon reports it finished.
+ * only that backup is ever trusted. Waits (re-dispatching) until the daemon reports it
+ * finished.
+ *
+ * Crash window (backup created, uuid not stored yet): before creating, a random nonce
+ * is persisted on the record and put in the backup name. Recovery only accepts a
+ * locked backup of this server, created no earlier than the install, whose name holds
+ * that exact nonce, so a backup someone else made (same-looking name, older, unlocked)
+ * can never stand in for the install's safety backup.
  */
 class BackupStep extends InstallStep
 {
@@ -24,9 +30,9 @@ class BackupStep extends InstallStep
 
     public const POLL_SECONDS = 10;
 
-    public static function backupName(PackInstall $install): string
+    public static function backupName(PackInstall $install, string $nonce): string
     {
-        return 'Modpacks Plus install #'.$install->id;
+        return 'Modpacks Plus install #'.$install->id.' '.$nonce;
     }
 
     protected function perform(PackInstall $install, Server $server, InstallEngine $engine): StepResult
@@ -36,14 +42,19 @@ class BackupStep extends InstallStep
         }
 
         if ($install->backup_uuid === null) {
-            // A crash right after creating it: find it by name rather than making another.
-            $existing = Backup::query()->where('server_id', $server->id)->where('name', self::backupName($install))->first();
+            $nonce = $install->progressValue('backup_nonce');
+            $existing = is_string($nonce) ? $this->recoverBackup($install, $server, $nonce) : null;
 
             if ($existing === null) {
+                // A fresh nonce per attempt, stored before the backup exists.
+                $nonce = bin2hex(random_bytes(16));
+                $install->setProgress('backup_nonce', $nonce);
+                $engine->persist($install);
+
                 try {
                     $existing = app(InitiateBackupService::class)
                         ->setIsLocked(true)
-                        ->handle($server, self::backupName($install));
+                        ->handle($server, self::backupName($install, $nonce));
                 } catch (TooManyBackupsException|TooManyRequestsHttpException|ModelNotFoundException $exception) {
                     $why = $exception instanceof ModelNotFoundException ? 'no backup host' : $exception->getMessage();
 
@@ -81,5 +92,19 @@ class BackupStep extends InstallStep
         $install->addLog('info', 'backup_done', ['uuid' => $backup->uuid]);
 
         return StepResult::done();
+    }
+
+    /** The backup this install created just before a crash, if any (see class doc). */
+    private function recoverBackup(PackInstall $install, Server $server, string $nonce): ?Backup
+    {
+        $candidates = Backup::query()
+            ->where('server_id', $server->id)
+            ->where('name', self::backupName($install, $nonce))
+            ->where('is_locked', true)
+            ->where('created_at', '>=', $install->created_at)
+            ->get();
+
+        // Exactly one, or none: anything ambiguous is not trusted.
+        return $candidates->count() === 1 ? $candidates->first() : null;
     }
 }
