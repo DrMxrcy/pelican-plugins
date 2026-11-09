@@ -7,6 +7,7 @@ use DrMxrcy\PlayersPlus\Enums\SampleStatus;
 use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\Services\PlayerPoller;
 use DrMxrcy\PlayersPlus\Services\PollResult;
+use DrMxrcy\PlayersPlus\Services\SessionTracker;
 use DrMxrcy\PlayersPlus\Support\Settings;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -42,7 +43,7 @@ class PollServerJob implements ShouldBeUnique, ShouldQueue
         return "$this->serverId:$this->slot";
     }
 
-    public function handle(PlayerPoller $poller): void
+    public function handle(PlayerPoller $poller, SessionTracker $tracker): void
     {
         // A backed-up queue must not write samples for slots that are already over.
         if (now()->getTimestamp() - $this->slot >= Settings::pollInterval() * 60) {
@@ -60,7 +61,7 @@ class PollServerJob implements ShouldBeUnique, ShouldQueue
             $result = PollResult::unreachable($exception::class . ': ' . $exception->getMessage());
         }
 
-        Sample::query()->updateOrCreate(
+        $sample = Sample::query()->updateOrCreate(
             ['server_id' => $server->id, 'polled_at' => Carbon::createFromTimestamp($this->slot)],
             [
                 'status' => $result->status,
@@ -73,6 +74,15 @@ class PollServerJob implements ShouldBeUnique, ShouldQueue
 
         if ($result->status === SampleStatus::Unreachable) {
             self::reportFailure($server, (string) $result->error);
+        }
+
+        try {
+            // Database only (plus a cached usercache read for names without a UUID); profile
+            // and stats files are read on demand by the profile page, never here.
+            $tracker->track($server, $sample);
+        } catch (Throwable $exception) {
+            // The sample is stored; a tracking bug must not hide it. The next poll catches up.
+            report($exception);
         }
     }
 

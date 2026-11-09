@@ -10,10 +10,13 @@ use DrMxrcy\PlayersPlus\Console\Commands\PollPlayersCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\PruneSamplesCommand;
 use DrMxrcy\PlayersPlus\Enums\SampleStatus;
 use DrMxrcy\PlayersPlus\Jobs\PollServerJob;
+use DrMxrcy\PlayersPlus\Models\Player;
+use DrMxrcy\PlayersPlus\Models\PlayerSession;
 use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\Providers\PlayersPlusServiceProvider;
 use DrMxrcy\PlayersPlus\Services\PlayerPoller;
 use DrMxrcy\PlayersPlus\Services\Query\Connector;
+use DrMxrcy\PlayersPlus\Services\SessionTracker;
 use DrMxrcy\PlayersPlus\Tests\Fixtures\FakeChannel;
 use DrMxrcy\PlayersPlus\Tests\Fixtures\FakeConnector;
 use DrMxrcy\PlayersPlus\Tests\Fixtures\Packets;
@@ -114,7 +117,7 @@ class PollingTest extends TestCase
         Carbon::setTestNow(Carbon::createFromTimestamp($slot + 10));
         $poller = $this->app->make(PlayerPoller::class);
         $poller->daemonSlowSeconds = $daemonSlowSeconds;
-        (new PollServerJob($server->id, $slot))->handle($poller);
+        (new PollServerJob($server->id, $slot))->handle($poller, $this->app->make(SessionTracker::class));
 
         return Sample::query()->where('server_id', $server->id)->where('polled_at', Carbon::createFromTimestamp($slot))->firstOrFail();
     }
@@ -175,14 +178,14 @@ class PollingTest extends TestCase
         $slot = 1_800_000_000;
 
         Carbon::setTestNow(Carbon::createFromTimestamp($slot + 120));
-        (new PollServerJob($server->id, $slot))->handle($this->app->make(PlayerPoller::class));
+        (new PollServerJob($server->id, $slot))->handle($this->app->make(PlayerPoller::class), $this->app->make(SessionTracker::class));
 
         $this->assertSame(0, Sample::query()->count());
         $this->assertSame([], $this->connector->opened);
         Http::assertNothingSent();
 
         Carbon::setTestNow(Carbon::createFromTimestamp($slot + 119));
-        (new PollServerJob($server->id, $slot))->handle($this->app->make(PlayerPoller::class));
+        (new PollServerJob($server->id, $slot))->handle($this->app->make(PlayerPoller::class), $this->app->make(SessionTracker::class));
 
         $this->assertSame(1, Sample::query()->count());
     }
@@ -402,6 +405,39 @@ class PollingTest extends TestCase
 
         $this->assertSame(SampleStatus::Online, $sample->status);
         $this->assertSame(1, Sample::query()->where('server_id', $server->id)->count());
+    }
+
+    public function test_polls_build_sessions_and_a_stopped_server_closes_them(): void
+    {
+        $server = $this->minecraftServer();
+        $this->answerPing();
+        $this->poll($server, 1_800_000_000);
+        $this->answerPing();
+        $this->poll($server, 1_800_000_120);
+
+        $this->assertSame(2, PlayerSession::query()->whereNull('ended_at')->count());
+
+        $this->states[$server->uuid] = 'offline';
+        cache()->forget("servers.$server->uuid.status");
+        $this->poll($server, 1_800_000_240);
+
+        // Closed at the last online sample, not left open while the server is down.
+        $this->assertSame(0, PlayerSession::query()->whereNull('ended_at')->count());
+        $notch = Player::query()->where('server_id', $server->id)->where('name', 'Notch')->firstOrFail();
+        $this->assertSame('069a79f4-44e9-4726-a5be-fca90e38aaf5', $notch->uuid);
+        $this->assertSame(120, $notch->total_seconds);
+
+        // Profiles and stats are read on demand by the profile page, never by the poll.
+        $this->assertSame(0, Http::recorded(fn (Request $request) => str_contains(urldecode($request->url()), 'stats/'))->count());
+    }
+
+    public function test_tracker_failure_still_stores_the_sample(): void
+    {
+        $server = $this->minecraftServer();
+        $this->answerPing();
+        $this->mock(SessionTracker::class)->shouldReceive('track')->andThrow(new RuntimeException('tracker bug'));
+
+        $this->assertSame(SampleStatus::Online, $this->poll($server)->status);
     }
 
     public function test_server_properties_are_read_once_and_cached(): void

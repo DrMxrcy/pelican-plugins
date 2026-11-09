@@ -21,6 +21,11 @@ return [
         'unreachable' => 'Keine Antwort',
     ],
 
+    'source' => [
+        'poll' => 'Abfrage',
+        'log' => 'Log',
+    ],
+
     'page' => [
         'title' => 'Spieler',
         'online_now' => 'Jetzt online',

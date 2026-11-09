@@ -5,6 +5,8 @@ namespace DrMxrcy\PlayersPlus\Tests\Feature;
 use DrMxrcy\PlayersPlus\Console\Commands\PollPlayersCommand;
 use DrMxrcy\PlayersPlus\Console\Commands\PruneSamplesCommand;
 use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayersPage;
+use DrMxrcy\PlayersPlus\Models\Player;
+use DrMxrcy\PlayersPlus\Models\PlayerSession;
 use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\PlayersPlusPlugin;
 use DrMxrcy\PlayersPlus\Tests\TestCase;
@@ -59,6 +61,10 @@ class PluginResourcesTest extends TestCase
             $this->assertStringStartsWith('pp_', $table);
         }
         $this->assertSame('pp_samples', (new Sample())->getTable());
+        $this->assertSame('pp_players', (new Player())->getTable());
+        $this->assertSame('pp_sessions', (new PlayerSession())->getTable());
+        $this->assertContains('pp_players', $tables);
+        $this->assertContains('pp_sessions', $tables);
 
         $this->assertStringStartsWith('players-plus', (string) PlayersPage::getSlug());
         $this->assertStringStartsWith('players-plus:', (new PollPlayersCommand())->getName());
