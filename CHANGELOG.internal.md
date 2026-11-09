@@ -26,18 +26,22 @@ _Full work log — every item, including internal/dev work. The curated public c
 
 ### 🐛 Fixed
 - Fresh install overwrites an untracked file with the same name
+- Importing a new plugin build over an older one marks the plugin Crashed until re-enabled
 
-## v0.3.0 — (in progress)
+## v0.3.0 — 2026-11-08
 
 ### ✨ New
 - Installing a mod now also installs the libraries it needs.
-- (pending) Browse mods by category and sort by downloads, follows, or recent updates.
+- Browse mods by category and sort by downloads, follows, or recent updates.
 - One click shows which installed mods have no download for your current Minecraft version.
 
-## v0.2.0 — (in progress)
+### 🐛 Fixed
+- Dependencies installed automatically show no author in the Installed tab
+
+## v0.2.0 — 2026-11-08
 
 ### ✨ New
-- (pending) Mods that only work on the player's game, like Sodium or Iris, no longer show up in the server's mod list.
+- Mods that only work on the player's game, like Sodium or Iris, no longer show up in the server's mod list.
 - Mods that players also need on their own game are now clearly marked.
 - Already-installed mods that do nothing on a server are now flagged as safe to remove.
 - The mod list only offers projects that have a download for your exact Minecraft version and loader.
@@ -45,6 +49,8 @@ _Full work log — every item, including internal/dev work. The curated public c
 ### 🐛 Fixed
 - Enforce subuser file permissions on the Modrinth pages and actions
 - saveModMetadata/removeModMetadata overwrite metadata when reading it fails
+- Installed tab row keeps its old state after installing another version from the Versions modal
+- Page header labels ignore the panel language
 
 ### ⚡ Improved
 - Requests to Modrinth now identify the plugin, as Modrinth asks.
@@ -53,10 +59,3 @@ _Full work log — every item, including internal/dev work. The curated public c
 
 ### ⚡ Improved
 - First installable release of Minecraft Modrinth Plus, a drop-in replacement for the official Modrinth plugin.
-
-## v0.0.1 — (in progress)
-
-### 🐛 Fixed
-- (pending) Importing a new plugin build over an older one marks the plugin Crashed until re-enabled
-- (pending) Dependencies installed automatically show no author in the Installed tab
-- (pending) Installed tab row keeps its old state after installing another version from the Versions modal
