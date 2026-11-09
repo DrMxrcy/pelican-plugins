@@ -132,6 +132,32 @@ class SortAndCategoryPageTest extends TestCase
         $this->assertSame([], $this->pageOf($page)->getTable()->getFilters());
     }
 
+    /**
+     * The filters form is built when the component boots, before the tab change is applied,
+     * so without a rebuild the All tab rendered right after Installed had no filter fields.
+     */
+    public function test_filters_come_back_when_returning_to_the_all_tab(): void
+    {
+        $page = Livewire::test(MinecraftModrinthModPage::class)
+            ->set('activeTab', 'installed')
+            ->loadTable()
+            ->set('activeTab', 'all');
+
+        $page->assertSeeHtml('tableFilters.sort.value');
+        $page->assertSeeHtml('tableFilters.categories.values');
+        $this->assertCount(2, $this->pageOf($page)->getTableFiltersForm()->getComponents());
+    }
+
+    public function test_filters_leave_when_switching_to_the_installed_tab(): void
+    {
+        $page = Livewire::test(MinecraftModrinthModPage::class)
+            ->set('activeTab', 'all')
+            ->loadTable()
+            ->set('activeTab', 'installed');
+
+        $page->assertDontSeeHtml('tableFilters.sort.value');
+    }
+
     public function test_sort_and_category_strings_exist_in_every_locale(): void
     {
         foreach (['en', 'de'] as $locale) {

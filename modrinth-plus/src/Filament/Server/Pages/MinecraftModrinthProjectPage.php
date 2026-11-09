@@ -29,6 +29,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Schema;
 use Filament\Support\ArrayRecord;
+use Filament\Support\Components\Attributes\Unexposed;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
@@ -47,7 +48,9 @@ use Throwable;
 abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 {
     use BlockAccessInConflict;
-    use HasTabs;
+    use HasTabs {
+        updatedActiveTab as protected updatedActiveTabFromHasTabs;
+    }
     use InteractsWithTable;
 
     /** Table record key of a "Not on Modrinth" row: this prefix plus the jar's file name. */
@@ -281,6 +284,19 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     protected function authorizeAccess(): void
     {
         abort_unless(static::canAccess(), 403);
+    }
+
+    /**
+     * The sort and category filters are only visible on the "All" tab, but the filters form is
+     * built while the component boots, before this tab change is applied. Rebuild it so the tab
+     * rendered right after the switch gets (or drops) its filter fields.
+     */
+    #[Unexposed]
+    public function updatedActiveTab(): void
+    {
+        $this->updatedActiveTabFromHasTabs();
+
+        $this->cacheSchema('tableFiltersForm', $this->getTableFiltersForm(...));
     }
 
     /** @return array<string, Tab> */
