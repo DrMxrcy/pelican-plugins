@@ -384,7 +384,7 @@ class MinecraftModrinthService
     }
 
     /**
-     * @param  array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}>  $installedMods
+     * @param  array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool, installed_as_modpack?: array<string, mixed>}>  $installedMods
      * @return array<int, array<string, mixed>>
      */
     public function getInstalledModsFromModrinth(array $installedMods, int $page = 1): array
@@ -896,7 +896,7 @@ class MinecraftModrinthService
      * Installed mods from the metadata file; [] when there is none yet and also when it could not
      * be read. Use readInstalledModsMetadata() to tell those two apart.
      *
-     * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}>
+     * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool, installed_as_modpack?: array<string, mixed>}>
      */
     public function getInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType): array
     {
@@ -909,7 +909,7 @@ class MinecraftModrinthService
      * A missing file is [] (nothing installed); an unparsable one is [] too, but writers refuse to
      * overwrite it (see readMetadataForWrite()).
      *
-     * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}>|null
+     * @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool, installed_as_modpack?: array<string, mixed>}>|null
      */
     public function readInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType): ?array
     {
@@ -969,6 +969,32 @@ class MinecraftModrinthService
     public static function isPinned(array $installedMod): bool
     {
         return ($installedMod['pinned'] ?? null) === true;
+    }
+
+    /**
+     * The modpack an installed project came with, for the "From modpack" badge and the update
+     * warning (plan 33), or null. Modpacks Plus records it as an optional
+     * `"installed_as_modpack": {provider, pack_id, version_id, pack_name, version_number}` on
+     * the entry; this plugin never writes the key, and its writers keep it like any other.
+     * The name falls back to the pack id; anything malformed is not a modpack.
+     *
+     * @param  array<string, mixed>  $installedMod
+     */
+    public static function installedAsModpack(array $installedMod): ?string
+    {
+        $tag = $installedMod['installed_as_modpack'] ?? null;
+
+        if (!is_array($tag)) {
+            return null;
+        }
+
+        foreach (['pack_name', 'pack_id'] as $key) {
+            if (is_string($tag[$key] ?? null) && trim($tag[$key]) !== '') {
+                return mb_strimwidth(trim($tag[$key]), 0, 100, '…');
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1538,7 +1564,7 @@ class MinecraftModrinthService
         return $files;
     }
 
-    /** @return array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}|null */
+    /** @return array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool, installed_as_modpack?: array<string, mixed>}|null */
     public function getInstalledMod(Server $server, ModrinthProjectType $modrinthProjectType, string $projectId): ?array
     {
         $installedMods = $this->getInstalledModsMetadata($server, $modrinthProjectType);

@@ -167,6 +167,14 @@ return [
         'failed_body' => 'Die Liste der installierten Projekte konnte nicht gelesen oder gespeichert werden, daher wurde für :name nichts geändert. Versuche es später erneut.',
     ],
 
+    'modpack' => [
+        'badge' => 'Aus Modpack :name',
+        'badge_tooltip' => 'Mit dem Modpack :name installiert (durch Modpacks Plus). Du kannst sie einzeln aktualisieren, das kann das Pack aber beschädigen.',
+        'update_warning' => 'Diese Mod gehört zum Modpack :name: Sie einzeln zu aktualisieren kann das Pack beschädigen.',
+        'update_all_warning' => 'Diese gehören zu einem Modpack, sie einzeln zu aktualisieren kann es beschädigen: :list.',
+        'update_all_entry' => ':name (:pack)',
+    ],
+
     'update_all' => [
         'action' => 'Alle aktualisieren (:count)',
         'tooltip' => 'Aktualisiert jedes installierte Projekt, für das es eine neuere kompatible Version gibt. Reine Client-Projekte und angepinnte Projekte werden übersprungen.',

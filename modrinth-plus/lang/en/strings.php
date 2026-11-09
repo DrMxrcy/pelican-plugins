@@ -167,6 +167,14 @@ return [
         'failed_body' => 'The installed list could not be read or saved, so nothing was changed for :name. Try again later.',
     ],
 
+    'modpack' => [
+        'badge' => 'From modpack :name',
+        'badge_tooltip' => 'Installed with the modpack :name (by Modpacks Plus). You can update it on its own, but that may break the pack.',
+        'update_warning' => 'This mod came with the modpack :name: updating it on its own may break the pack.',
+        'update_all_warning' => 'These came with a modpack, and updating them on their own may break it: :list.',
+        'update_all_entry' => ':name (:pack)',
+    ],
+
     'update_all' => [
         'action' => 'Update all (:count)',
         'tooltip' => 'Update every installed project that has a newer compatible version. Client-only and pinned projects are skipped.',

@@ -61,7 +61,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     /** Table record key of a "Not on Modrinth" row: this prefix plus the jar's file name. */
     public const NOT_ON_MODRINTH_KEY_PREFIX = 'file:';
 
-    /** @var array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}>|null */
+    /** @var array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool, installed_as_modpack?: array<string, mixed>}>|null */
     protected ?array $installedModsMetadata = null;
 
     /** @var array<string, array<int, mixed>> Cache for version data by project_id */
@@ -353,7 +353,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         ];
     }
 
-    /** @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}> */
+    /** @return array<int, array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool, installed_as_modpack?: array<string, mixed>}> */
     protected function getInstalledModsMetadata(): array
     {
         if ($this->installedModsMetadata === null) {
@@ -366,7 +366,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         return $this->installedModsMetadata;
     }
 
-    /** @return array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool}|null */
+    /** @return array{project_id: string, project_slug: string, project_title: string, version_id: string, version_number: string, filename: string, installed_at: string, author?: string, pinned?: bool, installed_as_modpack?: array<string, mixed>}|null */
     protected function getInstalledMod(string $projectId): ?array
     {
         $installedMods = $this->getInstalledModsMetadata();
@@ -745,6 +745,22 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $installedMod = $this->getInstalledMod($record['project_id']);
 
         return $installedMod !== null && MinecraftModrinthService::isPinned($installedMod);
+    }
+
+    /**
+     * The modpack this installed project came with (plan 33), or null.
+     *
+     * @param  array<string, mixed>  $record
+     */
+    protected function installedAsModpack(array $record): ?string
+    {
+        if ($this->isNotOnModrinthRecord($record)) {
+            return null;
+        }
+
+        $installedMod = $this->getInstalledMod($record['project_id']);
+
+        return $installedMod === null ? null : MinecraftModrinthService::installedAsModpack($installedMod);
     }
 
     /**
@@ -1216,13 +1232,14 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
      * A small badge for the title column's description; `$key` names a `strings.php` entry
      * whose `_tooltip` sibling holds the tooltip. Blade escapes both.
      */
-    private function renderBadge(string $color, string $icon, string $key): string
+    /** @param  array<string, string>  $replace  translation parameters (escaped by Blade) */
+    private function renderBadge(string $color, string $icon, string $key, array $replace = []): string
     {
         return Blade::render('<x-filament::badge :color="$color" size="sm" :icon="$icon" :tooltip="$tooltip">{{ $label }}</x-filament::badge>', [
             'color' => $color,
             'icon' => $icon,
-            'label' => trans("modrinth-plus::strings.$key"),
-            'tooltip' => trans("modrinth-plus::strings.{$key}_tooltip"),
+            'label' => trans("modrinth-plus::strings.$key", $replace),
+            'tooltip' => trans("modrinth-plus::strings.{$key}_tooltip", $replace),
         ]);
     }
 
@@ -1358,6 +1375,11 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         } else {
                             if ($this->isPinned($record)) {
                                 $badges[] = $this->renderBadge('info', 'tabler-pin', 'pin.badge');
+                            }
+
+                            $modpack = $this->installedAsModpack($record);
+                            if ($modpack !== null) {
+                                $badges[] = $this->renderBadge('primary', 'tabler-package', 'modpack.badge', ['name' => $modpack]);
                             }
 
                             if (!static::usesClientOnlyFilter()) {
@@ -1564,8 +1586,13 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         ]);
 
                         $warning = $this->incompatibleWarning($versions[0] ?? null);
+                        $modpack = $this->installedAsModpack($record);
 
-                        return $warning === null ? $description : "$description $warning";
+                        return implode(' ', array_filter([
+                            $description,
+                            $warning,
+                            $modpack === null ? null : trans('modrinth-plus::strings.modpack.update_warning', ['name' => $modpack]),
+                        ]));
                     })
                     ->schema(fn (array $record) => $this->updateChangelogSchema($record))
                     ->action(function (array $record) {
@@ -1815,7 +1842,17 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
                 $skipped = $this->pinnedUpdateAllSkipsLine();
 
-                return $skipped === null ? $description : "$description $skipped";
+                // Plan 33: say which of them came with a modpack before they are updated.
+                $fromPacks = [];
+                foreach ($candidates as $record) {
+                    $modpack = $this->installedAsModpack($record);
+                    if ($modpack !== null) {
+                        $fromPacks[] = trans('modrinth-plus::strings.modpack.update_all_entry', ['name' => $record['title'], 'pack' => $modpack]);
+                    }
+                }
+                $packWarning = $fromPacks === [] ? null : trans('modrinth-plus::strings.modpack.update_all_warning', ['list' => implode(', ', $fromPacks)]);
+
+                return implode(' ', array_filter([$description, $skipped, $packWarning]));
             })
             ->action(fn () => $this->updateAll());
     }
