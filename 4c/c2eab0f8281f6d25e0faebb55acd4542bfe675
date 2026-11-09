@@ -1,0 +1,77 @@
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_cf8c5dbd76f6d0 52-55,129-138,141-143,265-268
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_d603fceea9a1c3 126-127,130,239
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_8d86245724dab3 126-127,130,239
+modpacks-plus/src/Data/PlanFile.php
+  s_1d8485e49bfacb::t_a10d4b8c571b4c 20-31
+modpacks-plus/src/Filament/Server/Components/InstallProgress.php
+  s_1d8485e49bfacb::t_7303d1e9242489 130-132
+modpacks-plus/src/Jobs/Steps/DownloadStep.php
+  s_6045bb8891482b::t_d340bb29b8aff1 67,162
+modpacks-plus/src/Jobs/Steps/InstallStep.php
+  s_6045bb8891482b::t_01420c7a10608e 14,43-45,89-90,94,153-156,161-175
+modpacks-plus/src/Jobs/Steps/PanelDownload.php
+  s_6045bb8891482b::t_7727b98088d718 21-25,72-74,81-84
+modpacks-plus/src/Providers/AtLauncher/AtLauncherPackProvider.php
+  s_1d8485e49bfacb::t_91178baf511b41 28-34,353-354,356,373-380
+modpacks-plus/src/Providers/CurseForge/CurseForgeClient.php
+  s_6045bb8891482b::t_bfcfbe5729da78 7,161
+modpacks-plus/src/Providers/Modrinth/ModrinthClient.php
+  s_1d8485e49bfacb::t_50c70c50c12953 7-8,27-32,60,118-122,127,138-151,153-154,164,168-169,173-177,188,192,195,198,205-207,211-217,233-239
+modpacks-plus/src/Providers/Modrinth/ModrinthPackProvider.php
+  s_1d8485e49bfacb::t_e30c51aa04ba5e 340-344
+modpacks-plus/src/Services/InstallEngine.php
+  s_6045bb8891482b::t_d193585f5d8ce2 8,364-365
+modpacks-plus/src/Services/PackFileResolver.php
+  s_1d8485e49bfacb::t_a34e549e0e905f 25-30,37,59,112-117,135-137,139-154,165-169,203-232
+modpacks-plus/src/Support/ByteLimitFilter.php
+  s_6045bb8891482b::t_0766c09cda2ef1 1-65
+modpacks-plus/src/Support/JobClock.php
+  s_6045bb8891482b::t_007d910ad99a2a 1-57
+modpacks-plus/src/Support/JsonApiClient.php
+  s_6045bb8891482b::t_d36b80a06a7c20 19-20,43,74-80,83-84
+modpacks-plus/src/Support/PlanValidator.php
+  s_1d8485e49bfacb::t_a0885fad1e36a7 73-75,77,448,470-477,492-495,500,636-672,691
+modpacks-plus/tests/Feature/AtLauncherInstallTest.php
+  s_1d8485e49bfacb::t_c67abf8301e1f0 7,109-136
+modpacks-plus/tests/Feature/AtLauncherPackProviderTest.php
+  s_1d8485e49bfacb::t_7f541b0d16d352 223,226,229-235,240-285,426-428
+modpacks-plus/tests/Feature/FtbPackProviderTest.php
+  s_1d8485e49bfacb::t_4b16b54b3e7962 368-392
+modpacks-plus/tests/Feature/PanelDownloadTest.php
+  s_6045bb8891482b::t_e1d8b9c8b60556 81,83,87-88,92-95,98-100,125,130-146,314,317
+modpacks-plus/tests/Feature/Plan32HardeningTest.php
+  s_1d8485e49bfacb::t_599cc2cbcb1106 1-263
+modpacks-plus/tests/Unit/Plan32ValidatorHardeningTest.php
+  s_1d8485e49bfacb::t_e835fd95c62436 1-134
+modrinth-plus/tests/Feature/ModpackBadgeTest.php
+  s_1d8485e49bfacb::t_624e8c3bb71fa4 197-211
+modrinth-plus/tests/Feature/ModpackMetadataRoundTripTest.php
+  s_1d8485e49bfacb::t_88dc12187c0f3c 145-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4cc2eab0f8281f6d25e0faebb55acd4542bfe675",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    },
+    "s_6045bb8891482b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "045ea695-5f94-47c3-a79b-08c08dd55164",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
