@@ -58,7 +58,8 @@ class BackupStep extends InstallStep
                 } catch (TooManyBackupsException|TooManyRequestsHttpException|ModelNotFoundException $exception) {
                     $why = $exception instanceof ModelNotFoundException ? 'no backup host' : $exception->getMessage();
 
-                    if (!config('modpacks-plus.allow_skip_backup', false)) {
+                    // A loader switch reinstalls the server: never without a backup.
+                    if (!config('modpacks-plus.allow_skip_backup', false) || $install->isLoaderSwitch()) {
                         throw new StepFailedException('backup_impossible', $why, $exception);
                     }
 

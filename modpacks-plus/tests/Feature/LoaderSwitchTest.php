@@ -3,13 +3,16 @@
 namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 
 use App\Enums\ServerState;
+use App\Exceptions\Service\Backup\TooManyBackupsException;
 use App\Models\Egg;
 use App\Models\EggVariable;
 use App\Models\Server;
 use App\Models\ServerVariable;
+use App\Services\Backups\InitiateBackupService;
 use App\Services\Servers\ReinstallServerService;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
+use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
 use DrMxrcy\ModpacksPlus\Jobs\RestorePreviousFilesJob;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\AwaitReinstallStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\ChangeEggStep;
@@ -29,6 +32,7 @@ use DrMxrcy\ModpacksPlus\Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Mockery;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 /**
@@ -134,7 +138,10 @@ class LoaderSwitchTest extends TestCase
     /** @return array<string, string> worlds, player lists, server.properties and eula.txt by path */
     private function keptFiles(): array
     {
-        return array_filter($this->files->files, fn (string $path) => preg_match('#^(world|world_nether|world_the_end)/|^(ops|whitelist|banned-players|banned-ips|usercache)\.json$|^server\.properties$|^eula\.txt$#', $path) === 1, ARRAY_FILTER_USE_KEY);
+        $kept = array_filter($this->files->files, fn (string $path) => preg_match('#^(world|world_nether|world_the_end)/|^(ops|whitelist|banned-players|banned-ips|usercache)\.json$|^server\.properties$|^eula\.txt$#', $path) === 1, ARRAY_FILTER_USE_KEY);
+        ksort($kept);
+
+        return $kept;
     }
 
     /** @return array<string, string> files under $folder, keyed by their path relative to it */
@@ -651,6 +658,276 @@ class LoaderSwitchTest extends TestCase
         $install->refresh();
         $this->assertNull($install->restore_requested_at);
         $this->assertNull($install->restored_at);
+        $this->assertTrue($install->isRestorable());
+    }
+
+    // --- Plan 35 security review ---
+
+    public function test_snapshot_never_records_values_of_variables_users_cannot_see(): void
+    {
+        $server = $this->fabricServer();
+        /** @var EggVariable $hidden */
+        $hidden = EggVariable::factory()->create(['egg_id' => $server->egg_id, 'env_variable' => 'RCON_PASSWORD', 'default_value' => '', 'user_viewable' => false, 'rules' => ['nullable', 'string']]);
+        ServerVariable::query()->create(['server_id' => $server->id, 'variable_id' => $hidden->id, 'variable_value' => 'top-secret-rcon']);
+        $this->reinstallOutcome = ServerState::ReinstallFailed;
+
+        $this->startSwitch($server);
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertContains('RCON_PASSWORD', $install->snapshot['hidden_variables'] ?? []);
+        $this->assertArrayNotHasKey('RCON_PASSWORD', $install->snapshot['variables'] ?? []);
+        $this->assertStringNotContainsString('top-secret-rcon', (string) json_encode($install->getAttributes()));
+    }
+
+    public function test_backup_skipping_is_never_allowed_for_a_loader_switch(): void
+    {
+        config()->set('modpacks-plus.allow_skip_backup', true);
+        $backups = Mockery::mock(InitiateBackupService::class);
+        $backups->shouldReceive('setIsLocked')->andReturnSelf();
+        $backups->shouldReceive('handle')->andThrow(new TooManyBackupsException(0));
+        $this->app->instance(InitiateBackupService::class, $backups);
+        $server = $this->fabricServer();
+        $before = $this->serverState($server);
+
+        $this->startSwitch($server);
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame('backup_impossible', $install->error);
+        $this->assertSame($before, $this->serverState($server));
+        $this->assertSame([], $this->files->argsOf('movePreserved'));
+    }
+
+    public function test_a_crash_between_a_move_and_its_record_still_restores_the_entry(): void
+    {
+        $server = $this->fabricServer();
+        $kept = $this->keptFiles();
+        $crashed = false;
+        $this->files->afterMove = function (string $from) use (&$crashed) {
+            if ($from === 'ops.json' && !$crashed) {
+                $crashed = true;
+
+                throw new RuntimeException('worker died after the move');
+            }
+        };
+
+        $this->startSwitch($server);
+        try {
+            $this->runSwitch($server);
+            $this->fail('expected the worker to die');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('worker died after the move', $exception->getMessage());
+        }
+
+        // The queue gives up: the install fails right there.
+        $install = $this->latestInstall();
+        (new PreserveStep($install->id, $install->seq))->failed(new RuntimeException('gave up'));
+        $install->refresh();
+        $this->assertSame(PackInstall::STATUS_FAILED, $install->status);
+        $this->assertContains('ops.json', $install->preservedEntries());
+        $this->assertArrayNotHasKey('ops.json', $this->files->files);
+
+        PackInstall::query()->whereKey($install->id)->update(['restore_requested_at' => now()]);
+        dispatch(new RestorePreviousFilesJob($install->id));
+        $this->runRestoreJobs();
+
+        $this->assertNotNull($install->refresh()->restored_at);
+        $this->assertSame($kept, $this->keptFiles());
+    }
+
+    public function test_restore_reconciles_the_record_with_the_preserved_folder(): void
+    {
+        $server = $this->fabricServer();
+        $kept = $this->keptFiles();
+        $this->reinstallOutcome = ServerState::ReinstallFailed;
+        $this->startSwitch($server);
+        $this->runSwitch($server);
+        $install = $this->latestInstall();
+
+        // The record lost whitelist.json; the disk still has it.
+        $install->setProgress('preserved', array_values(array_diff($install->preservedEntries(), ['whitelist.json'])));
+        $install->restore_requested_at = now();
+        $install->save();
+        dispatch(new RestorePreviousFilesJob($install->id));
+        $this->runRestoreJobs();
+
+        $this->assertNotNull($install->refresh()->restored_at);
+        $this->assertSame($kept, $this->keptFiles());
+        $this->assertSame([], $this->filesUnder((string) $install->preserved_path));
+    }
+
+    public function test_no_new_install_while_preserved_files_of_an_earlier_switch_wait(): void
+    {
+        $server = $this->fabricServer();
+        $this->reinstallOutcome = ServerState::ReinstallFailed;
+        $this->startSwitch($server);
+        $this->runSwitch($server);
+        $failed = $this->latestInstall();
+
+        foreach ([fn () => $this->startSwitch($server), fn () => app(InstallEngine::class)->start($server, null, ModrinthPackProvider::ID, Mrpack::PACK_ID, Mrpack::VERSION_ID, 'Plain')] as $start) {
+            try {
+                $start();
+                $this->fail('expected preserved_pending');
+            } catch (InstallRefusedException $exception) {
+                $this->assertSame('preserved_pending', $exception->reason);
+                $this->assertSame((string) $failed->preserved_path, $exception->detail);
+            }
+        }
+        $this->assertSame(1, PackInstall::query()->count());
+    }
+
+    public function test_restore_targets_the_newest_install_with_preserved_files_even_when_a_newer_one_exists(): void
+    {
+        $server = $this->fabricServer();
+        $kept = $this->keptFiles();
+        $this->reinstallOutcome = ServerState::ReinstallFailed;
+        $this->startSwitch($server);
+        $this->runSwitch($server);
+        $switch = $this->latestInstall();
+
+        // A newer record (e.g. from before this rule existed) that set nothing aside.
+        $newer = $switch->replicate(['preserved_path', 'loader_switch', 'snapshot']);
+        $newer->progress = ['moved' => []];
+        $newer->moved_aside_path = null;
+        $newer->save();
+
+        $this->assertSame($switch->id, PackInstall::restoreCandidate($server->id)?->id);
+
+        PackInstall::query()->whereKey($switch->id)->update(['restore_requested_at' => now()]);
+        dispatch(new RestorePreviousFilesJob($switch->id));
+        $this->runRestoreJobs();
+
+        $this->assertSame($kept, $this->keptFiles());
+        $this->assertNull(PackInstall::restoreCandidate($server->id));
+    }
+
+    public function test_restore_never_moves_files_while_a_reinstall_may_still_run(): void
+    {
+        $server = $this->fabricServer();
+        $this->startSwitch($server);
+        // The node never reports back; the wait times out.
+        $this->runJobs(100, function (InstallStep $job, PackInstall $install) use ($server) {
+            $this->finishBackups($server);
+            if ($job instanceof AwaitReinstallStep) {
+                PackInstall::query()->whereKey($install->id)->update(['step_deadline_at' => now()->subSecond()]);
+            }
+        });
+        $install = $this->latestInstall();
+        $this->assertSame('step_timeout', $install->error);
+        $moves = count($this->files->argsOf('movePreserved'));
+
+        // Panel still says installing: the job waits.
+        PackInstall::query()->whereKey($install->id)->update(['restore_requested_at' => now()]);
+        $this->app->call([new RestorePreviousFilesJob($install->id), 'handle']);
+        $this->assertSame($moves, count($this->files->argsOf('movePreserved')));
+
+        // An admin toggled the status, but the node never reported the install finished:
+        // within the quiet period nothing moves.
+        $server->refresh()->forceFill(['status' => null])->save();
+        $this->app->call([new RestorePreviousFilesJob($install->id), 'handle']);
+        $install->refresh();
+        $this->assertCount($moves, $this->files->argsOf('movePreserved'));
+        $this->assertNull($install->restored_at);
+        $this->assertNull($install->restore_requested_at);
+
+        // Long after the last request it may go ahead.
+        $this->travel(RestorePreviousFilesJob::REINSTALL_QUIET_MINUTES + 1)->minutes();
+        PackInstall::query()->whereKey($install->id)->update(['restore_requested_at' => now()]);
+        dispatch(new RestorePreviousFilesJob($install->id));
+        $this->runRestoreJobs();
+        $this->assertNotNull($install->refresh()->restored_at, (string) json_encode(array_slice($install->log ?? [], -4)));
+    }
+
+    public function test_a_carried_over_variable_the_new_egg_rejects_refuses_the_switch_before_any_change(): void
+    {
+        $server = $this->fabricServer();
+        /** @var EggVariable $own */
+        $own = EggVariable::query()->where('egg_id', $server->egg_id)->where('env_variable', 'SERVER_JARFILE')->first()
+            ?? EggVariable::factory()->create(['egg_id' => $server->egg_id, 'env_variable' => 'SERVER_JARFILE', 'default_value' => 'server.jar', 'rules' => ['required', 'string']]);
+        ServerVariable::query()->updateOrCreate(['server_id' => $server->id, 'variable_id' => $own->id], ['variable_value' => 'not a jar name!']);
+        EggVariable::factory()->create(['egg_id' => $this->neoforge->id, 'env_variable' => 'SERVER_JARFILE', 'default_value' => 'server.jar', 'rules' => ['required', 'regex:/^([\w\d._-]+)(\.jar)$/']]);
+        $before = $this->serverState($server);
+
+        $this->startSwitch($server);
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame('variable_invalid', $install->error);
+        $this->assertSame(PackInstall::STEP_FAILED, $install->stepStatus(SnapshotStep::KEY));
+        $this->assertSame($before, $this->serverState($server));
+        $this->assertSame(0, $this->files->writeCalls());
+        $this->assertSame(0, $this->backupsCreated);
+    }
+
+    public function test_a_hidden_variable_that_fails_validation_never_shows_its_value(): void
+    {
+        $server = $this->fabricServer();
+        /** @var EggVariable $own */
+        $own = EggVariable::query()->where('egg_id', $server->egg_id)->where('env_variable', 'SERVER_JARFILE')->first()
+            ?? EggVariable::factory()->create(['egg_id' => $server->egg_id, 'env_variable' => 'SERVER_JARFILE', 'default_value' => 'server.jar', 'rules' => ['required', 'string']]);
+        $own->forceFill(['user_viewable' => false])->save();
+        ServerVariable::query()->updateOrCreate(['server_id' => $server->id, 'variable_id' => $own->id], ['variable_value' => 'top-secret-rcon value!']);
+        EggVariable::factory()->create(['egg_id' => $this->neoforge->id, 'env_variable' => 'SERVER_JARFILE', 'default_value' => 'server.jar', 'rules' => ['required', 'regex:/^([\w\d._-]+)(\.jar)$/']]);
+
+        $this->startSwitch($server);
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame('variable_invalid', $install->error);
+        $this->assertSame('SERVER_JARFILE', $install->progressValue('error_detail'));
+        $this->assertStringNotContainsString('top-secret', (string) json_encode($install->getAttributes()));
+        $this->assertStringNotContainsString('top-secret', (string) InstallProgress::error($install));
+        $this->assertStringNotContainsString('top-secret', (string) InstallProgress::log($install));
+        $this->assertStringNotContainsString('top-secret', (string) InstallProgress::summary($install, true));
+    }
+
+    public function test_an_image_check_failure_names_the_egg_not_the_image(): void
+    {
+        $server = $this->fabricServer();
+
+        $this->startSwitch($server);
+        $this->runSwitch($server, also: function (InstallStep $job) {
+            if ($job instanceof ChangeEggStep) {
+                $this->neoforge->forceFill(['docker_images' => ['Java 17' => 'ghcr.io/pelican-eggs/yolks:java_17']])->save();
+            }
+        });
+
+        $install = $this->latestInstall();
+        $this->assertSame('no_java_image', $install->error);
+        $this->assertSame('NeoForge', $install->progressValue('error_detail'));
+        $this->assertStringNotContainsString('java_21', (string) InstallProgress::error($install));
+    }
+
+    /** @return array<string, array{\Closure(Egg): mixed, string}> */
+    public static function eggEditsAfterTheSnapshot(): array
+    {
+        return [
+            'image removed' => [fn (Egg $egg) => $egg->forceFill(['docker_images' => ['Java 17' => 'ghcr.io/pelican-eggs/yolks:java_17']])->save(), 'no_java_image'],
+            'tagged as another loader' => [fn (Egg $egg) => $egg->forceFill(['tags' => ['minecraft', 'forge']])->save(), 'egg_unknown'],
+            'variable rule tightened' => [fn (Egg $egg) => EggVariable::query()->where('egg_id', $egg->id)->where('env_variable', 'NEOFORGE_VERSION')->update(['rules' => json_encode(['required', 'regex:/^20\./'])]), 'variable_invalid'],
+        ];
+    }
+
+    /** @param  \Closure(Egg): mixed  $edit */
+    #[DataProvider('eggEditsAfterTheSnapshot')]
+    public function test_the_egg_is_checked_again_right_before_the_change(\Closure $edit, string $reason): void
+    {
+        $server = $this->fabricServer();
+        $before = $this->serverState($server);
+
+        $this->startSwitch($server);
+        $this->runSwitch($server, also: function (InstallStep $job) use ($edit) {
+            if ($job instanceof ChangeEggStep) {
+                $edit($this->neoforge);
+            }
+        });
+
+        $install = $this->latestInstall();
+        $this->assertSame($reason, $install->error);
+        $this->assertSame(PackInstall::STEP_FAILED, $install->stepStatus(ChangeEggStep::KEY));
+        $this->assertSame($before, $this->serverState($server));
+        $this->assertSame(0, $this->reinstalls);
         $this->assertTrue($install->isRestorable());
     }
 }

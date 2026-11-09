@@ -4,6 +4,8 @@ namespace DrMxrcy\ModpacksPlus\Tests\Support;
 
 use App\Models\Server;
 use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
+use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
+use DrMxrcy\ModpacksPlus\Services\DaemonServerFiles;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
@@ -40,6 +42,9 @@ final class FakeServerFiles implements ServerFiles
     /** @var array<int, string> paths the "node" refuses to move (simulated failures) */
     public array $failMoves = [];
 
+    /** Runs after a preserved move landed, e.g. to simulate the worker dying before it is recorded. */
+    public ?\Closure $afterMove = null;
+
     /** @var array<int, string> worlds protected by the copy the engine got */
     private array $worlds = ['world'];
 
@@ -57,6 +62,7 @@ final class FakeServerFiles implements ServerFiles
         $copy->violations = &$this->violations;
         $copy->remote = &$this->remote;
         $copy->failMoves = &$this->failMoves;
+        $copy->afterMove = &$this->afterMove;
 
         return $copy;
     }
@@ -249,12 +255,13 @@ final class FakeServerFiles implements ServerFiles
         $this->check($from);
         $this->check($to);
 
-        $inside = fn (string $path) => str_starts_with($path, '.modpacks-plus/') && substr_count($path, '/') >= 2;
-        $touchesOwn = fn (string $path) => $path === '.modpacks-plus' || str_starts_with($path, '.modpacks-plus/');
-        if ($inside($from) === $inside($to) || (!$inside($from) && $touchesOwn($from)) || (!$inside($to) && $touchesOwn($to))) {
-            $this->violations[] = "preserved move outside the own folder: $from -> $to";
+        try {
+            // The real adapter's guard, not a copy of it.
+            DaemonServerFiles::guardPreservedMove($from, $to);
+        } catch (UnsafePlanException $exception) {
+            $this->violations[] = "preserved move refused: $from -> $to";
 
-            throw new RuntimeException("fake daemon: refused $from -> $to");
+            throw $exception;
         }
 
         if (in_array($from, $this->failMoves, true)) {
@@ -262,6 +269,10 @@ final class FakeServerFiles implements ServerFiles
         }
 
         $this->move($server, $from, $to);
+
+        if ($this->afterMove !== null) {
+            ($this->afterMove)($from, $to);
+        }
     }
 
     public function pull(Server $server, string $url, string $directory, string $filename, int $timeoutSeconds): void

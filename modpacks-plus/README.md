@@ -106,7 +106,23 @@ nothing changes and the page says which egg to import. If the reinstall fails, t
 `failed`, the egg is **not** switched back automatically (the summary names the previous egg and
 values), and **Restore previous files** moves the preserved worlds and player files and the old pack
 folders back (never overwriting: whatever is in the way goes to `.modpacks-plus/replaced-<date>/`).
-A cancel asked for while worlds are set aside takes effect once they are back.
+A cancel asked for while worlds are set aside takes effect once they are back. While worlds or
+player files of a switch are still set aside, no new install starts; restore them first.
+
+The backup can't be skipped for a switch, even with **Allow skipping the backup** on (the reinstall
+is destructive). Every value the server keeps or gets is checked against the new egg's rules before
+anything changes, and again (with the egg and image) right before the egg changes.
+
+**Restore waits for the node.** No file is moved while the panel shows the server `installing`, or
+while a reinstall was requested less than 30 minutes ago and the node never reported it finished
+(Wings doesn't tell the panel whether an install script is still running). If a server stays
+`installing` (the node never called back), an admin checks on the node that no install container is
+running for it, then uses **Toggle install status** on the server (Admin → Servers → the server);
+"Restore previous files" works from 30 minutes after the last reinstall request.
+
+The install record shows the previous egg; the previous startup command, image and variable values
+only to users with `startup.read`, and values of variables users can't see are never recorded
+(names only).
 
 Official eggs: Fabric (`LOADER_VERSION`), Forge (`FORGE_VERSION` = `<mc>-<forge>`), NeoForge
 (`NEOFORGE_VERSION`), Quilt (no loader variable: its egg always installs the latest Quilt loader).
@@ -148,6 +164,9 @@ direct calls get 403.
   before moving worlds; a server started again during the switch is stopped again before they move back).
 - A node pull that times out is checked and retried, at most 3 attempts per file; a very slow CDN
   download can therefore fail the install (retry it later).
+- Moves never replace anything because the panel checks the target is free right before each one;
+  that Wings' own rename refuses to replace an existing target is not verified, so a file appearing
+  in that instant (e.g. a server started by hand) could be overwritten by the node.
 - Any `server.properties` line ending in a single backslash is read as a line continuation and stops
   the install (fail closed), even when it isn't next to `level-name`.
 

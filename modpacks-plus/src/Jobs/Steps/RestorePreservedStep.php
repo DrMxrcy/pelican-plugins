@@ -45,7 +45,7 @@ class RestorePreservedStep extends InstallStep
         $files = $this->files();
         $done = $install->progressValue('preserved_back', []);
 
-        foreach ($install->preservedEntries() as $entry) {
+        foreach ($service->reconcile($files, $server, $root, $install->preservedEntries()) as $entry) {
             if (in_array($entry, $done, true)) {
                 continue;
             }

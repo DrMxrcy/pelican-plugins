@@ -59,6 +59,28 @@ final class PreservedFiles
     }
 
     /**
+     * The recorded entries plus anything else at the top of the preserved folder (the
+     * database and the disk reconciled, so nothing set aside is ever left behind). A
+     * top-level name that is the first folder of a recorded nested entry is not added.
+     *
+     * @param  array<int, string>  $entries
+     * @return array<int, string>
+     */
+    public function reconcile(ServerFiles $files, Server $server, string $root, array $entries): array
+    {
+        $prefixes = array_map(fn (string $entry) => explode('/', $entry)[0], $entries);
+
+        foreach (array_keys($files->list($server, $root) ?? []) as $name) {
+            $name = (string) $name;
+            if (!in_array($name, $prefixes, true) && PlanValidator::isSafeRelativePath($name)) {
+                $entries[] = $name;
+            }
+        }
+
+        return $entries;
+    }
+
+    /**
      * Moves $entry (relative to the root) to $root/$entry.
      *
      * @return string moved | already (only in $root, a retry) | absent (nowhere)

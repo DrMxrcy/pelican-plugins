@@ -80,7 +80,11 @@ final class InstallProgress
         return self::reason($install->error, (string) $install->progressValue('error_detail', ''));
     }
 
-    public static function summary(PackInstall $install): HtmlString
+    /**
+     * @param  bool  $showSetup  whether the viewer may read the startup settings (startup.read):
+     *                           only then are the startup command, images and variable values shown
+     */
+    public static function summary(PackInstall $install, bool $showSetup = false): HtmlString
     {
         $summary = $install->summary ?? [];
         $lines = [];
@@ -125,7 +129,7 @@ final class InstallProgress
 
         $switch = $summary['loader_switch'] ?? null;
         if (is_array($switch)) {
-            $lines = array_merge($lines, self::switchLines($switch, $install));
+            $lines = array_merge($lines, self::switchLines($switch, $install, $showSetup));
         }
 
         return new HtmlString('<ul>'.implode('', array_map(fn (string $line) => '<li>'.e($line).'</li>', $lines)).'</ul>');
@@ -173,28 +177,41 @@ final class InstallProgress
      * @param  array<string, mixed>  $switch
      * @return array<int, string>
      */
-    private static function switchLines(array $switch, PackInstall $install): array
+    private static function switchLines(array $switch, PackInstall $install, bool $showSetup): array
     {
         $lines = [];
         $previous = is_array($switch['previous'] ?? null) ? $switch['previous'] : null;
 
         if (!empty($switch['egg_changed'])) {
-            $lines[] = trans('modpacks-plus::strings.summary.switched', ['from' => (string) ($previous['egg_name'] ?? '?'), 'to' => (string) ($switch['egg_name'] ?? '?'), 'image' => (string) ($switch['image'] ?? '')]);
+            $lines[] = $showSetup
+                ? trans('modpacks-plus::strings.summary.switched', ['from' => (string) ($previous['egg_name'] ?? '?'), 'to' => (string) ($switch['egg_name'] ?? '?'), 'image' => (string) ($switch['image'] ?? '')])
+                : trans('modpacks-plus::strings.summary.switched_hidden', ['from' => (string) ($previous['egg_name'] ?? '?'), 'to' => (string) ($switch['egg_name'] ?? '?')]);
         } elseif (is_string($switch['egg_name'] ?? null)) {
             $lines[] = trans('modpacks-plus::strings.summary.not_switched', ['egg' => (string) ($previous['egg_name'] ?? '?')]);
         }
 
         if ($previous !== null) {
+            // Values only with startup.read, and never for variables users can't see (those
+            // aren't recorded); names otherwise.
             $variables = [];
             foreach (is_array($previous['variables'] ?? null) ? $previous['variables'] : [] as $name => $value) {
-                $variables[] = $name.'='.(is_scalar($value) ? (string) $value : '');
+                $variables[] = $showSetup ? $name.'='.(is_scalar($value) ? (string) $value : '') : (string) $name;
             }
-            $lines[] = trans('modpacks-plus::strings.summary.previous', [
-                'egg' => (string) ($previous['egg_name'] ?? '?'),
-                'image' => (string) ($previous['image'] ?? ''),
-                'startup' => (string) ($previous['startup'] ?? ''),
-                'variables' => implode(', ', $variables),
-            ]);
+            foreach (is_array($previous['hidden_variables'] ?? null) ? $previous['hidden_variables'] : [] as $name) {
+                $variables[] = (string) $name;
+            }
+
+            $lines[] = $showSetup
+                ? trans('modpacks-plus::strings.summary.previous', [
+                    'egg' => (string) ($previous['egg_name'] ?? '?'),
+                    'image' => (string) ($previous['image'] ?? ''),
+                    'startup' => (string) ($previous['startup'] ?? ''),
+                    'variables' => implode(', ', $variables),
+                ])
+                : trans('modpacks-plus::strings.summary.previous_hidden', [
+                    'egg' => (string) ($previous['egg_name'] ?? '?'),
+                    'variables' => implode(', ', $variables),
+                ]);
         }
 
         $preserved = is_array($switch['preserved'] ?? null) ? array_map('strval', $switch['preserved']) : [];

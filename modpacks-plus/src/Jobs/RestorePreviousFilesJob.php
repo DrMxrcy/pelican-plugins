@@ -16,6 +16,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
 
@@ -42,6 +43,13 @@ class RestorePreviousFilesJob implements ShouldQueue
 
     public const WAIT_SECONDS = 15;
 
+    /**
+     * A reinstall was requested but the node never reported it finished: until this long
+     * after the last request, its install script may still be running (or start late), so
+     * no file is moved. The panel's `installing` status blocks on its own (filesBlocked).
+     */
+    public const REINSTALL_QUIET_MINUTES = 30;
+
     public int $tries = 3;
 
     public int $timeout = 120;
@@ -60,6 +68,26 @@ class RestorePreviousFilesJob implements ShouldQueue
             || $server->status === ServerState::Installing
             || $server->status === ServerState::RestoringBackup
             || $server->transfer !== null;
+    }
+
+    /**
+     * Whether an install script may still be running for this install's reinstall request:
+     * requested, no install callback since (`installed_at`), and the last request is recent.
+     * Wings doesn't report a running install script to the panel, so this errs on waiting.
+     */
+    public static function reinstallMayBeRunning(PackInstall $install, Server $server): bool
+    {
+        $requested = $install->progressValue('reinstall_requested_at');
+        if (!is_string($requested)) {
+            return false;
+        }
+
+        $requestedAt = Carbon::parse($requested);
+        if ($server->installed_at !== null && $server->installed_at->gte($requestedAt->copy()->subSeconds(5))) {
+            return false;
+        }
+
+        return $requestedAt->gt(now()->subMinutes(self::REINSTALL_QUIET_MINUTES));
     }
 
     public function handle(): void
@@ -102,6 +130,12 @@ class RestorePreviousFilesJob implements ShouldQueue
 
         if (PackInstall::query()->where('server_id', $server->id)->active()->exists()) {
             $this->stop($install, 'restore_failed', 'already_running');
+
+            return;
+        }
+
+        if (self::reinstallMayBeRunning($install, $server)) {
+            $this->stop($install, 'restore_failed', 'reinstall_pending');
 
             return;
         }
@@ -152,8 +186,9 @@ class RestorePreviousFilesJob implements ShouldQueue
 
         /** @var array<int, array{string, string, string}> $todo [key, root, entry] */
         $todo = [];
-        if (!$install->progressValue('preserved_restored')) {
-            foreach ($install->preservedEntries() as $entry) {
+        if ($install->preserved_path !== null && !$install->progressValue('preserved_restored')) {
+            // The record plus whatever else is in the preserved folder (nothing set aside is left behind).
+            foreach ($service->reconcile($files, $server, $install->preserved_path, $install->preservedEntries()) as $entry) {
                 $todo[] = ['p:'.$entry, (string) $install->preserved_path, $entry];
             }
         }

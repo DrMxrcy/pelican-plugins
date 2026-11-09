@@ -150,9 +150,35 @@ class PackInstall extends Model
             return false;
         }
 
-        $preservedAside = $this->preservedEntries() !== [] && !$this->progressValue('preserved_restored', false);
+        $preservedAside = $this->preserved_path !== null && !$this->progressValue('preserved_restored', false);
 
         return $preservedAside || ($this->moved_aside_path !== null && $this->movedFolders() !== []);
+    }
+
+    /** Whether worlds or player files of this ended install are still set aside. */
+    public function hasPreservedPending(): bool
+    {
+        return !$this->isActive()
+            && $this->preserved_path !== null
+            && $this->restored_at === null
+            && !$this->progressValue('preserved_restored', false);
+    }
+
+    /**
+     * The install "Restore previous files" works on for a server: the newest one whose
+     * worlds or player files are still set aside, else the latest install when restorable.
+     */
+    public static function restoreCandidate(int $serverId): ?self
+    {
+        $pending = self::query()->where('server_id', $serverId)->whereNotNull('preserved_path')->whereNull('restored_at')
+            ->orderByDesc('id')->get()->first(fn (self $install) => $install->hasPreservedPending());
+        if ($pending !== null) {
+            return $pending;
+        }
+
+        $latest = self::query()->where('server_id', $serverId)->latest('id')->first();
+
+        return $latest?->isRestorable() ? $latest : null;
     }
 
     /** @return array<int, string> worlds and player files moved into preserved_path */

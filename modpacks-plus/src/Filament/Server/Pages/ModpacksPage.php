@@ -2,10 +2,10 @@
 
 namespace DrMxrcy\ModpacksPlus\Filament\Server\Pages;
 
+use App\Enums\ServerState;
 use App\Enums\SubuserPermission;
 use App\Models\Egg;
 use App\Models\Server;
-use App\Traits\Filament\BlockAccessInConflict;
 use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
@@ -58,7 +58,6 @@ use Illuminate\Support\Str;
  */
 class ModpacksPage extends Page implements HasTable
 {
-    use BlockAccessInConflict;
     use InteractsWithTable;
 
     protected static string|\BackedEnum|null $navigationIcon = 'tabler-box-multiple';
@@ -81,6 +80,11 @@ class ModpacksPage extends Page implements HasTable
 
     private bool $latestInstallLoaded = false;
 
+    /**
+     * Deliberately reachable while the server is in a conflict state (installing, a failed
+     * (re)install, …): that is when the install progress and "Restore previous files" are
+     * needed. Every step and the restore job check the server's state themselves.
+     */
     public static function canAccess(): bool
     {
         $server = Filament::getTenant();
@@ -383,11 +387,18 @@ class ModpacksPage extends Page implements HasTable
         $sameEgg = $server->egg_id === $egg->id;
         $versionVariables = EggVariableMap::requiredVariables($target['loader']);
 
+        // The startup command and image are only shown to those who may read the startup settings.
+        $showSetup = static::userCan(SubuserPermission::StartupRead);
+
         $resets = [];
         if (!$sameEgg) {
-            $resets[] = trans('modpacks-plus::strings.install.reset_startup', ['from' => (string) $server->startup, 'to' => (string) Arr::first($egg->startup_commands ?? [])]);
+            $resets[] = $showSetup
+                ? trans('modpacks-plus::strings.install.reset_startup', ['from' => (string) $server->startup, 'to' => (string) Arr::first($egg->startup_commands ?? [])])
+                : trans('modpacks-plus::strings.install.reset_startup_hidden');
         }
-        $resets[] = trans('modpacks-plus::strings.install.reset_image', ['from' => (string) $server->image, 'to' => $image['image']]);
+        $resets[] = $showSetup
+            ? trans('modpacks-plus::strings.install.reset_image', ['from' => (string) $server->image, 'to' => $image['image']])
+            : trans('modpacks-plus::strings.install.reset_image_hidden');
         $resets[] = trans('modpacks-plus::strings.install.reset_versions', ['variables' => implode(', ', $versionVariables)]);
 
         if (!$sameEgg) {
@@ -454,9 +465,21 @@ class ModpacksPage extends Page implements HasTable
     {
         abort_unless(static::canAccess() && static::canInstall(), 403);
 
-        $install = PackInstall::query()->where('server_id', $this->server()->id)->latest('id')->first();
-        if ($install === null || !$install->isRestorable() || $install->isRestoring()) {
+        $server = $this->server();
+        $install = PackInstall::restoreCandidate($server->id);
+        if ($install === null || $install->isRestoring()) {
             Notification::make()->title(trans('modpacks-plus::strings.restore.nothing'))->warning()->send();
+
+            return;
+        }
+
+        // Never while an install script may still be running on the node.
+        if ($server->status === ServerState::Installing || RestorePreviousFilesJob::reinstallMayBeRunning($install, $server)) {
+            Notification::make()
+                ->title(trans('modpacks-plus::strings.restore.pending'))
+                ->body(trans('modpacks-plus::strings.restore.pending_body', ['minutes' => RestorePreviousFilesJob::REINSTALL_QUIET_MINUTES]))
+                ->warning()
+                ->send();
 
             return;
         }
@@ -747,7 +770,7 @@ class ModpacksPage extends Page implements HasTable
                         ->icon('tabler-restore')
                         ->color('warning')
                         ->authorize(fn () => static::canInstall())
-                        ->visible(fn () => static::canInstall() && $this->latestInstall()?->isRestorable() && !$this->latestInstall()->isRestoring())
+                        ->visible(fn () => static::canInstall() && ($candidate = PackInstall::restoreCandidate($server->id)) !== null && !$candidate->isRestoring())
                         ->requiresConfirmation()
                         ->modalHeading(trans('modpacks-plus::strings.restore.heading'))
                         ->modalDescription(trans('modpacks-plus::strings.restore.body'))
@@ -761,7 +784,7 @@ class ModpacksPage extends Page implements HasTable
                         ->visible(fn () => $this->latestInstall()?->error !== null),
                     Grid::make(2)->schema([
                         Html::make(fn () => ($install = $this->latestInstall()) ? InstallProgress::steps($install) : null),
-                        Html::make(fn () => ($install = $this->latestInstall()) && !$install->isActive() ? InstallProgress::summary($install) : null),
+                        Html::make(fn () => ($install = $this->latestInstall()) && !$install->isActive() ? InstallProgress::summary($install, static::userCan(SubuserPermission::StartupRead)) : null),
                     ]),
                     Html::make(fn () => ($install = $this->latestInstall()) ? InstallProgress::log($install, user()->timezone ?? 'UTC') : null),
                 ]),

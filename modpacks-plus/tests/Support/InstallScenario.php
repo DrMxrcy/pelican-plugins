@@ -80,7 +80,7 @@ trait InstallScenario
         $egg->forceFill(['tags' => $tags])->save();
         $server->forceFill(['egg_id' => $egg->id])->save();
 
-        $variable = EggVariable::factory()->create(['egg_id' => $egg->id, 'env_variable' => 'MINECRAFT_VERSION', 'default_value' => 'latest']);
+        $variable = EggVariable::factory()->create(['egg_id' => $egg->id, 'env_variable' => 'MINECRAFT_VERSION', 'default_value' => 'latest', 'user_viewable' => true]);
         ServerVariable::query()->create(['server_id' => $server->id, 'variable_id' => $variable->getKey(), 'variable_value' => $minecraft]);
 
         return [$user, $server->fresh()];

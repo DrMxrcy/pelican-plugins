@@ -10,7 +10,6 @@ use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Services\JavaImagePicker;
 use DrMxrcy\ModpacksPlus\Services\LoaderEggResolver;
 use DrMxrcy\ModpacksPlus\Support\EggVariableMap;
-use DrMxrcy\ModpacksPlus\Support\ServerTarget;
 
 /**
  * Loader switch, before anything changes: records the server's egg, startup, image,
@@ -43,21 +42,26 @@ class SnapshotStep extends InstallStep
         if ($egg === null) {
             throw new StepFailedException('egg_missing', LoaderEggResolver::loaderName($loader));
         }
-        if (ServerTarget::eggLoader($egg) !== $loader || EggVariableMap::loaderFor($egg->uuid, $egg->update_url) !== $loader) {
-            throw new StepFailedException('egg_unknown', $egg->name);
-        }
-
         $variables = EggVariableMap::variables($loader, $plan->minecraftVersion, $plan->loaderVersion);
-        ChangeEggStep::checkVariables($egg, $variables);
         $image = (new JavaImagePicker())->pick($egg->docker_images ?? [], $plan->minecraftVersion);
 
         $server->refresh();
         $server->loadMissing(['egg', 'mounts']);
 
-        // The values the server runs with: its own, else the egg's default.
+        // Refused here, before the backup or any file change, if the switch can't be done cleanly.
+        ChangeEggStep::checkTarget($server, $egg, $loader, $image['image'], $variables);
+
+        // The values the server runs with: its own, else the egg's default. Variables users
+        // can't see (passwords, keys) are recorded by name only: the record is shown to
+        // everyone who can open the page.
         $previous = [];
+        $hidden = [];
         foreach ($server->variables()->get() as $variable) {
-            $previous[$variable->env_variable] = (string) ($variable->server_value ?? $variable->default_value);
+            if ($variable->user_viewable) {
+                $previous[$variable->env_variable] = (string) ($variable->server_value ?? $variable->default_value);
+            } else {
+                $hidden[] = $variable->env_variable;
+            }
         }
 
         $install->snapshot = [
@@ -67,6 +71,7 @@ class SnapshotStep extends InstallStep
             'startup' => $server->startup,
             'image' => $server->image,
             'variables' => $previous,
+            'hidden_variables' => $hidden,
             'mounts' => $server->mounts->map(fn ($mount) => ['id' => $mount->id, 'name' => $mount->name])->values()->all(),
         ];
 
@@ -79,7 +84,7 @@ class SnapshotStep extends InstallStep
             'java' => $image['java'],
         ]);
 
-        $install->addLog('info', 'snapshot_taken', ['egg' => $server->egg->name, 'image' => (string) $server->image]);
+        $install->addLog('info', 'snapshot_taken', ['egg' => $server->egg->name]);
         if (!EggVariableMap::pinsLoaderVersion($loader)) {
             $install->addLog('warning', 'loader_version_unpinned', ['loader' => LoaderEggResolver::loaderName($loader), 'version' => (string) $plan->loaderVersion]);
         }

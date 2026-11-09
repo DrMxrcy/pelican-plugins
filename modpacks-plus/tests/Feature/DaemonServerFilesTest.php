@@ -181,6 +181,10 @@ class DaemonServerFilesTest extends TestCase
             'top level of the own folder' => ['world', '.modpacks-plus/world'],
             'own subfolder out' => ['.modpacks-plus/staging', 'staging'],
             'over the own folder' => ['.modpacks-plus/preserved-x/world', '.modpacks-plus'],
+            'staging' => ['world', '.modpacks-plus/staging/1/world'],
+            'out of staging' => ['.modpacks-plus/staging/1/mods', 'mods'],
+            'unknown own subfolder' => ['world', '.modpacks-plus/other-x/world'],
+            'bare prefix' => ['world', '.modpacks-plus/preserved-/world'],
         ];
     }
 
@@ -205,6 +209,8 @@ class DaemonServerFilesTest extends TestCase
     {
         $this->files()->movePreserved($this->server, 'world', '.modpacks-plus/preserved-x/world');
         $this->files()->movePreserved($this->server, '.modpacks-plus/preserved-x/ops.json', 'ops.json');
+        $this->files()->movePreserved($this->server, 'mods', '.modpacks-plus/replaced-x/mods');
+        $this->files()->movePreserved($this->server, '.modpacks-plus/previous-x/mods', 'mods');
 
         Http::assertSent(fn (Request $request) => str_contains($request->url(), '/files/rename')
             && $request['files'] === [['from' => 'world', 'to' => '.modpacks-plus/preserved-x/world']]);

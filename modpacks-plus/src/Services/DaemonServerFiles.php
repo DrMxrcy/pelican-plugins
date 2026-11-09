@@ -164,9 +164,12 @@ class DaemonServerFiles implements ServerFiles
         $this->repository($server)->renameFiles('/', [['from' => $from, 'to' => $to]])->throw();
     }
 
+    /** Own subfolders a preserved move may use (never staging/). */
+    public const PRESERVED_MOVE_PREFIXES = ['preserved-', 'replaced-', 'previous-'];
+
     /**
-     * A move between the root and `.modpacks-plus/<folder>/…`: both paths safe, exactly one
-     * of them inside a subfolder of the own folder, the other not the own folder itself.
+     * A move between the root and `.modpacks-plus/{preserved,replaced,previous}-…/…`: both
+     * paths safe, exactly one of them inside such a folder, the other not the own folder.
      *
      * @throws UnsafePlanException
      */
@@ -175,7 +178,19 @@ class DaemonServerFiles implements ServerFiles
         self::guard($from);
         self::guard($to);
 
-        $inside = fn (string $path) => str_starts_with($path, PlanValidator::OWN_FOLDER.'/') && substr_count($path, '/') >= 2;
+        $inside = function (string $path): bool {
+            $segments = explode('/', $path);
+            if (count($segments) < 3 || $segments[0] !== PlanValidator::OWN_FOLDER) {
+                return false;
+            }
+            foreach (self::PRESERVED_MOVE_PREFIXES as $prefix) {
+                if (str_starts_with($segments[1], $prefix) && strlen($segments[1]) > strlen($prefix)) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
         $touchesOwn = fn (string $path) => $path === PlanValidator::OWN_FOLDER || str_starts_with($path, PlanValidator::OWN_FOLDER.'/');
 
         $fromInside = $inside($from);

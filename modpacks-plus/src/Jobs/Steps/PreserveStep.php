@@ -11,7 +11,7 @@ use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 /**
  * Loader switch: stops the server, then moves the worlds, player lists,
  * server.properties and eula.txt into `.modpacks-plus/preserved-<date>-<id>/` so the
- * reinstall's script cannot touch them. Each move is recorded right away (progress.preserved),
+ * reinstall's script cannot touch them. Each entry is recorded before it moves (progress.preserved),
  * which is what RestorePreservedStep and "Restore previous files" put back. Idempotent:
  * an entry already moved is only in the preserved folder.
  */
@@ -53,9 +53,17 @@ class PreserveStep extends InstallStep
                 return StepResult::again();
             }
 
-            $result = $service->preserve($files, $server, $root, $entry);
-            if ($result !== PreservedFiles::RESULT_ABSENT && !in_array($entry, $preserved, true)) {
+            // Recorded before the move: a crash right after it can never leave a moved
+            // entry unknown to the restore (an entry that turns out absent is dropped below).
+            if (!in_array($entry, $preserved, true)) {
                 $preserved[] = $entry;
+                $install->setProgress('preserved', $preserved);
+                $engine->persist($install);
+            }
+
+            $result = $service->preserve($files, $server, $root, $entry);
+            if ($result === PreservedFiles::RESULT_ABSENT) {
+                $preserved = array_values(array_diff($preserved, [$entry]));
             }
             if ($result === PreservedFiles::RESULT_MOVED) {
                 $install->addLog('info', 'preserved', ['path' => $entry, 'to' => "$root/$entry"]);

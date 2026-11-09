@@ -2,6 +2,7 @@
 
 namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 
+use App\Enums\ServerState;
 use App\Enums\SubuserPermission;
 use App\Models\Egg;
 use App\Models\Mount;
@@ -435,7 +436,8 @@ class ModpacksPageTest extends TestCase
     {
         $server = $this->actingOn();
         $install = $this->failedSwitch($server);
-        $install->forceFill(['status' => PackInstall::STATUS_INSTALLED, 'error' => null])->save();
+        // A switch that installed has put its files back.
+        $install->forceFill(['status' => PackInstall::STATUS_INSTALLED, 'error' => null, 'progress' => array_merge($install->progress ?? [], ['preserved_restored' => true])])->save();
 
         Livewire::test(ModpacksPage::class)
             ->assertDontSee(trans('modpacks-plus::strings.actions.restore'))
@@ -651,5 +653,108 @@ class ModpacksPageTest extends TestCase
         $this->assertStringContainsString('Neo&lt;b&gt;Forge&lt;/b&gt;', $html);
         $this->assertStringNotContainsString('<b>Forge</b>', $html);
         $this->assertStringNotContainsString('<fabric>', $html);
+    }
+
+    /** A failed switch whose record holds a startup command, an image and variable values. */
+    private function failedSwitchWithSetup(Server $server): PackInstall
+    {
+        $install = $this->runningInstall($server);
+        $install->forceFill([
+            'loader_switch' => ['loader' => 'neoforge', 'minecraft' => '1.21.1', 'egg_id' => 1, 'egg_name' => 'NeoForge', 'image' => 'ghcr.io/pelican-eggs/yolks:java_21'],
+            'snapshot' => [
+                'egg_id' => $server->egg_id, 'egg_uuid' => 'x', 'egg_name' => 'Old Fabric',
+                'startup' => 'java -Dsecret-startup-flag -jar server.jar',
+                'image' => 'ghcr.io/private/registry:fabric',
+                'variables' => ['MINECRAFT_VERSION' => 'viewable-value-1.20.1'],
+                'hidden_variables' => ['RCON_PASSWORD'],
+                'mounts' => [],
+            ],
+            'preserved_path' => '.modpacks-plus/preserved-x-'.$install->id,
+            'progress' => ['preserved' => ['world'], 'worlds' => ['world'], 'egg_changed' => true],
+        ])->save();
+        app(InstallEngine::class)->fail($install, 'step_timeout', 'await_reinstall');
+
+        return $install->refresh();
+    }
+
+    public function test_file_read_viewer_never_sees_the_previous_startup_image_or_variable_values(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead]);
+        $this->failedSwitchWithSetup($server);
+
+        Livewire::test(ModpacksPage::class)
+            ->assertOk()
+            ->assertSee('Old Fabric')
+            ->assertSee('MINECRAFT_VERSION')
+            ->assertSee('RCON_PASSWORD')
+            ->assertDontSee('secret-startup-flag')
+            ->assertDontSee('ghcr.io/private/registry:fabric')
+            ->assertDontSee('ghcr.io/pelican-eggs/yolks:java_21')
+            ->assertDontSee('viewable-value-1.20.1');
+    }
+
+    public function test_startup_read_viewer_sees_the_previous_setup_but_no_hidden_value(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, SubuserPermission::StartupRead]);
+        $this->failedSwitchWithSetup($server);
+
+        Livewire::test(ModpacksPage::class)
+            ->assertSee('secret-startup-flag')
+            ->assertSee('ghcr.io/private/registry:fabric')
+            ->assertSee('MINECRAFT_VERSION=viewable-value-1.20.1')
+            ->assertSee('RCON_PASSWORD')
+            ->assertDontSee('RCON_PASSWORD=');
+    }
+
+    public function test_switch_confirm_hides_startup_and_image_without_startup_read(): void
+    {
+        config()->set('modpacks-plus.allow_user_loader_switch', true);
+        $server = $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $this->importNeoForgeEgg();
+        $server->forceFill(['startup' => 'java -Dsecret-startup-flag -jar x.jar', 'image' => 'ghcr.io/private/registry:fabric'])->save();
+        Filament::setTenant($server->fresh());
+
+        /** @var ModpacksPage $page */
+        $page = Livewire::test(ModpacksPage::class)->instance();
+        $html = (string) (new \ReflectionMethod($page, 'switchDescription'))->invoke($page, ['loader' => 'neoforge', 'minecraft' => '1.21.1']);
+
+        $this->assertStringNotContainsString('secret-startup-flag', $html);
+        $this->assertStringNotContainsString('ghcr.io/private/registry', $html);
+        $this->assertStringNotContainsString('java @unix_args.txt', $html);
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.install.reset_startup_hidden')), $html);
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.install.reset_image_hidden')), $html);
+    }
+
+    public function test_page_and_restore_stay_reachable_after_a_failed_reinstall(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $install = $this->failedSwitch($server);
+        Server::query()->whereKey($server->id)->update(['status' => ServerState::ReinstallFailed->value, 'installed_at' => now()]);
+        Filament::setTenant($server->fresh());
+
+        $this->assertTrue($server->fresh()?->isInConflictState());
+        $this->assertTrue(ModpacksPage::canAccess());
+        Livewire::test(ModpacksPage::class)
+            ->assertOk()
+            ->assertSee(trans('modpacks-plus::strings.actions.restore'))
+            ->call('restorePreviousFiles')
+            ->assertNotified(trans('modpacks-plus::strings.restore.started'));
+
+        Queue::assertPushed(RestorePreviousFilesJob::class, fn (RestorePreviousFilesJob $job) => $job->installId === $install->id);
+    }
+
+    public function test_restore_is_refused_while_a_reinstall_may_still_run(): void
+    {
+        $server = $this->actingOn([SubuserPermission::FileRead, ...self::INSTALL_PERMISSIONS]);
+        $install = $this->failedSwitch($server);
+        $install->setProgress('reinstall_requested_at', now()->subMinutes(2)->toIso8601String());
+        $install->save();
+
+        Livewire::test(ModpacksPage::class)
+            ->call('restorePreviousFiles')
+            ->assertNotified(trans('modpacks-plus::strings.restore.pending'));
+
+        Queue::assertNotPushed(RestorePreviousFilesJob::class);
+        $this->assertNull($install->refresh()->restore_requested_at);
     }
 }

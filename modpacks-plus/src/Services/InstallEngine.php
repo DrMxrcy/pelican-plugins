@@ -131,8 +131,16 @@ class InstallEngine
             }
 
             // "Restore previous files" is moving files: never run a second set of moves next to it.
-            if (PackInstall::query()->where('server_id', $server->id)->latest('id')->first()?->isRestoring()) {
+            if (PackInstall::query()->where('server_id', $server->id)->whereNotNull('restore_requested_at')->get()->contains(fn (PackInstall $install) => $install->isRestoring())) {
                 throw new InstallRefusedException('restore_running');
+            }
+
+            // Worlds or player files of an earlier switch are still set aside: restore them
+            // first, or a new install would bury them under a newer record.
+            $pending = PackInstall::query()->where('server_id', $server->id)->whereNotNull('preserved_path')->whereNull('restored_at')
+                ->get()->first(fn (PackInstall $install) => $install->hasPreservedPending());
+            if ($pending !== null) {
+                throw new InstallRefusedException('preserved_pending', (string) $pending->preserved_path);
             }
 
             $order = $loaderSwitch !== null ? self::SWITCH_ORDER : array_keys(self::STEPS);
