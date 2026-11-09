@@ -10,6 +10,7 @@ use DrMxrcy\PlayersPlus\Models\PlayerSession;
 use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\Services\PlayerIdentity;
 use DrMxrcy\PlayersPlus\Services\SessionTracker;
+use DrMxrcy\PlayersPlus\Tests\Fixtures\FakeDaemonFiles;
 use DrMxrcy\PlayersPlus\Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -34,29 +35,32 @@ class PlayerIdentityTest extends TestCase
     /** usercache.json content; null = 404 */
     private ?string $usercache = null;
 
+    /** Size the directory listing reports for usercache.json; null = its real size. */
+    private ?int $usercacheSize = null;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         Http::fake(function (Request $request) {
-            if (str_contains($request->url(), '/files/contents') && str_contains(urldecode($request->url()), 'usercache.json')) {
-                return $this->usercache === null ? Http::response('', 404) : Http::response($this->usercache);
-            }
+            $files = $this->usercache === null ? [] : ['usercache.json' => $this->usercache];
+            $sizes = $this->usercacheSize === null ? [] : ['usercache.json' => $this->usercacheSize];
 
-            return Http::response('unexpected', 500);
+            return FakeDaemonFiles::respond($request, $files, $sizes) ?? Http::response('unexpected', 500);
         });
         $this->server = $this->createServerModel();
         Carbon::setTestNow(Carbon::createFromTimestamp(self::T0));
     }
 
-    private function resolve(string $name, ?string $uuid, int $minutes = 0): Player
+    /** @param  array<string, string>|null  $usercache */
+    private function resolve(string $name, ?string $uuid, int $minutes = 0, ?array $usercache = null): Player
     {
-        return $this->app->make(PlayerIdentity::class)->resolve($this->server, $name, $uuid, Carbon::createFromTimestamp(self::T0 + $minutes * 60));
+        return $this->app->make(PlayerIdentity::class)->resolve($this->server, $name, $uuid, Carbon::createFromTimestamp(self::T0 + $minutes * 60), $usercache);
     }
 
     private function usercacheReads(): int
     {
-        return Http::recorded(fn (Request $request) => str_contains(urldecode($request->url()), 'usercache.json'))->count();
+        return FakeDaemonFiles::contentReads('usercache.json');
     }
 
     /** @param  list<array<string, mixed>>  $players */
@@ -81,6 +85,7 @@ class PlayerIdentityTest extends TestCase
         $this->assertSame(self::A, $player->uuid);
         $this->assertSame('jeb_', $player->name);
         $this->assertSame(0, $this->usercacheReads());
+        $this->assertSame(0, FakeDaemonFiles::listings());
         $this->assertSame($player->id, $this->resolve('jeb_', self::A, 2)->id);
         $this->assertSame(1, Player::query()->count());
     }
@@ -199,5 +204,59 @@ class PlayerIdentityTest extends TestCase
         $theirs = $this->app->make(PlayerIdentity::class)->resolve($other, 'jeb_', self::A, now());
 
         $this->assertNotSame($mine->id, $theirs->id);
+    }
+
+    public function test_duplicate_usercache_names_resolve_to_the_newest_entry(): void
+    {
+        $old = '11111111-1111-4111-8111-111111111111';
+        $new = '22222222-2222-4222-8222-222222222222';
+        // Vanilla writes the most recently used entry first; a renamed-away holder lingers after it.
+        $this->usercache = (string) json_encode([
+            ['name' => 'Foo', 'uuid' => $new, 'expiresOn' => '2026-12-01 10:00:00 +0000'],
+            ['name' => 'foo', 'uuid' => $old, 'expiresOn' => '2026-01-01 10:00:00 +0000'],
+        ]);
+        $this->assertSame(['foo' => $new], PlayerIdentity::parseUsercache($this->usercache));
+
+        // Order does not matter when expiresOn is there...
+        $this->assertSame(['foo' => $new], PlayerIdentity::parseUsercache((string) json_encode([
+            ['name' => 'foo', 'uuid' => $old, 'expiresOn' => '2026-01-01 10:00:00 +0000'],
+            ['name' => 'Foo', 'uuid' => $new, 'expiresOn' => '2026-12-01 10:00:00 +0000'],
+        ])));
+        // ...and without it the first (most recent) entry wins.
+        $this->assertSame(['foo' => $new], PlayerIdentity::parseUsercache((string) json_encode([
+            ['name' => 'Foo', 'uuid' => $new],
+            ['name' => 'Foo', 'uuid' => $old, 'expiresOn' => 'garbage'],
+        ])));
+
+        $this->assertSame($new, $this->resolve('Foo', null)->uuid);
+    }
+
+    public function test_oversized_usercache_is_never_downloaded_and_the_refusal_is_cached(): void
+    {
+        $this->usercache = (string) json_encode([['name' => 'Foo', 'uuid' => self::A]]);
+        $this->usercacheSize = 50_000_000;
+
+        $this->assertNull($this->resolve('Foo', null)->uuid);
+        $this->assertNull($this->resolve('Bar', null)->uuid);
+
+        $this->assertSame(0, $this->usercacheReads(), 'the body must not be fetched');
+        $this->assertSame(1, FakeDaemonFiles::listings(), 'the refusal is cached');
+    }
+
+    public function test_a_given_usercache_map_is_used_without_any_daemon_call(): void
+    {
+        $player = $this->resolve('Foo', null, usercache: ['foo' => self::A]);
+
+        $this->assertSame(self::A, $player->uuid);
+        Http::assertNothingSent();
+    }
+
+    public function test_a_shared_name_resolves_to_the_most_recently_seen_record(): void
+    {
+        $older = $this->resolve('Foo', '11111111-1111-4111-8111-111111111111', 0);
+        $newer = $this->resolve('Foo', '22222222-2222-4222-8222-222222222222', 10);
+
+        $this->assertSame($newer->id, $this->resolve('Foo', null, 20, usercache: [])->id);
+        $this->assertNotSame($older->id, $newer->id);
     }
 }

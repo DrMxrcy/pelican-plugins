@@ -82,7 +82,10 @@ class PollServerJob implements ShouldBeUnique, ShouldQueue
             $tracker->track($server, $sample);
         } catch (Throwable $exception) {
             // The sample is stored; a tracking bug must not hide it. The next poll catches up.
-            report($exception);
+            // Reported at most once per server per hour, like unreachable servers.
+            if (Cache::add("players-plus.tracker-failure-logged.$server->id", true, 3600)) {
+                report($exception);
+            }
         }
     }
 

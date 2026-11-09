@@ -58,13 +58,16 @@ class Player extends Model
         return $this->sessions()->whereNull('ended_at')->orderBy('started_at')->first();
     }
 
-    /** Closed sessions plus the open one, counted up to $now. */
-    public function playtime(?Carbon $now = null): int
+    /**
+     * Closed sessions plus the open one, counted up to $openUntil: now while polling is live,
+     * else the player's last sighting (see PlayerList::isLive()).
+     */
+    public function playtime(Carbon $openUntil): int
     {
-        return $this->total_seconds + ($this->openSession()?->seconds($now) ?? 0);
+        return $this->total_seconds + ($this->openSession()?->seconds($openUntil) ?? 0);
     }
 
-    /** Seconds online between $since and $now, from the sessions overlapping that window. */
+    /** Seconds online between $since and $now, from the sessions overlapping that window; open sessions count up to $now. */
     public function playtimeSince(Carbon $since, ?Carbon $now = null): int
     {
         $now ??= now();

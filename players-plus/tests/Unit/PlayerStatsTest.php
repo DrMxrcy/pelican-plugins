@@ -31,21 +31,22 @@ class PlayerStatsTest extends TestCase
 
     public function test_missing_keys_and_junk_values_are_null_not_errors(): void
     {
-        $stats = PlayerStats::parse('{"stats":{"minecraft:custom":{"minecraft:deaths":-5,"minecraft:jump":"9","minecraft:mob_kills":1e400,"minecraft:player_kills":99999999999999999999999}}}');
+        $stats = PlayerStats::parse('{"stats":{"minecraft:custom":{"minecraft:deaths":-5,"minecraft:jump":"9","minecraft:mob_kills":1e400,"minecraft:player_kills":99999999999999999999999,"minecraft:walk_one_cm":250}}}');
 
         $this->assertSame([
             'play_time' => null,
             'deaths' => null,
             'mob_kills' => null,
             'player_kills' => null,
-            'distance_walked' => null,
+            'distance_walked' => 250,
             'jumps' => null,
         ], $stats);
     }
 
     public function test_unparseable_files_have_no_stats(): void
     {
-        foreach (['', 'nope', '[]', '"x"', '{"stats":"x"}', '{"stats":{"minecraft:custom":[1,2]}}'] as $content) {
+        // A file without a single known stat is "no stats yet", not six dashes.
+        foreach (['', 'nope', '[]', '"x"', '{"stats":"x"}', '{"stats":{"minecraft:custom":[1,2]}}', '{"stats":{}}', '{"stats":{"minecraft:custom":{"mod:x":1}}}', '{"DataVersion":1}', '{"stats":{"minecraft:custom":{"minecraft:deaths":-1}}}'] as $content) {
             $this->assertNull(PlayerStats::parse($content), $content);
         }
     }

@@ -11,9 +11,10 @@ return new class extends Migration
         Schema::create('pp_sessions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('player_id')->constrained('pp_players')->cascadeOnDelete();
-            $table->timestamp('started_at');
+            // dateTime, not timestamp: no implicit ON UPDATE CURRENT_TIMESTAMP on MySQL/MariaDB.
+            $table->dateTime('started_at');
             // Null while the player is online.
-            $table->timestamp('ended_at')->nullable();
+            $table->dateTime('ended_at')->nullable();
             // poll: built from consecutive samples; log: refined from the server log (plan 28).
             $table->string('source', 8)->default('poll');
 

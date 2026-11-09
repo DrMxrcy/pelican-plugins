@@ -3,9 +3,9 @@
 namespace DrMxrcy\PlayersPlus\Services;
 
 use App\Models\Server;
-use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\PlayerSession;
+use DrMxrcy\PlayersPlus\Support\DaemonFiles;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -29,9 +29,14 @@ class PlayerIdentity
 
     private const MAX_USERCACHE_ENTRIES = 5000;
 
-    public function resolve(Server $server, string $name, ?string $uuid, Carbon $seenAt): Player
+    /**
+     * @param  array<string, string>|null  $usercache  a pre-read usercache map (SessionTracker passes
+     *                                                 one so nothing reaches the daemon inside its
+     *                                                 transaction); null reads it here
+     */
+    public function resolve(Server $server, string $name, ?string $uuid, Carbon $seenAt, ?array $usercache = null): Player
     {
-        $uuid ??= $this->usercache($server)[strtolower($name)] ?? null;
+        $uuid ??= ($usercache ?? $this->usercache($server))[strtolower($name)] ?? null;
 
         return DB::transaction(fn () => $uuid === null
             ? $this->resolveByName($server, $name, $seenAt)
@@ -63,9 +68,9 @@ class PlayerIdentity
 
     private function resolveByName(Server $server, string $name, Carbon $seenAt): Player
     {
-        // Prefer a record with a UUID that currently has this name; else the name-only one.
+        // Several records can share a name after a rename and takeover: the most recently seen one wins.
         $player = Player::query()->where('server_id', $server->id)->where('name', $name)
-            ->orderByRaw('uuid is null')->orderBy('id')->first();
+            ->orderByDesc('last_seen_at')->orderByDesc('id')->first();
 
         return $player === null ? $this->create($server, $name, null, $seenAt) : $this->seen($player, $name, $seenAt);
     }
@@ -145,9 +150,10 @@ class PlayerIdentity
     public function usercache(Server $server): array
     {
         /** @var mixed $map */
+        // Failures and oversized files are cached as an empty map too (no retry for 10 minutes).
         $map = Cache::remember("players-plus.usercache.$server->id", self::CACHE_SECONDS, function () use ($server) {
             try {
-                $content = app(DaemonFileRepository::class)->setServer($server)->getContent('usercache.json', self::MAX_USERCACHE_BYTES);
+                $content = DaemonFiles::read($server, 'usercache.json', self::MAX_USERCACHE_BYTES);
             } catch (Throwable) {
                 return [];
             }
@@ -170,15 +176,25 @@ class PlayerIdentity
             return [];
         }
 
-        $map = [];
+        // A name can be listed twice (a renamed-away holder lingers until it expires). The entry
+        // with the latest expiresOn wins; without dates, the first one (vanilla writes the most
+        // recently used first).
+        $best = [];
         foreach (array_slice($entries, 0, self::MAX_USERCACHE_ENTRIES) as $entry) {
             $name = is_array($entry) ? ($entry['name'] ?? null) : null;
             $uuid = is_array($entry) ? MinecraftQuery::normalizeUuid($entry['uuid'] ?? null) : null;
-            if (is_string($name) && $uuid !== null && MinecraftQuery::isPlayerName($name)) {
-                $map[strtolower($name)] = $uuid;
+            if (!is_string($name) || $uuid === null || !MinecraftQuery::isPlayerName($name)) {
+                continue;
+            }
+
+            $key = strtolower($name);
+            $expires = is_string($entry['expiresOn'] ?? null) ? strtotime($entry['expiresOn']) : false;
+            $expires = $expires === false ? null : $expires;
+            if (!isset($best[$key]) || ($expires !== null && ($best[$key][1] === null || $expires > $best[$key][1]))) {
+                $best[$key] = [$uuid, $expires];
             }
         }
 
-        return $map;
+        return array_map(fn (array $pick) => $pick[0], $best);
     }
 }

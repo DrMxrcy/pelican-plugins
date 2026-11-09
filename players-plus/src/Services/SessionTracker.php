@@ -8,9 +8,12 @@ use DrMxrcy\PlayersPlus\Enums\SessionSource;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\PlayerSession;
 use DrMxrcy\PlayersPlus\Models\Sample;
+use DrMxrcy\PlayersPlus\Support\PlayerList;
 use DrMxrcy\PlayersPlus\Support\Settings;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -19,60 +22,68 @@ use Illuminate\Support\Facades\DB;
  *
  * - A player in the sample without an open session gets one, starting at the poll time.
  * - An open session whose player is missing from a complete sample ends at the poll time.
- * - A partial sample (Ping lists fewer names than are online) never ends a session: the
- *   player may just not be in the sample.
+ * - An incomplete sample (PlayerList::isIncomplete) never ends a session: the player may
+ *   just not be in the sample.
  * - offline / unreachable ends every open session at the last online sample.
- * - A gap in polling (or no earlier sample at all) ends open sessions at the last sample
- *   before the gap, so time nobody watched is never counted as playtime.
+ * - A gap in polling (or no earlier sample at all) ends sessions opened before this sample
+ *   at the last sample before the gap, so time nobody watched is never counted as playtime.
  *
- * Runs inside the poll job: no network access except PlayerIdentity's cached usercache read.
+ * Runs inside the poll job. The only network access is the (cached) usercache read, done
+ * before the lock and the transaction are taken.
  */
 class SessionTracker
 {
+    /** How long a run waits for another run on the same server before giving up. */
+    public int $lockWaitSeconds = 10;
+
     public function __construct(private readonly PlayerIdentity $identity) {}
 
     public function track(Server $server, Sample $sample): void
     {
-        // A name without a UUID needs usercache.json: read it (cached) before the transaction,
-        // so no database transaction stays open while the daemon answers.
-        if ($sample->status === SampleStatus::Online && in_array(null, array_column(self::entries($sample->players), 'uuid'), true)) {
-            $this->identity->usercache($server);
+        $entries = $sample->status === SampleStatus::Online ? PlayerList::entries($sample->players) : [];
+        $usercache = in_array(null, array_column($entries, 'uuid'), true) ? $this->identity->usercache($server) : [];
+
+        try {
+            // One run per server at a time, so two runs can't both open a session for one player.
+            Cache::lock("players-plus.track.$server->id", 60)->block(
+                $this->lockWaitSeconds,
+                fn () => DB::transaction(fn () => $this->apply($server, $sample, $entries, $usercache)),
+            );
+        } catch (LockTimeoutException) {
+            // Another run is still busy; the next sample re-derives the state from the open sessions.
         }
-
-        DB::transaction(function () use ($server, $sample) {
-            // Only the newest sample moves session state; a late, older one must not reopen or close anything.
-            $newer = Sample::query()->where('server_id', $server->id)->where('polled_at', '>', $sample->polled_at)->exists();
-            if ($newer) {
-                return;
-            }
-
-            $previous = Sample::query()->where('server_id', $server->id)->where('polled_at', '<', $sample->polled_at)->orderByDesc('polled_at')->first();
-            $gapSeconds = 3 * Settings::pollInterval() * 60 + 60;
-
-            if ($previous === null || $sample->polled_at->getTimestamp() - $previous->polled_at->getTimestamp() > $gapSeconds) {
-                $this->closeAll($server, $this->lastOnlineBefore($server, $sample));
-            }
-
-            if ($sample->status !== SampleStatus::Online) {
-                $this->closeAll($server, $this->lastOnlineBefore($server, $sample));
-
-                return;
-            }
-
-            $this->applyOnline($server, $sample);
-        });
     }
 
-    private function applyOnline(Server $server, Sample $sample): void
+    /**
+     * @param  list<array{name: string, uuid: string|null}>  $entries
+     * @param  array<string, string>  $usercache
+     */
+    private function apply(Server $server, Sample $sample, array $entries, array $usercache): void
     {
-        $at = $sample->polled_at;
-        $entries = self::entries($sample->players);
-        // Ping lists at most 12 names; more online than listed means some are unseen, not gone.
-        $partial = $sample->source === 'ping' && (int) $sample->online > count($entries);
+        // Only the newest sample moves session state; a late, older one must not reopen or close anything.
+        $newer = Sample::query()->where('server_id', $server->id)->where('polled_at', '>', $sample->polled_at)->exists();
+        if ($newer) {
+            return;
+        }
 
+        $previous = Sample::query()->where('server_id', $server->id)->where('polled_at', '<', $sample->polled_at)->orderByDesc('polled_at')->first();
+        $gapSeconds = 3 * Settings::pollInterval() * 60 + 60;
+
+        if ($previous === null || $sample->polled_at->getTimestamp() - $previous->polled_at->getTimestamp() > $gapSeconds) {
+            // Sessions this very sample opened (a retry) are not part of the gap.
+            $this->closeAll($server, $this->lastOnlineBefore($server, $sample), $sample->polled_at);
+        }
+
+        if ($sample->status !== SampleStatus::Online) {
+            $this->closeAll($server, $this->lastOnlineBefore($server, $sample));
+
+            return;
+        }
+
+        $at = $sample->polled_at;
         $present = [];
         foreach ($entries as $entry) {
-            $player = $this->identity->resolve($server, $entry['name'], $entry['uuid'], $at);
+            $player = $this->identity->resolve($server, $entry['name'], $entry['uuid'], $at, $usercache);
             $present[$player->id] = true;
         }
 
@@ -88,7 +99,7 @@ class SessionTracker
             }
         }
 
-        if ($partial) {
+        if (PlayerList::isIncomplete($sample)) {
             return;
         }
 
@@ -100,12 +111,12 @@ class SessionTracker
     }
 
     /**
-     * Ends every open session of the server at $at, or, without one, at the player's last
-     * sighting.
+     * Ends open sessions of the server at $at, or, without one, at the player's last
+     * sighting. With $startedBefore, sessions starting at or after it are left open.
      */
-    private function closeAll(Server $server, ?Carbon $at): void
+    private function closeAll(Server $server, ?Carbon $at, ?Carbon $startedBefore = null): void
     {
-        foreach ($this->openSessions($server) as $session) {
+        foreach ($this->openSessions($server, $startedBefore) as $session) {
             $this->close($session, $at ?? $session->player->last_seen_at);
         }
     }
@@ -125,11 +136,12 @@ class SessionTracker
     }
 
     /** @return Collection<int, PlayerSession> */
-    private function openSessions(Server $server): Collection
+    private function openSessions(Server $server, ?Carbon $startedBefore = null): Collection
     {
         return PlayerSession::query()
             ->whereNull('ended_at')
             ->whereIn('player_id', Player::query()->select('id')->where('server_id', $server->id))
+            ->when($startedBefore !== null, fn ($query) => $query->where('started_at', '<', $startedBefore))
             ->with('player')
             ->get();
     }
@@ -143,32 +155,5 @@ class SessionTracker
             ->orderByDesc('polled_at')
             ->first()
             ?->polled_at;
-    }
-
-    /**
-     * Valid, de-duplicated entries of a stored sample. Stored JSON came from a game server,
-     * so it is checked again here.
-     *
-     * @return list<array{name: string, uuid: string|null}>
-     */
-    public static function entries(mixed $players): array
-    {
-        if (!is_array($players)) {
-            return [];
-        }
-
-        $entries = [];
-        foreach ($players as $player) {
-            $name = is_array($player) ? ($player['name'] ?? null) : null;
-            if (!is_string($name) || !MinecraftQuery::isPlayerName($name) || isset($entries[$name])) {
-                continue;
-            }
-            $entries[$name] = ['name' => $name, 'uuid' => MinecraftQuery::normalizeUuid($player['uuid'] ?? null)];
-            if (count($entries) === MinecraftQuery::MAX_PLAYERS) {
-                break;
-            }
-        }
-
-        return array_values($entries);
     }
 }

@@ -152,7 +152,7 @@ class PlayersPage extends Page implements HasTable
                     ->withMin(['sessions as open_since' => fn (Builder $query) => $query->whereNull('ended_at')], 'started_at');
             })
             ->heading(trans('players-plus::strings.all.heading'))
-            ->description(fn () => ($sample = $this->sample()) !== null && PlayerList::isPartial($sample) ? trans('players-plus::strings.all.partial') : null)
+            ->description(fn () => ($sample = $this->sample()) !== null && PlayerList::isIncomplete($sample) ? trans('players-plus::strings.all.partial') : null)
             ->defaultSort('last_seen_at', 'desc')
             ->paginated([25, 50, 100])
             ->recordUrl(fn (Player $record) => PlayerProfilePage::getUrl(['player' => $record->id]))
@@ -170,16 +170,18 @@ class PlayersPage extends Page implements HasTable
                     ->sortable(),
                 TextColumn::make('last_seen_at')
                     ->label(trans('players-plus::strings.all.last_seen'))
-                    ->badge(fn (Player $record) => self::openSince($record) !== null)
-                    ->color(fn (Player $record) => self::openSince($record) !== null ? 'success' : null)
-                    ->formatStateUsing(fn (Player $record) => self::openSince($record) !== null
+                    ->badge(fn (Player $record) => $this->isOnline($record))
+                    ->color(fn (Player $record) => $this->isOnline($record) ? 'success' : null)
+                    ->formatStateUsing(fn (Player $record) => $this->isOnline($record)
                         ? trans('players-plus::strings.all.online')
                         : $record->last_seen_at->diffForHumans())
                     ->tooltip(fn (Player $record) => $record->last_seen_at->toDayDateTimeString())
                     ->sortable(),
+                // Sorts by closed-session playtime; the shown value adds the open session, so a
+                // player online right now can sort slightly below their displayed total.
                 TextColumn::make('total_seconds')
                     ->label(trans('players-plus::strings.all.playtime'))
-                    ->formatStateUsing(fn (Player $record) => PlayerList::duration(self::playtime($record)))
+                    ->formatStateUsing(fn (Player $record) => PlayerList::duration($this->playtime($record)))
                     ->sortable(),
                 TextColumn::make('sessions_count')
                     ->label(trans('players-plus::strings.all.sessions'))
@@ -204,12 +206,22 @@ class PlayersPage extends Page implements HasTable
         return $value === null ? null : Carbon::parse($value);
     }
 
-    /** Closed sessions plus the open one, counted live. */
-    private static function playtime(Player $player): int
+    /** Online only while polling is live; a stale or offline server shows last seen instead. */
+    private function isOnline(Player $player): bool
+    {
+        return self::openSince($player) !== null && PlayerList::isLive($this->sample());
+    }
+
+    /** Closed sessions plus the open one, counted to now while live, else to the last sighting. */
+    private function playtime(Player $player): int
     {
         $open = self::openSince($player);
+        if ($open === null) {
+            return $player->total_seconds;
+        }
+        $until = PlayerList::isLive($this->sample()) ? now() : $player->last_seen_at;
 
-        return $player->total_seconds + ($open === null ? 0 : max(0, now()->getTimestamp() - $open->getTimestamp()));
+        return $player->total_seconds + max(0, $until->getTimestamp() - $open->getTimestamp());
     }
 
     private function summary(): ?string

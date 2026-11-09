@@ -86,6 +86,7 @@ class AllPlayersViewTest extends TestCase
         $alice = $this->player('Alice', '853c80ef-3c37-49fd-aa49-938b674adae6', [[600, 540], [90, null]]);
         $bob = $this->player('Bob', null, [[3000, 2880]]);
         $stranger = $this->player('Stranger', null, [[60, 30]], $this->createServerModel());
+        $this->onlineSample();
 
         Livewire::withQueryParams(['tab' => 'all'])->test(PlayersPage::class)
             ->assertOk()
@@ -96,12 +97,36 @@ class AllPlayersViewTest extends TestCase
             // Alice: 1 h closed + 1 h 30 m still open, counted live.
             ->assertSee('2h 30m')
             ->assertSee('2h')
-            ->assertSee(trans('players-plus::strings.all.online'))
+            ->assertTableColumnFormattedStateSet('last_seen_at', trans('players-plus::strings.all.online'), $alice)
             ->assertSee('https://mc-heads.net/avatar/853c80ef-3c37-49fd-aa49-938b674adae6/32')
             ->assertSee('https://mc-heads.net/avatar/Bob/32');
 
         $this->assertSame([], $this->connector->opened);
         Http::assertNothingSent();
+    }
+
+    private function onlineSample(int $minutesAgo = 1): void
+    {
+        Sample::query()->create([
+            'server_id' => $this->server->id, 'polled_at' => now()->subMinutes($minutesAgo), 'status' => SampleStatus::Online,
+            'online' => 1, 'max' => 20, 'players' => [['name' => 'Alice', 'uuid' => null]], 'source' => 'query',
+        ]);
+    }
+
+    public function test_open_sessions_are_not_live_when_the_latest_sample_is_stale(): void
+    {
+        // Open since 90 min, last seen 60 min ago; polling stopped 60 min ago.
+        $alice = $this->player('Alice', null, [[90, null]]);
+        $alice->forceFill(['last_seen_at' => now()->subMinutes(60)])->save();
+        $this->onlineSample(60);
+
+        Livewire::withQueryParams(['tab' => 'all'])->test(PlayersPage::class)
+            ->loadTable()
+            ->assertCanSeeTableRecords([$alice])
+            ->assertTableColumnFormattedStateSet('last_seen_at', '1 hour ago', $alice)
+            // Counted up to the last sighting, not to now.
+            ->assertSee('30m')
+            ->assertDontSee('1h 30m');
     }
 
     public function test_switching_tabs_swaps_the_table(): void

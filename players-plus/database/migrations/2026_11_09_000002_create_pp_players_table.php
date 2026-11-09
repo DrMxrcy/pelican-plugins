@@ -15,8 +15,10 @@ return new class extends Migration
             $table->string('uuid', 36)->nullable();
             $table->string('name', 32);
             $table->json('previous_names')->nullable();
-            $table->timestamp('first_seen_at');
-            $table->timestamp('last_seen_at');
+            // dateTime, not timestamp: MySQL/MariaDB can give the first non-null timestamp column
+            // an implicit ON UPDATE CURRENT_TIMESTAMP.
+            $table->dateTime('first_seen_at');
+            $table->dateTime('last_seen_at');
             // Closed sessions only; an open session is added live by the UI.
             $table->unsignedBigInteger('total_seconds')->default(0);
 

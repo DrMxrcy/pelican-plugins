@@ -5,6 +5,7 @@ namespace DrMxrcy\PlayersPlus\Support;
 use Carbon\CarbonInterval;
 use DrMxrcy\PlayersPlus\Enums\SampleStatus;
 use DrMxrcy\PlayersPlus\Models\Sample;
+use DrMxrcy\PlayersPlus\Services\MinecraftQuery;
 
 /**
  * View helpers shared by the Players page and the console widget. Everything here reads a
@@ -46,6 +47,61 @@ final class PlayerList
         return trans('players-plus::strings.page.count', ['online' => (int) $sample->online, 'max' => (int) $sample->max]);
     }
 
+    /**
+     * Valid, de-duplicated entries of a stored sample. Stored JSON came from a game server,
+     * so it is checked again here.
+     *
+     * @return list<array{name: string, uuid: string|null}>
+     */
+    public static function entries(mixed $players): array
+    {
+        if (!is_array($players)) {
+            return [];
+        }
+
+        $entries = [];
+        foreach ($players as $player) {
+            $name = is_array($player) ? ($player['name'] ?? null) : null;
+            if (!is_string($name) || !MinecraftQuery::isPlayerName($name) || isset($entries[$name])) {
+                continue;
+            }
+            $entries[$name] = ['name' => $name, 'uuid' => MinecraftQuery::normalizeUuid($player['uuid'] ?? null)];
+            if (count($entries) === MinecraftQuery::MAX_PLAYERS) {
+                break;
+            }
+        }
+
+        return array_values($entries);
+    }
+
+    /**
+     * The one rule for "this sample does not name everyone who is online": a Ping sample
+     * with more online than valid names listed (the 12-name cap, hidden or anonymous
+     * players, names that failed validation). Sessions are neither opened nor closed for
+     * the unseen players, and the All players tab says tracking is partial.
+     */
+    public static function isIncomplete(Sample $sample): bool
+    {
+        return $sample->status === SampleStatus::Online
+            && $sample->source === 'ping'
+            && (int) $sample->online > count(self::entries($sample->players));
+    }
+
+    /**
+     * Whether open sessions may be shown as "online" and counted up to now: the newest
+     * sample says online and is not stale. Otherwise an open session counts only up to the
+     * player's last sighting.
+     */
+    public static function isLive(?Sample $sample): bool
+    {
+        return $sample !== null && $sample->status === SampleStatus::Online && !self::isStale($sample);
+    }
+
+    /**
+     * The Online tab's "Ping lists at most 12, enable Query" hint (plan 25): only when the
+     * cap itself is why names are missing, so Floodgate names dropped by validation do not
+     * trigger it. Session tracking uses isIncomplete() instead.
+     */
     public static function isPartial(Sample $sample): bool
     {
         // Ping's sample is capped by the server, so more online than the cap means names are

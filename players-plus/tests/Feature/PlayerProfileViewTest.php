@@ -5,12 +5,15 @@ namespace DrMxrcy\PlayersPlus\Tests\Feature;
 use App\Enums\SubuserPermission;
 use App\Models\Server;
 use App\Tests\Traits\Integration\CreatesTestModels;
+use DrMxrcy\PlayersPlus\Enums\SampleStatus;
 use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayerProfilePage;
 use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayersPage;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\PlayerSession;
+use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\Services\Query\Connector;
 use DrMxrcy\PlayersPlus\Tests\Fixtures\FakeConnector;
+use DrMxrcy\PlayersPlus\Tests\Fixtures\FakeDaemonFiles;
 use DrMxrcy\PlayersPlus\Tests\TestCase;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -38,6 +41,9 @@ class PlayerProfileViewTest extends TestCase
     /** @var array<string, string> daemon files by path; missing = 404 */
     private array $files = [];
 
+    /** @var array<string, int> sizes the directory listing reports, by path */
+    private array $sizes = [];
+
     private bool $daemonDown = false;
 
     protected function setUp(): void
@@ -54,16 +60,7 @@ class PlayerProfileViewTest extends TestCase
                 return Http::response('', 502);
             }
 
-            if (str_contains($request->url(), '/files/contents')) {
-                $file = self::file($request);
-
-                // Wings answers with its own User-Agent; without one the panel reports a 404 as a connection error.
-                return is_string($file) && isset($this->files[$file])
-                    ? Http::response($this->files[$file])
-                    : Http::response('', 404, ['User-Agent' => 'Pelican Wings/v1.0.0']);
-            }
-
-            return Http::response('unexpected', 500);
+            return FakeDaemonFiles::respond($request, $this->files, $this->sizes) ?? Http::response('unexpected', 500);
         });
         $this->files['server.properties'] = "level-name=survival\n";
 
@@ -114,16 +111,17 @@ class PlayerProfileViewTest extends TestCase
         return $player;
     }
 
-    private static function file(Request $request): ?string
+    private function onlineSample(int $minutesAgo = 1): void
     {
-        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
-
-        return is_string($query['file'] ?? null) ? $query['file'] : null;
+        Sample::query()->create([
+            'server_id' => $this->server->id, 'polled_at' => now()->subMinutes($minutesAgo), 'status' => SampleStatus::Online,
+            'online' => 1, 'max' => 20, 'players' => [['name' => 'Alice', 'uuid' => self::A]], 'source' => 'query',
+        ]);
     }
 
     private function statsReads(): int
     {
-        return Http::recorded(fn (Request $request) => str_contains((string) self::file($request), '/stats/'))->count();
+        return FakeDaemonFiles::contentReads('/stats/');
     }
 
     private function profile(Player $player): Testable
@@ -135,6 +133,7 @@ class PlayerProfileViewTest extends TestCase
     {
         $this->files['survival/stats/' . self::A . '.json'] = (string) file_get_contents(dirname(__DIR__) . '/Fixtures/stats/' . self::A . '.json');
         $player = $this->alice();
+        $this->onlineSample();
 
         $this->profile($player)
             ->assertOk()
@@ -237,5 +236,42 @@ class PlayerProfileViewTest extends TestCase
         Livewire::withQueryParams(['tab' => 'all'])->test(PlayersPage::class)
             ->loadTable()
             ->assertSee(PlayerProfilePage::getUrl(['player' => $player->id]), false);
+    }
+
+    public function test_oversized_stats_file_is_never_downloaded_and_the_refusal_is_cached(): void
+    {
+        $player = $this->alice();
+        $this->files['survival/stats/' . self::A . '.json'] = '{"stats":{"minecraft:custom":{"minecraft:deaths":4}}}';
+        $this->sizes['survival/stats/' . self::A . '.json'] = 500_000_000;
+
+        $this->profile($player)->assertOk()->assertSee(trans('players-plus::strings.stats.unavailable'));
+        $listings = FakeDaemonFiles::listings();
+        $this->profile($player)->assertOk();
+
+        $this->assertSame(0, $this->statsReads(), 'the body must not be fetched');
+        $this->assertSame($listings, FakeDaemonFiles::listings(), 'the refusal is cached');
+    }
+
+    public function test_empty_stats_object_says_no_stats_yet(): void
+    {
+        $this->files['survival/stats/' . self::A . '.json'] = '{"stats":{},"DataVersion":4189}';
+
+        $this->profile($this->alice())
+            ->assertOk()
+            ->assertSee(trans('players-plus::strings.stats.none'));
+    }
+
+    public function test_open_session_is_not_live_when_polling_is_stale(): void
+    {
+        $player = $this->alice();
+        $player->forceFill(['last_seen_at' => now()->subMinutes(20)])->save();
+        $this->onlineSample(20);
+
+        // Open session counts 30 - 20 = 10 min (to the last sighting): 4h 10m, not 4h 30m.
+        $this->profile($player)
+            ->assertOk()
+            ->assertSee('4h 10m')
+            ->assertDontSee('4h 30m')
+            ->assertSee(trans('players-plus::strings.profile.last_seen', ['time' => '20 minutes ago']));
     }
 }

@@ -6,6 +6,7 @@ use App\Enums\SubuserPermission;
 use App\Models\Server;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\PlayerSession;
+use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\Services\PlayerStats;
 use DrMxrcy\PlayersPlus\Support\PlayerList;
 use Filament\Facades\Filament;
@@ -21,6 +22,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
+use Illuminate\Support\Carbon;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 
@@ -47,6 +49,8 @@ class PlayerProfilePage extends Page implements HasTable
     public int $playerId = 0;
 
     private ?Player $record = null;
+
+    private ?bool $live = null;
 
     public static function canAccess(): bool
     {
@@ -89,6 +93,24 @@ class PlayerProfilePage extends Page implements HasTable
         ];
     }
 
+    /** Open sessions are "online" and count to now only while polling is live (PlayerList::isLive). */
+    private function isLive(): bool
+    {
+        if ($this->live === null) {
+            /** @var Server $server */
+            $server = Filament::getTenant();
+            $this->live = PlayerList::isLive(Sample::latestFor($server));
+        }
+
+        return $this->live;
+    }
+
+    /** Where an open session stops counting: now while live, else the last sighting. */
+    private function openUntil(): Carbon
+    {
+        return $this->isLive() ? now() : $this->playerRecord()->last_seen_at;
+    }
+
     private function canReadStats(): bool
     {
         /** @var Server $server */
@@ -110,7 +132,8 @@ class PlayerProfilePage extends Page implements HasTable
     public function content(Schema $schema): Schema
     {
         $player = $this->playerRecord();
-        $open = $player->openSession();
+        $open = $this->isLive() ? $player->openSession() : null;
+        $until = $this->openUntil();
 
         return $schema->components([
             Grid::make(['default' => 1, 'lg' => 2])->schema([
@@ -157,10 +180,10 @@ class PlayerProfilePage extends Page implements HasTable
                             ->tooltip($player->first_seen_at->toDayDateTimeString()),
                         TextEntry::make('total')
                             ->label(trans('players-plus::strings.profile.total_playtime'))
-                            ->state(PlayerList::duration($player->playtime())),
+                            ->state(PlayerList::duration($player->playtime($until))),
                         TextEntry::make('week')
                             ->label(trans('players-plus::strings.profile.week_playtime'))
-                            ->state(PlayerList::duration($player->playtimeSince(now()->subDays(7)))),
+                            ->state(PlayerList::duration($player->playtimeSince(now()->subDays(7), $until))),
                     ]),
             ]),
             $this->statsSection(),
@@ -223,11 +246,11 @@ class PlayerProfilePage extends Page implements HasTable
                     ->sortable(),
                 TextColumn::make('ended_at')
                     ->label(trans('players-plus::strings.profile.ended'))
-                    ->placeholder(trans('players-plus::strings.all.online'))
+                    ->placeholder(fn () => $this->isLive() ? trans('players-plus::strings.all.online') : '—')
                     ->dateTime(),
                 TextColumn::make('duration')
                     ->label(trans('players-plus::strings.profile.duration'))
-                    ->state(fn (PlayerSession $record) => PlayerList::duration($record->seconds())),
+                    ->state(fn (PlayerSession $record) => PlayerList::duration($record->seconds($this->openUntil()))),
                 TextColumn::make('source')
                     ->label(trans('players-plus::strings.profile.source'))
                     ->formatStateUsing(fn (PlayerSession $record) => $record->source->getLabel())

@@ -12,6 +12,8 @@ use DrMxrcy\PlayersPlus\Services\SessionTracker;
 use DrMxrcy\PlayersPlus\Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -225,5 +227,57 @@ class SessionTrackerTest extends TestCase
 
         $this->assertSame(1, Player::query()->count());
         $this->assertSame([[0, null]], $this->sessions(self::A));
+    }
+
+    public function test_retrying_the_first_sample_is_idempotent(): void
+    {
+        $first = $this->poll(0, players: [self::a()]);
+        $this->app->make(SessionTracker::class)->track($this->server, $first);
+
+        $this->assertSame([[0, null]], $this->sessions(self::A));
+    }
+
+    public function test_retrying_the_first_sample_after_a_gap_is_idempotent(): void
+    {
+        $this->poll(0, players: [self::a()]);
+        $afterGap = $this->poll(62, players: [self::a()]);
+        $this->app->make(SessionTracker::class)->track($this->server, $afterGap);
+
+        $this->assertSame([[0, 0], [62, null]], $this->sessions(self::A));
+    }
+
+    public function test_a_concurrent_run_holding_the_lock_is_not_doubled(): void
+    {
+        $sample = Sample::query()->create([
+            'server_id' => $this->server->id, 'polled_at' => $this->at(0), 'status' => SampleStatus::Online,
+            'online' => 1, 'max' => 20, 'players' => [self::a()], 'source' => 'query',
+        ]);
+        $lock = Cache::lock("players-plus.track.{$this->server->id}", 60);
+        $this->assertTrue($lock->get());
+
+        $tracker = $this->app->make(SessionTracker::class);
+        $tracker->lockWaitSeconds = 0;
+        $tracker->track($this->server, $sample);
+        $this->assertSame(0, PlayerSession::query()->count(), 'skipped while another run holds the lock');
+
+        $lock->release();
+        $tracker->track($this->server, $sample);
+        $this->assertSame(1, PlayerSession::query()->count());
+    }
+
+    public function test_tracking_never_calls_the_daemon_inside_the_transaction(): void
+    {
+        $calls = [];
+        Http::fake(function () use (&$calls) {
+            $calls[] = DB::transactionLevel();
+
+            return Http::response('', 404, ['User-Agent' => 'Pelican Wings/v1.0.0']);
+        });
+
+        $this->poll(0, players: [['name' => 'NoUuid', 'uuid' => null], ['name' => 'Other', 'uuid' => null]]);
+
+        $this->assertNotEmpty($calls);
+        // RefreshDatabase wraps each test in one transaction; the tracker must not add its own around a daemon call.
+        $this->assertSame([DB::transactionLevel()], array_values(array_unique($calls)));
     }
 }

@@ -56,6 +56,10 @@ Stats come from `<level-name>/stats/<uuid>.json`, read through the daemon when a
 opened (cached 10 minutes), never during polls. Only users who may read the server's files
 see them.
 
+Files are size-checked from the directory listing before they are read: a `usercache.json`
+over 1 MB or a stats file over 2 MB is skipped, not downloaded. When the newest poll is
+offline or out of date, open sessions show as "last seen" and stop counting.
+
 ## Privacy
 
 Skin avatars are loaded from [mc-heads.net](https://mc-heads.net) by the viewer's browser

@@ -27,6 +27,7 @@ use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
@@ -431,13 +432,18 @@ class PollingTest extends TestCase
         $this->assertSame(0, Http::recorded(fn (Request $request) => str_contains(urldecode($request->url()), 'stats/'))->count());
     }
 
-    public function test_tracker_failure_still_stores_the_sample(): void
+    public function test_tracker_failure_still_stores_the_sample_and_is_reported_once_per_hour(): void
     {
+        Exceptions::fake();
         $server = $this->minecraftServer();
-        $this->answerPing();
         $this->mock(SessionTracker::class)->shouldReceive('track')->andThrow(new RuntimeException('tracker bug'));
 
-        $this->assertSame(SampleStatus::Online, $this->poll($server)->status);
+        $this->answerPing();
+        $this->assertSame(SampleStatus::Online, $this->poll($server, 1_800_000_000)->status);
+        $this->answerPing();
+        $this->assertSame(SampleStatus::Online, $this->poll($server, 1_800_000_120)->status);
+
+        Exceptions::assertReportedCount(1);
     }
 
     public function test_server_properties_are_read_once_and_cached(): void

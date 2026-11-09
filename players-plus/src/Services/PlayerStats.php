@@ -3,8 +3,8 @@
 namespace DrMxrcy\PlayersPlus\Services;
 
 use App\Models\Server;
-use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\PlayersPlus\Models\Player;
+use DrMxrcy\PlayersPlus\Support\DaemonFiles;
 use DrMxrcy\PlayersPlus\Support\ServerProperties;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Illuminate\Support\Facades\Cache;
@@ -73,30 +73,30 @@ class PlayerStats
     /** @return array{state: string, stats: array<string, int|null>|null} */
     private function read(Server $server, string $uuid): array
     {
-        $files = app(DaemonFileRepository::class)->setServer($server);
-
+        // Sizes are checked from the directory listing first: an oversized file is refused
+        // (STATE_ERROR, cached 60 s) without being downloaded.
         try {
             try {
-                $level = self::levelName(ServerProperties::get($files->getContent('server.properties', self::MAX_PROPERTIES_BYTES), 'level-name'));
+                $level = self::levelName(ServerProperties::get(DaemonFiles::read($server, 'server.properties', self::MAX_PROPERTIES_BYTES), 'level-name'));
             } catch (FileNotFoundException) {
                 $level = self::levelName(null);
             }
 
-            $content = $files->getContent("$level/stats/$uuid.json", self::MAX_STATS_BYTES);
+            $content = DaemonFiles::read($server, "$level/stats/$uuid.json", self::MAX_STATS_BYTES);
         } catch (FileNotFoundException) {
             return ['state' => self::STATE_MISSING, 'stats' => null];
         } catch (Throwable) {
             return ['state' => self::STATE_ERROR, 'stats' => null];
         }
 
-        $stats = strlen($content) > self::MAX_STATS_BYTES ? null : self::parse($content);
+        $stats = self::parse($content);
 
         return $stats === null ? ['state' => self::STATE_MISSING, 'stats' => null] : ['state' => self::STATE_OK, 'stats' => $stats];
     }
 
     /**
      * The known stats of a stats file, null for each one that is missing or not a sane
-     * number; null overall when the content is not a stats file.
+     * number; null overall when the content is not a stats file or has none of them.
      *
      * @return array<string, int|null>|null
      */
@@ -120,6 +120,9 @@ class PlayerStats
         $stats = [];
         foreach (self::STATS as $stat => $ids) {
             $stats[$stat] = $lookup($ids);
+        }
+        if (array_filter($stats, fn (?int $value) => $value !== null) === []) {
+            return null;
         }
         if ($stats['play_time'] !== null) {
             $stats['play_time'] = intdiv($stats['play_time'], 20);
