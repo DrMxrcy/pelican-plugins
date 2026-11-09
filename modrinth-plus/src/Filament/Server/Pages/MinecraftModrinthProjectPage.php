@@ -1615,7 +1615,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->color('warning')
                     ->tooltip(trans('modrinth-plus::strings.actions.update'))
                     // A client-only mod does nothing on a server: offer uninstall, not an update.
-                    ->visible(fn (array $record) => !(static::usesClientOnlyFilter() && Sides::isClientOnly($record)) && $this->isUpdateAvailable($record))
+                    ->visible(fn (array $record) => $this->offersUpdate($record))
                     ->authorize(fn () => static::canUpdate())
                     ->requiresConfirmation()
                     // Wide and left-aligned: the dialog carries the changelogs of the versions skipped over.
@@ -1791,9 +1791,8 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     }
 
     /**
-     * The installed projects "Update all" would update: every one on Modrinth with a newer
-     * compatible version, except client-only ones (no update offered for them, see the row
-     * action). Covers every page of the Installed tab, not just the one on screen.
+     * The installed projects "Update all" would update: exactly the rows that offer Update
+     * (see offersUpdate()), across every page of the Installed tab, not just the one on screen.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -1801,8 +1800,23 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     {
         return $this->updateAllCandidates ??= array_values(array_filter(
             $this->installedProjects(),
-            fn (array $project) => $this->isUpdateAvailable($project),
+            fn (array $project) => $this->offersUpdate($project),
         ));
+    }
+
+    /**
+     * The row offers Update, and "Update all" takes the project: unpinned, with a newer
+     * compatible version, and not client-only (a client-only mod does nothing on a server, so
+     * only uninstall is offered). One rule for both, so they can't disagree (plan 18 fix: a row
+     * whose /v2/projects lookup failed is "unavailable" but still has its versions, and used to
+     * offer Update while "Update all" left it out). Whether the project is still on Modrinth is
+     * the versions lookup's call: a project gone from Modrinth has no compatible versions.
+     *
+     * @param  array<string, mixed>  $record
+     */
+    protected function offersUpdate(array $record): bool
+    {
+        return !(static::usesClientOnlyFilter() && Sides::isClientOnly($record)) && $this->isUpdateAvailable($record);
     }
 
     /**
@@ -1815,13 +1829,14 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     {
         return array_values(array_filter(
             $this->installedProjects(),
-            fn (array $project) => $this->isPinned($project) && $this->hasNewerVersion($project),
+            fn (array $project) => $this->isPinned($project) && $this->hasNewerVersion($project)
+                && !(static::usesClientOnlyFilter() && Sides::isClientOnly($project)),
         ));
     }
 
     /**
-     * Every installed project on Modrinth that could ever be updated (not client-only, still on
-     * Modrinth), across every page of the Installed tab, with its versions primed.
+     * Every installed project tracked in the metadata file, as the Installed tab lists it
+     * (unavailable ones included), across every page, with its versions primed.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -1845,11 +1860,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
         $this->primeVersionsCache(array_column($projects, 'project_id'));
 
-        return $this->installedProjects = array_values(array_filter(
-            $projects,
-            fn (array $project) => empty($project['unavailable'])
-                && !(static::usesClientOnlyFilter() && Sides::isClientOnly($project)),
-        ));
+        return $this->installedProjects = $projects;
     }
 
     /**
