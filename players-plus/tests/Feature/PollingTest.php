@@ -3,6 +3,7 @@
 namespace DrMxrcy\PlayersPlus\Tests\Feature;
 
 use App\Enums\ServerState;
+use App\Models\Allocation;
 use App\Models\Server;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\PlayersPlus\Console\Commands\PollPlayersCommand;
@@ -77,13 +78,17 @@ class PollingTest extends TestCase
         });
     }
 
-    private function minecraftServer(string $state = 'running', ?string $properties = "enable-query=false\n", string $ip = '10.0.0.5', int $port = 25565): Server
+    /** @param  list<int>  $extraPorts  more allocations of the server on the same IP */
+    private function minecraftServer(string $state = 'running', ?string $properties = "enable-query=false\n", string $ip = '10.0.0.5', int $port = 25565, array $extraPorts = []): Server
     {
         $server = $this->createServerModel();
         $egg = $this->cloneEggAndVariables($server->egg);
         $egg->forceFill(['tags' => ['minecraft', 'paper']])->save();
         $server->forceFill(['egg_id' => $egg->id])->save();
         $server->allocation->forceFill(['ip' => $ip, 'ip_alias' => null, 'port' => $port])->save();
+        foreach ($extraPorts as $extra) {
+            Allocation::factory()->create(['node_id' => $server->node_id, 'server_id' => $server->id, 'ip' => $ip, 'port' => $extra]);
+        }
 
         $this->states[$server->uuid] = $state;
         $this->properties[$server->uuid] = $properties;
@@ -223,7 +228,7 @@ class PollingTest extends TestCase
 
     public function test_query_enabled_uses_the_full_name_list_with_ping_uuids(): void
     {
-        $server = $this->minecraftServer(properties: "enable-query=true\nquery.port=25575\n");
+        $server = $this->minecraftServer(properties: "enable-query=true\nquery.port=25575\n", extraPorts: [25575]);
         $this->answerQuery(['Notch', 'Dinnerbone', 'jeb_']);
         $this->answerPing();
 
@@ -252,13 +257,38 @@ class PollingTest extends TestCase
 
     public function test_failed_query_falls_back_to_ping(): void
     {
-        $server = $this->minecraftServer(properties: "enable-query=true\nquery.port=25575\n");
+        $server = $this->minecraftServer(properties: "enable-query=true\nquery.port=25575\n", extraPorts: [25575]);
         $this->answerPing();
 
         $sample = $this->poll($server);
 
         $this->assertSame(SampleStatus::Online, $sample->status);
         $this->assertSame('ping', $sample->source);
+        $this->assertContains('udp://10.0.0.5:25575', array_column($this->connector->opened, 'uri'));
+    }
+
+    /** server.properties is tenant-editable: a query.port that isn't the server's own is never contacted. */
+    public function test_query_port_outside_the_servers_allocations_is_never_contacted(): void
+    {
+        $server = $this->minecraftServer(properties: "enable-query=true\nquery.port=22\n", extraPorts: [25575]);
+        $this->answerQuery(['Notch'], port: 22);
+        $this->answerPing();
+
+        $sample = $this->poll($server);
+
+        $this->assertSame('ping', $sample->source);
+        $this->assertSame(['tcp://10.0.0.5:25565'], array_column($this->connector->opened, 'uri'));
+    }
+
+    /** An allocation of the same server on a different IP is not a valid Query target either. */
+    public function test_query_port_on_another_ip_is_rejected(): void
+    {
+        $server = $this->minecraftServer(properties: "enable-query=true\nquery.port=25575\n");
+        Allocation::factory()->create(['node_id' => $server->node_id, 'server_id' => $server->id, 'ip' => '10.0.0.99', 'port' => 25575]);
+        $this->answerPing();
+
+        $this->assertSame('ping', $this->poll($server)->source);
+        $this->assertSame(['tcp://10.0.0.5:25565'], array_column($this->connector->opened, 'uri'));
     }
 
     public function test_unreadable_properties_means_ping_only(): void
