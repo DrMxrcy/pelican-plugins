@@ -17,6 +17,31 @@ return [
         'saved' => 'Einstellungen gespeichert',
     ],
 
+    'activity' => [
+        'navigation' => 'Aktivität',
+        'title' => 'Spieleraktivität',
+        'none' => '—',
+        'peak_today' => 'Höchststand heute',
+        'peak_week' => 'Höchststand diese Woche',
+        'peak_all_time' => 'Höchststand insgesamt',
+        'peak_all_time_help' => 'So weit der Stundenverlauf zurückreicht',
+        'average_7d' => '7-Tage-Durchschnitt',
+        'average_7d_help' => 'Nur während der Server online war',
+        'chart_heading' => 'Spieler online',
+        'chart_gaps' => 'Lücken bedeuten: Der Server war offline, hat nicht geantwortet oder wurde nicht abgefragt.',
+        'series_online' => 'Spieler online',
+        'series_average' => 'Spieler online im Durchschnitt',
+        'range' => [
+            '24h' => 'Letzte 24 Stunden',
+            '7d' => 'Letzte 7 Tage',
+            '30d' => 'Letzte 30 Tage',
+        ],
+        'heatmap_heading' => 'Stoßzeiten',
+        'heatmap_description' => 'Spieler online im Durchschnitt nach Wochentag und Stunde, letzte :days Tage (:timezone). Leere Felder: keine Daten oder der Server war offline.',
+        'heatmap_cell' => ':time: durchschnittlich :count Spieler',
+        'heatmap_empty_cell' => ':time: keine Daten',
+    ],
+
     'status' => [
         'online' => 'Online',
         'offline' => 'Offline',

@@ -17,6 +17,31 @@ return [
         'saved' => 'Settings saved',
     ],
 
+    'activity' => [
+        'navigation' => 'Activity',
+        'title' => 'Player activity',
+        'none' => '—',
+        'peak_today' => 'Peak today',
+        'peak_week' => 'Peak this week',
+        'peak_all_time' => 'All-time peak',
+        'peak_all_time_help' => 'As far back as hourly history is kept',
+        'average_7d' => '7-day average',
+        'average_7d_help' => 'While online; offline time is not counted',
+        'chart_heading' => 'Players online',
+        'chart_gaps' => 'Gaps mean the server was offline, not answering or not polled.',
+        'series_online' => 'Players online',
+        'series_average' => 'Average players online',
+        'range' => [
+            '24h' => 'Last 24 hours',
+            '7d' => 'Last 7 days',
+            '30d' => 'Last 30 days',
+        ],
+        'heatmap_heading' => 'Busiest times',
+        'heatmap_description' => 'Average players online by weekday and hour over the last :days days (:timezone). Empty cells: no data, or the server was offline.',
+        'heatmap_cell' => ':time: :count players on average',
+        'heatmap_empty_cell' => ':time: no data',
+    ],
+
     'status' => [
         'online' => 'Online',
         'offline' => 'Offline',

@@ -205,7 +205,7 @@ final class ActivityStats
      * online samples only. Keys are ISO weekdays 1 (Monday) to 7 (Sunday), each with 24 hours;
      * a cell with no online sample is null (empty), never 0.
      *
-     * @return array<int, list<float|null>>
+     * @return array<int, array<int, float|null>>
      */
     public function heatmap(): array
     {
@@ -220,6 +220,9 @@ final class ActivityStats
                 continue;
             }
             $cell = (int) $row->cell;
+            if ($cell < 0 || $cell >= self::HOURS_PER_WEEK) {
+                continue;
+            }
             // Cell 0 is a Thursday (ISO 4).
             $day = (intdiv($cell, 24) + 3) % 7 + 1;
             $grid[$day][$cell % 24] = round((float) $row->total / $samples, 1);

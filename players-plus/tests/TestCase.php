@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Route;
  *
  * The panel skips plugin loading while running tests, so this registers the
  * plugin's config (config('players-plus.*')), translation namespace
- * (trans('players-plus::...')) and migrations the same way PluginService::loadPlugins()
+ * (trans('players-plus::...')), views and migrations the same way PluginService::loadPlugins()
  * does. Add RefreshDatabase in a subclass for tests that need the panel DB/factories.
  * Pure unit tests should extend PHPUnit\Framework\TestCase instead.
  */
@@ -45,6 +45,7 @@ abstract class TestCase extends PanelTestCase
         }
 
         $this->app->make('translator')->addNamespace(self::PLUGIN_ID, $root . '/lang');
+        $this->app->make('view')->addNamespace(self::PLUGIN_ID, $root . '/resources/views');
     }
 
     /**

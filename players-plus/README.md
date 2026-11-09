@@ -6,6 +6,8 @@ See who is online on your Minecraft servers, right in Pelican Panel.
   **All players** ever seen, with last seen, total playtime, sessions and first seen.
 - **Player profile**: name, UUID and past names, online status, total and last-7-days
   playtime, every session, and vanilla stats (play time, deaths, kills, distance, jumps).
+- **Activity** page: player count over 24 hours, 7 days and 30 days, peaks for today, this
+  week and all time, a 7-day average, and a weekday x hour heatmap of the busiest times.
 - **Console widget**: online count (`3 / 20`) or "offline" next to the console.
 - Polls every running Minecraft server on a schedule (default every 2 minutes, 1 to 5).
   Pages only read the stored result; opening a page never contacts the game server.
@@ -60,6 +62,18 @@ Files are size-checked from the directory listing before they are read: a `userc
 over 1 MB or a stats file over 2 MB is skipped, not downloaded. When the newest poll is
 offline or out of date, open sessions show as "last seen" and stop counting.
 
+## Activity
+
+Offline and unreachable polls are kept apart from "0 players": the chart shows them as gaps,
+and they never pull down an average, a peak or a heatmap cell. The 24-hour chart reads the
+raw samples; 7 and 30 days read hourly rollups (`players-plus:rollup`, every hour at :05,
+covering the previous and current hour; run it with `--hours=N` to fill a longer gap).
+Peaks also look at samples the hourly rollup has not reached yet.
+
+"Today", "this week" (from Monday) and the heatmap use the viewer's timezone from their
+account settings. The heatmap covers the last 28 days; half-hour timezones round down to the
+whole hour, and the days before a daylight-saving change sit one hour off.
+
 ## Privacy
 
 Skin avatars are loaded from [mc-heads.net](https://mc-heads.net) by the viewer's browser
@@ -68,8 +82,9 @@ which players are being looked at. The panel itself never contacts it.
 
 ## Settings
 
-Admin → Plugins → Players Plus → Settings: polling on/off, poll interval (minutes) and how
-many days samples are kept. Stored in `.env` as `PLAYERS_PLUS_*`.
+Admin → Plugins → Players Plus → Settings: polling on/off, poll interval (minutes), how
+many days raw samples are kept (default 30) and how many days hourly history is kept
+(default 365). Stored in `.env` as `PLAYERS_PLUS_*`.
 
 ## Install
 
