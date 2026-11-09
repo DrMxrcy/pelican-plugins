@@ -1,0 +1,31 @@
+players-plus/src/Filament/Admin/Widgets/PlayersOverviewChartWidget.php
+  s_7df0235a6c784a::t_08445f732df2a7 83-84
+players-plus/src/Filament/Server/Widgets/PlayerCountChartWidget.php
+  s_7df0235a6c784a::t_e4dbcfae52251e 89-90
+players-plus/tests/Feature/ChartOptionsTest.php
+  s_1d8485e49bfacb::t_c53ac2dea63468 1-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9da8c9383cd5f67f41bb90bd26fb10442d607324",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    },
+    "s_7df0235a6c784a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93dde956-72a0-4b96-99fe-10efde6411fa",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
