@@ -1,0 +1,57 @@
+modpacks-plus/tests/Feature/CurseForgeClientTest.php
+  s_1d8485e49bfacb::t_ca1377c21ff7bc 8,178-193
+modpacks-plus/src/Services/InstallEngine.php
+  s_1d8485e49bfacb::t_bfc172eac5f59e 357-358,429-452
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_7921627a0d5242 111,118,183,288
+modpacks-plus/src/Support/PlanValidator.php
+  s_1d8485e49bfacb::t_6913caba17330c 48,220-224,226
+modpacks-plus/src/Providers/CurseForge/CurseForgeClient.php
+  s_1d8485e49bfacb::t_bf901883bc745c 50-55,61,162-164,205-215
+  s_1d8485e49bfacb::t_61a7dc96f3baa3 171
+modpacks-plus/src/Providers/Modrinth/ModrinthClient.php
+  s_1d8485e49bfacb::t_d28cf16530ea7e 54-89,136,140-141,154-156,177
+  s_1d8485e49bfacb::t_2ea35cf2894dda 27-29
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_8da2df0ed4a1ac 111,118,183,288
+modpacks-plus/tests/Feature/CurseForgeModrinthFirstTest.php
+  s_1d8485e49bfacb::t_cc3eff559f9e4b 283-294,330
+  s_1d8485e49bfacb::t_80d73648d14868 331-333
+modpacks-plus/tests/Feature/CurseForgePackProviderTest.php
+  s_1d8485e49bfacb::t_c95eb476fd1991 103-129
+modpacks-plus/tests/Unit/CurseForgePlanValidatorTest.php
+  s_1d8485e49bfacb::t_5cbac27b70c278 10,243-250,262-266
+modpacks-plus/src/Data/InstallPlan.php
+  s_1d8485e49bfacb::t_f9e76992582277 28-29,51,92,135,167-172
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_1c0d4bdd7579ce 76,78-82,84-86,97-98,101-102,216-217
+modpacks-plus/src/Providers/CurseForge/CurseForgePackProvider.php
+  s_1d8485e49bfacb::t_7af64955109a25 66-71,176,205,221,239,250,279,283,323,367-372,375,401-402,419,533,536-537,542-545,555-561,565,636,660,864,887,939,941,943-946,968,977-987
+modpacks-plus/tests/Feature/CurseForgeMirrorTest.php
+  s_1d8485e49bfacb::t_bf19d245ba339b 190,192,200,336-340
+  s_1d8485e49bfacb::t_93b81d56eb6c94 329-335
+modpacks-plus/tests/Feature/CurseForgeResolvePlanTest.php
+  s_1d8485e49bfacb::t_f7400e49bbe558 211-232
+modpacks-plus/src/Services/ModrinthMatcher.php
+  s_1d8485e49bfacb::t_d6527d8db503c5 36-37,42,61,78,80-82,85-89,92,131,134,142,145-149
+modpacks-plus/src/Filament/Server/Components/InstallProgress.php
+  s_1d8485e49bfacb::t_2851db7e3544cc 137-142
+modpacks-plus/tests/Feature/CompressedResponseTest.php
+  s_1d8485e49bfacb::t_877aec36281aef 1-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fa1a7b1a88a1795fcc0acbcd149b8fe98e5ce3c9",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
