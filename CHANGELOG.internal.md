@@ -5,9 +5,9 @@ _Full work log — every item, including internal/dev work. The curated public c
 ## v0.5.0 — (in progress)
 
 ### ✨ New
-- (pending) Persistent page banner when installed mods are incompatible with the current Minecraft version
-- (pending) Changelog preview in the update dialog
-- (pending) Pin a mod to its current version so no updates are offered
+- Persistent page banner when installed mods are incompatible with the current Minecraft version
+- Changelog preview in the update dialog
+- Pin a mod to its current version so no updates are offered
 - (pending) See who is online on your Minecraft server right from the panel.
 - (pending) Charts show how many players were online over the last day, week and month, with peak times.
 - (pending) Every player gets a profile with playtime, past sessions and in-game stats.
@@ -17,12 +17,13 @@ _Full work log — every item, including internal/dev work. The curated public c
 - (pending) Install CurseForge modpacks too, using the official server pack when one exists.
 - (pending) FTB and ATLauncher modpacks can be installed as well.
 - (pending) Mods that came with a modpack show up in the Mods page, ready to update one by one.
-- (pending) One page shows who is online and how busy every Minecraft server is.
+- One page shows who is online and how busy every Minecraft server is.
 - (pending) Installing a modpack can switch your server to the mod loader the pack needs.
 - (pending) Update or change modpacks while your worlds, whitelist and bans stay safe, and get told when a pack update is out.
+- (pending) Bigger modpacks install when the server has room: the pack size limit follows the server's disk limit and free space.
 
 ### 🐛 Fixed
-- (pending) Client-only toggle is an unlabeled eye icon and shown client-only mods carry no badge on the All tab
+- Client-only toggle is an unlabeled eye icon and shown client-only mods carry no badge on the All tab
 
 ## v0.4.0 — 2026-11-08
 
