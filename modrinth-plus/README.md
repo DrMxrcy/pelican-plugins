@@ -28,6 +28,12 @@ https://github.com/DrMxrcy/pelican-plugins/releases/download/modrinth-plus-lates
 
 Updates are detected automatically via `update_url`.
 
+## Updating
+
+Use the **Update** button on Admin → Plugins. It appears when a release with a higher version than the installed one is published.
+
+If you import a zip over an installed copy instead (Import from File / Import from URL), the panel can mark the plugin **Crashed**. A new release may add classes or enum values the old copy didn't have. The panel loads the new files in the same request that still has the old ones in memory, so they don't fit together. The new files are already in place, so open **Actions → Enable** on the plugin and it loads normally.
+
 ## Credits
 
 "Update all" (bulk update), the Datapacks page and the "Scan folder" import of hand-added jars (Modrinth lookup by file hash, "Not on Modrinth" rows) are based on [YONN2222/pelican-minecraft-modrinth](https://github.com/YONN2222/pelican-minecraft-modrinth) (GPL-3.0).
