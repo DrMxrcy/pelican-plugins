@@ -161,6 +161,12 @@ Pelican → Admin → Plugins → Import from URL:
 https://github.com/DrMxrcy/pelican-plugins/releases/download/players-plus-latest/players-plus.zip
 ```
 
+## After installing or updating
+
+Restart the queue worker so it loads the plugin's job classes, as the panel's web user, e.g.
+`sudo -u www-data php artisan queue:restart` from the panel folder. Until then queued poll jobs fail
+with "incomplete object".
+
 ## Compatibility
 
 Everything this plugin adds is prefixed (`pp_` tables, `players-plus` config, translations

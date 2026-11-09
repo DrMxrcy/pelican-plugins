@@ -63,7 +63,11 @@ Checked before anything is written to the server; archive entries are checked ag
   deleting or moving a world, player list or `server.properties`, and any pull that is not
   `cdn.modrinth.com`.
 - `server.properties` with escaped keys or line continuations is not guessed at: the install stops.
-- Files marked `env.server: unsupported` are skipped.
+- Files marked `env.server: unsupported` are skipped. A Modrinth pack file with no `env.server` takes its
+  Modrinth project's `server_side` (looked up by sha512): `unsupported` is skipped, unknown projects and
+  files Modrinth doesn't know stay; an explicit `env.server` always wins, and a failed lookup stops the
+  install. Pack files under `resourcepacks/` and `shaderpacks/` (and the other client-only paths above)
+  are never downloaded. The summary lists every skipped file with its reason.
 - A pre-existing file in the way of a pack file or override is moved into the moved-aside folder first.
   Paths are compared exactly (case-sensitively), as on the server's filesystem.
 - Every step job re-checks the stored plan; only one job chain per install can act (sequence number),
@@ -266,6 +270,14 @@ direct calls get 403.
   ATLauncher*); md5 is a weak hash, so this trusts ATLauncher's CDN as much as its manifest.
 - FTB searches fetch each listed pack's details one by one (cached for 10 minutes), so the first page of
   results can take a few seconds.
+
+## After installing or updating
+
+- Restart the queue worker so it loads the plugin's job classes, as the panel's web user, e.g.
+  `sudo -u www-data php artisan queue:restart` from the panel folder. Until then queued install jobs fail
+  with "incomplete object".
+- Installs make a backup first, so the server's backup limit must be above 0, or an admin turns on
+  **Allow skipping the backup** (see *Settings*; a loader switch never skips it).
 
 ## Settings
 
