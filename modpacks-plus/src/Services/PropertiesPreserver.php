@@ -47,9 +47,10 @@ final class PropertiesPreserver
         'motd', 'difficulty', 'gamemode', 'force-gamemode', 'hardcore', 'pvp', 'view-distance', 'simulation-distance',
         'spawn-protection', 'max-players', 'level-type', 'generator-settings', 'generate-structures', 'level-seed',
         'allow-flight', 'allow-nether', 'spawn-monsters', 'spawn-animals', 'spawn-npcs', 'max-world-size', 'max-build-height',
-        'entity-broadcast-range-percentage', 'max-tick-time', 'sync-chunk-writes', 'network-compression-threshold',
-        'initial-enabled-packs', 'initial-disabled-packs', 'player-idle-timeout', 'rate-limit', 'max-chained-neighbor-updates',
+        'entity-broadcast-range-percentage', 'sync-chunk-writes', 'player-idle-timeout', 'max-chained-neighbor-updates',
         'region-file-compression', 'pause-when-empty-seconds',
+        // Not here (plan 36 review): max-tick-time, rate-limit, network-compression-threshold and the
+        // initial data pack lists can degrade or disable the server, so they stay the server's.
     ];
 
     /** Dropped pack key names reported at most. */

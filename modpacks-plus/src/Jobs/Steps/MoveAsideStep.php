@@ -110,7 +110,15 @@ class MoveAsideStep extends InstallStep
                 return StepResult::again();
             }
 
-            if (!$validator->isProtected($path) && $files->stat($server, $path) !== null) {
+            $stat = $validator->isProtected($path) ? null : $files->stat($server, $path);
+            if ($stat !== null && $stat['directory']) {
+                // The old pack listed a file here; a folder now is the user's: never moved whole.
+                $kept = $install->progressValue('kept_folders', []);
+                $kept = is_array($kept) ? $kept : [];
+                $kept[] = $path;
+                $install->setProgress('kept_folders', array_values(array_unique($kept)));
+                $install->addLog('warning', 'kept_folder', ['path' => $path]);
+            } elseif ($stat !== null) {
                 $target = "$aside/$path";
                 if ($files->stat($server, $target) !== null) {
                     throw new StepFailedException('move_aside_conflict', $target);

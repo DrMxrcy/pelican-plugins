@@ -8,11 +8,15 @@ use App\Models\Server;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModpacksPlus\Filament\Server\Pages\ModpacksPage;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
+use DrMxrcy\ModpacksPlus\Services\PackSizes;
 use DrMxrcy\ModpacksPlus\Tests\Support\InstallScenario;
 use DrMxrcy\ModpacksPlus\Tests\Support\Mrpack;
 use DrMxrcy\ModpacksPlus\Tests\Support\PackVersions;
 use DrMxrcy\ModpacksPlus\Tests\TestCase;
+use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Schema;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -178,6 +182,55 @@ class PackUpdatePageTest extends TestCase
             ->call('updatePack', 'VERSID02')
             ->assertNotified(trans('modpacks-plus::strings.install.refused'));
         $this->assertSame(0, PackInstall::query()->where('mode', PackInstall::MODE_UPDATE)->count());
+    }
+
+    /** The banner's Update action, attached to the page so its closures run as rendered. */
+    private function bannerAction(): Action
+    {
+        /** @var ModpacksPage $instance */
+        $instance = Livewire::test(ModpacksPage::class)->instance();
+        $action = (new \ReflectionMethod($instance, 'makeUpdateAction'))->invoke($instance, 'update_banner', 'VERSID02', '2.0.0', null);
+        Schema::make($instance)->components([Section::make('x')->headerActions([$action])]);
+
+        return $action;
+    }
+
+    public function test_an_update_that_can_not_fit_the_disk_is_disabled_with_the_reason(): void
+    {
+        $server = $this->actingOn();
+        $server->forceFill(['disk' => 10 * 1024])->save();
+        Filament::setTenant($server->fresh());
+        $this->disk->used = 3 * 1024 ** 3;
+        $this->installedWithUpdate($server);
+        PackSizes::remember('modrinth', Mrpack::PACK_ID, 'VERSID02', 7 * 1024 ** 3);
+
+        $action = $this->bannerAction();
+
+        $this->assertTrue($action->isDisabled());
+        $this->assertSame(trans('modpacks-plus::strings.install.no_room'), (string) $action->getLabel());
+        $this->assertStringContainsString('needs at least 8 GB, 7 GB free of 10 GB', (string) $action->getTooltip());
+        $description = html_entity_decode(strip_tags((string) $action->getModalDescription()), ENT_QUOTES);
+        $this->assertStringContainsString('Pack size: 7 GB.', $description);
+        $this->assertStringContainsString('needs at least 8 GB, 7 GB free of 10 GB', $description);
+    }
+
+    public function test_an_update_that_fits_shows_the_size_and_stays_enabled(): void
+    {
+        $server = $this->actingOn();
+        $server->forceFill(['disk' => 10 * 1024])->save();
+        Filament::setTenant($server->fresh());
+        $this->disk->used = 3 * 1024 ** 3;
+        $this->installedWithUpdate($server);
+        PackSizes::remember('modrinth', Mrpack::PACK_ID, 'VERSID02', 2 * 1024 ** 3);
+
+        $action = $this->bannerAction();
+
+        $this->assertFalse($action->isDisabled());
+        $this->assertSame(trans('modpacks-plus::strings.actions.update', ['version' => '2.0.0']), (string) $action->getLabel());
+        $this->assertNull($action->getTooltip());
+        $description = html_entity_decode(strip_tags((string) $action->getModalDescription()), ENT_QUOTES);
+        $this->assertStringContainsString(trans('modpacks-plus::strings.install.update_body'), $description);
+        $this->assertStringContainsString('Pack size: 2 GB.', $description);
     }
 
     public function test_an_unknown_or_hostile_version_id_is_a_404(): void

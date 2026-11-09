@@ -875,7 +875,7 @@ class ModpacksPage extends Page implements HasTable
 
             $action = $needs === null
                 ? ($this->isUpdatable($source, $packId, $version['id'])
-                    ? $this->makeUpdateAction('update_'.$index, $version['id'], $version['version_number'])
+                    ? $this->makeUpdateAction('update_'.$index, $version['id'], $version['version_number'], $version)
                     : $this->makeInstallAction($index, $packId, $version, (string) $project['title'], $source))
                 : $this->makeMismatchAction($index, $packId, $version, (string) $project['title'], $needs, self::switchTarget($version, $serverMinecraft, $serverLoader), $source);
 
@@ -950,25 +950,34 @@ class ModpacksPage extends Page implements HasTable
     /**
      * "Update to <version>" with the "Overwrite my changes" choice (off by default).
      *
+     * Like Install (plan 38), a version known not to fit the server's disk is disabled with the
+     * reason, and the confirm text shows the pack size against the free space.
+     *
      * @param  string|\Closure(): string  $versionId
      * @param  string|\Closure(): string  $versionNumber
+     * @param  array{id: string, file?: array{size: int}|null}|null  $version  the version as listed (download size), if known
      */
-    private function makeUpdateAction(string $name, string|\Closure $versionId, string|\Closure $versionNumber): Action
+    private function makeUpdateAction(string $name, string|\Closure $versionId, string|\Closure $versionNumber, ?array $version = null): Action
     {
         $number = fn (): string => $versionNumber instanceof \Closure ? $versionNumber() : $versionNumber;
         $id = fn (): string => $versionId instanceof \Closure ? $versionId() : $versionId;
+        $data = fn (): array => $version ?? ['id' => $id()];
+        $wontFit = fn (): ?string => ($installed = $this->lastInstalledPack()) !== null ? $this->wontFit($installed->provider, $installed->pack_id, $data()) : null;
 
         return Action::make($name)
-            ->label(fn () => trans('modpacks-plus::strings.actions.update', ['version' => $number()]))
+            ->label(fn () => $wontFit() !== null ? trans('modpacks-plus::strings.install.no_room') : trans('modpacks-plus::strings.actions.update', ['version' => $number()]))
             ->icon('tabler-refresh')
             ->color('success')
             // Hidden without the install permissions; updatePack() re-checks them anyway.
             ->visible(fn () => static::canInstall())
             ->authorize(fn () => static::canInstall())
-            ->disabled(fn () => $this->activeInstall() !== null)
+            ->disabled(fn () => $this->activeInstall() !== null || $wontFit() !== null)
+            ->tooltip(fn () => $wontFit())
             ->requiresConfirmation()
             ->modalHeading(fn () => trans('modpacks-plus::strings.install.update_heading', ['name' => (string) $this->lastInstalledPack()?->name, 'version' => $number()]))
-            ->modalDescription(trans('modpacks-plus::strings.install.update_body'))
+            ->modalDescription(fn () => ($installed = $this->lastInstalledPack()) !== null
+                ? $this->installDescription($installed->provider, $installed->pack_id, $data(), trans('modpacks-plus::strings.install.update_body'))
+                : trans('modpacks-plus::strings.install.update_body'))
             ->modalSubmitActionLabel(fn () => trans('modpacks-plus::strings.actions.update', ['version' => $number()]))
             ->schema([
                 Toggle::make('overwrite_changes')
@@ -1079,9 +1088,9 @@ class ModpacksPage extends Page implements HasTable
      *
      * @param  array{id: string, file?: array{size: int}|null}  $version
      */
-    private function installDescription(string $source, string $packId, array $version): HtmlString
+    private function installDescription(string $source, string $packId, array $version, ?string $intro = null): HtmlString
     {
-        $lines = [trans('modpacks-plus::strings.install.confirm_body', ['folders' => 'mods/, config/, defaultconfigs/, kubejs/, scripts/'])];
+        $lines = [$intro ?? trans('modpacks-plus::strings.install.confirm_body', ['folders' => 'mods/, config/, defaultconfigs/, kubejs/, scripts/'])];
 
         $size = $this->packSize($source, $packId, $version);
         $lines[] = match (true) {

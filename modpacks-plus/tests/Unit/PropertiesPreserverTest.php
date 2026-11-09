@@ -27,7 +27,7 @@ class PropertiesPreserverTest extends TestCase
             ."custom-plugin-key=keep me\n\n# admin note\n"
             ."difficulty=hard\n"        // preserved
             ."max-players=20\n"
-            ."level-type=skyblock\nmax-tick-time=-1\n" // only the pack has them: appended
+            ."level-type=skyblock\n"   // only the pack has it: appended (max-tick-time is server-only)
             ."query.port=25570\n",      // allocation, appended
             $merged,
         );
@@ -202,6 +202,11 @@ class PropertiesPreserverTest extends TestCase
             'hidden players' => ['hide-online-players', 'true'],
             'chat signing' => ['enforce-secure-profile', 'false'],
             'unknown future key' => ['some-key-mojang-adds-in-2030', 'x'],
+            'watchdog off' => ['max-tick-time', '-1'],
+            'packet rate limit' => ['rate-limit', '1'],
+            'compression' => ['network-compression-threshold', '0'],
+            'enabled data packs' => ['initial-enabled-packs', 'vanilla,evil'],
+            'disabled data packs' => ['initial-disabled-packs', 'vanilla'],
             'gameplay key in odd case' => ['MOTD', 'x'],
         ];
     }
@@ -236,6 +241,14 @@ class PropertiesPreserverTest extends TestCase
         $this->assertSame("motd=server\n", PropertiesPreserver::merge("motd=server\n", "motd=pack\n", ['motd'], null));
         // Listing nothing never lets a server-only key through.
         $this->assertSame("white-list=true\n", PropertiesPreserver::merge("white-list=true\n", "white-list=false\n", [], null));
+    }
+
+    public function test_max_players_stays_a_gameplay_key_and_degrading_keys_do_not(): void
+    {
+        $this->assertContains('max-players', PropertiesPreserver::PACK_KEYS);
+        foreach (['max-tick-time', 'rate-limit', 'network-compression-threshold', 'initial-enabled-packs', 'initial-disabled-packs'] as $key) {
+            $this->assertNotContains($key, PropertiesPreserver::PACK_KEYS);
+        }
     }
 
     public function test_dropped_pack_keys_are_reported_by_name(): void

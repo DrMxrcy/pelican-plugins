@@ -161,6 +161,7 @@ return [
         ],
         'fresh_world' => 'Neue Welt: die alte Welt (:paths) liegt in :path.',
         'properties_dropped' => 'Einstellungen aus der server.properties des Packs, die ein Pack nicht ändern darf, blieben wie auf dem Server: :keys',
+        'kept_folders' => 'Blieb liegen (das alte Pack hatte dort eine Datei, jetzt ist es ein Ordner): :paths',
     ],
     'reasons' => [
         'unsafe_level_name' => 'Der Weltordner (level-name in server.properties) ist kein Ordner im Server: :detail',
@@ -325,6 +326,7 @@ return [
         'fresh_world' => 'Neue Welt: :path nach :to verschoben',
         'properties_recovered' => 'Die Installation endete, während die server.properties ersetzt wurde: :path wurde als server.properties zurückgelegt.',
         'properties_recover_failed' => 'Die Installation endete, während die server.properties ersetzt wurde, und sie konnte nicht zurückgelegt werden: sie liegt in :path. Nutze "Vorherige Dateien wiederherstellen".',
+        'kept_folder' => ':path blieb liegen: das alte Pack hatte dort eine Datei, jetzt ist es ein Ordner.',
     ],
     'restore' => [
         'heading' => 'Vorherige Dateien wiederherstellen?',

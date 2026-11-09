@@ -473,6 +473,7 @@ class InstallEngine
             'properties' => $install->progressValue('properties'),
             'properties_dropped' => $install->progressValue('properties_dropped'),
             'fresh_world' => $install->progressValue('fresh_world_moved'),
+            'kept_folders' => $install->progressValue('kept_folders'),
             'loader_switch' => $install->isLoaderSwitch() ? [
                 'loader' => $install->loader_switch['loader'] ?? null,
                 'minecraft' => $install->loader_switch['minecraft'] ?? null,

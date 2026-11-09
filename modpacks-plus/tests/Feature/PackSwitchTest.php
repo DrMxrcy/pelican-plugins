@@ -8,6 +8,7 @@ use App\Models\EggVariable;
 use App\Models\Server;
 use App\Services\Servers\ReinstallServerService;
 use App\Tests\Traits\Integration\CreatesTestModels;
+use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
 use DrMxrcy\ModpacksPlus\Jobs\RestorePreviousFilesJob;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\AwaitReinstallStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\DownloadStep;
@@ -125,6 +126,25 @@ class PackSwitchTest extends TestCase
         $this->assertSame($before, $this->playerData());
         $this->assertSame([], $this->files->violations);
         $this->assertNull($install->summary['fresh_world'] ?? null);
+    }
+
+    public function test_a_folder_where_the_old_pack_had_a_file_is_never_moved_on_a_switch(): void
+    {
+        $server = $this->serverWithPackA();
+        // server-icon.png (a file of pack A) is a folder of the user's now.
+        unset($this->files->files['server-icon.png']);
+        $this->files->seed(['server-icon.png/notes.txt' => 'mine']);
+
+        $install = $this->runVersion($server, 'BVERS001', packId: 'PACKBBBB');
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame('mine', $this->files->files['server-icon.png/notes.txt']);
+        $this->assertNotContains('server-icon.png', $install->movedFolders());
+        $this->assertSame(['server-icon.png'], $install->summary['kept_folders'] ?? null);
+        $this->assertSame(1, collect($install->log)->where('key', 'kept_folder')->count());
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.summary.kept_folders', ['paths' => 'server-icon.png'])), (string) InstallProgress::summary($install));
+        // Pack A's other recorded file still went aside.
+        $this->assertSame('{}', $this->files->files[$install->moved_aside_path.'/packmenu/menu.json'] ?? null);
     }
 
     public function test_switching_to_a_pack_for_another_loader_keeps_world_ops_whitelist_and_bans(): void

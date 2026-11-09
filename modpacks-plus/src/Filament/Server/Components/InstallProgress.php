@@ -113,6 +113,9 @@ final class InstallProgress
             ]);
         }
 
+        if (!empty($summary['kept_folders']) && is_array($summary['kept_folders'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.kept_folders', ['paths' => implode(', ', array_map('strval', $summary['kept_folders']))]);
+        }
         if (!empty($summary['fresh_world']) && is_array($summary['fresh_world'])) {
             $lines[] = trans('modpacks-plus::strings.summary.fresh_world', ['paths' => implode(', ', array_map('strval', $summary['fresh_world'])), 'path' => (string) ($summary['moved_aside_path'] ?? '')]);
         }

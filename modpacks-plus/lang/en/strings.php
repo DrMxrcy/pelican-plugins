@@ -161,6 +161,7 @@ return [
         ],
         'fresh_world' => 'Fresh world: the old world (:paths) is in :path.',
         'properties_dropped' => 'Settings in the pack\'s server.properties a pack may not change, kept as the server had them: :keys',
+        'kept_folders' => 'Left in place (the old pack had a file there, it is a folder now): :paths',
     ],
     'reasons' => [
         'unsafe_level_name' => 'The world folder (level-name in server.properties) is not a folder inside the server: :detail',
@@ -325,6 +326,7 @@ return [
         'fresh_world' => 'Fresh world: moved :path to :to',
         'properties_recovered' => 'The install ended while server.properties was being replaced: put :path back as server.properties.',
         'properties_recover_failed' => 'The install ended while server.properties was being replaced and it could not be put back: it is in :path. Use "Restore previous files".',
+        'kept_folder' => 'Left :path in place: the old pack had a file there, it is a folder now.',
     ],
     'restore' => [
         'heading' => 'Restore previous files?',
