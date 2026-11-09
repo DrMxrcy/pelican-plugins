@@ -106,6 +106,8 @@ return [
         'queue_required' => 'Installationen brauchen einen Queue-Worker (QUEUE_CONNECTION ist "sync").',
         'already_running' => 'Auf diesem Server läuft bereits eine Pack-Installation.',
         'duplicate_path' => 'Das Pack nennt denselben Pfad zweimal: :detail',
+        'version_unsupported' => 'Das Loader-Egg kann nicht auf diese Version gesetzt werden: :detail',
+        'loader_unsupported' => 'Zu diesem Loader kann nicht gewechselt werden: :detail',
     ],
     'steps' => [
         'prepare' => 'Pack prüfen',
