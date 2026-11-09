@@ -2,6 +2,7 @@
 
 return [
     'reasons' => [
+        'unsafe_level_name' => 'The world folder (level-name in server.properties) is not a folder inside the server: :detail',
         'unsafe_path' => 'The pack contains a path outside the server folder: :detail',
         'protected_path' => 'The pack tries to write a protected file or world: :detail',
         'no_allowed_url' => 'The pack has no allowed HTTPS download for: :detail',
@@ -13,6 +14,14 @@ return [
         'archive_too_large' => 'The pack archive is too large: :detail',
         'too_many_entries' => 'The pack archive has too many entries (:detail).',
         'readback_too_large' => 'A file not hosted on Modrinth is too large to verify: :detail',
+        'download_failed' => 'The pack could not be downloaded: :detail',
+        'bad_archive' => 'The pack archive is damaged or unsupported: :detail',
+        'bad_index' => 'The pack index is missing or invalid: :detail',
+        'not_a_modpack' => 'This project is not a modpack: :detail',
+        'not_found' => 'Not found on Modrinth: :detail',
+        'api_unavailable' => 'Modrinth could not be reached. Try again later. (:detail)',
+        'version_mismatch' => 'This version belongs to another pack: :detail',
+        'no_pack_file' => 'This version has no .mrpack file: :detail',
         'duplicate_path' => 'The pack lists the same path twice: :detail',
     ],
     'settings' => [
