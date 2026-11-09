@@ -1958,10 +1958,12 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                     ->visible(fn () => $this->projectFolderProblem() !== null),
                 Grid::make(3)
                     ->schema([
-                        TextEntry::make('Minecraft Version')
+                        TextEntry::make('minecraft_version')
+                            ->label(trans('modrinth-plus::strings.page.minecraft_version'))
                             ->state(fn () => MinecraftModrinth::getMinecraftVersion($server) ?? trans('modrinth-plus::strings.page.unknown'))
                             ->badge(),
-                        TextEntry::make('Loader')
+                        TextEntry::make('loader')
+                            ->label(trans('modrinth-plus::strings.page.loader'))
                             ->state(fn () => MinecraftModrinth::getLoaderFromServer($server, static::$modrinthProjectType)['display_name'] ?? trans('modrinth-plus::strings.page.unknown'))
                             ->icon(fn () => new HtmlString(MinecraftModrinth::getLoaderFromServer($server, static::$modrinthProjectType)['icon'] ?? ''))
                             ->badge(),

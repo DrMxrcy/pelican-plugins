@@ -15,7 +15,7 @@ return [
         'open_folder' => ':folder-Ordner öffnen',
         'minecraft_version' => 'Minecraft-Version',
         'loader' => 'Loader',
-        'installed' => 'Installiert :type',
+        'installed' => 'Installierte :type',
         'unknown' => 'Unbekannt',
         'view_all' => 'Alle',
         'view_installed' => 'Installiert',
