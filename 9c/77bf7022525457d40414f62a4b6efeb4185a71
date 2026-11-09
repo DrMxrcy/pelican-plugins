@@ -1,0 +1,24 @@
+modrinth-plus/tests/Feature/PinMetadataTest.php
+  s_1d8485e49bfacb::t_0d6aa59c003887 1-114,116,118-132,134-147,149-161,163-174,176-186,188-200,202-225,227-233,235-246,248-278
+  s_1d8485e49bfacb::t_0cad8867821a43 115,117,133,148,162,175,187,201,226,234,247
+modrinth-plus/src/Facades/MinecraftModrinth.php
+  s_1d8485e49bfacb::t_558745fc512fdc 12,32,39
+modrinth-plus/src/Services/MinecraftModrinthService.php
+  s_1d8485e49bfacb::t_84c56f6804afb7 51-53,387,889,902,927,941-1012,1531,1546-1548,1553
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9c77bf7022525457d40414f62a4b6efeb4185a71",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
