@@ -22,11 +22,11 @@ class PlayersPlusServiceProvider extends ServiceProvider
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
             $schedule->command(PollPlayersCommand::class)
                 ->cron(sprintf('*/%d * * * *', Settings::pollInterval()))
-                ->withoutOverlapping();
+                ->withoutOverlapping(10);
 
             $schedule->command(PruneSamplesCommand::class)
                 ->dailyAt('04:20')
-                ->withoutOverlapping();
+                ->withoutOverlapping(10);
         });
     }
 }

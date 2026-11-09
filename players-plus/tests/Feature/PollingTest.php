@@ -79,9 +79,9 @@ class PollingTest extends TestCase
     }
 
     /** @param  list<int>  $extraPorts  more allocations of the server on the same IP */
-    private function minecraftServer(string $state = 'running', ?string $properties = "enable-query=false\n", string $ip = '10.0.0.5', int $port = 25565, array $extraPorts = []): Server
+    private function minecraftServer(string $state = 'running', ?string $properties = "enable-query=false\n", string $ip = '10.0.0.5', int $port = 25565, array $extraPorts = [], ?int $nodeId = null): Server
     {
-        $server = $this->createServerModel();
+        $server = $this->createServerModel($nodeId === null ? [] : ['node_id' => $nodeId]);
         $egg = $this->cloneEggAndVariables($server->egg);
         $egg->forceFill(['tags' => ['minecraft', 'paper']])->save();
         $server->forceFill(['egg_id' => $egg->id])->save();
@@ -109,11 +109,19 @@ class PollingTest extends TestCase
             : Packets::fullStatResponse(substr($request, 3, 4), $names));
     }
 
-    private function poll(Server $server, int $slot = 1_800_000_000): Sample
+    private function poll(Server $server, int $slot = 1_800_000_000, float $daemonSlowSeconds = 0.9): Sample
     {
-        (new PollServerJob($server->id, $slot))->handle($this->app->make(PlayerPoller::class));
+        Carbon::setTestNow(Carbon::createFromTimestamp($slot + 10));
+        $poller = $this->app->make(PlayerPoller::class);
+        $poller->daemonSlowSeconds = $daemonSlowSeconds;
+        (new PollServerJob($server->id, $slot))->handle($poller);
 
         return Sample::query()->where('server_id', $server->id)->where('polled_at', Carbon::createFromTimestamp($slot))->firstOrFail();
+    }
+
+    private function daemonCalls(): int
+    {
+        return Http::recorded(fn (Request $request) => (bool) preg_match('#/api/servers/[0-9a-f-]+$#', $request->url()))->count();
     }
 
     // ---- command -------------------------------------------------------------------------
@@ -159,20 +167,60 @@ class PollingTest extends TestCase
         $this->assertSame(0, PollPlayersCommand::slot(1_800_000_000, 5) % 300);
     }
 
-    /** One server that never answers must not stop the next one from being sampled. */
-    public function test_a_dead_server_does_not_stop_the_others(): void
+    /** A backed-up queue must not write samples for slots that are already over. */
+    public function test_job_for_a_finished_slot_is_dropped(): void
     {
-        $dead = $this->minecraftServer(ip: '10.0.0.6');
-        $alive = $this->minecraftServer();
+        $server = $this->minecraftServer();
         $this->answerPing();
+        $slot = 1_800_000_000;
 
-        $this->artisan('players-plus:poll')->assertSuccessful();
+        Carbon::setTestNow(Carbon::createFromTimestamp($slot + 120));
+        (new PollServerJob($server->id, $slot))->handle($this->app->make(PlayerPoller::class));
 
-        $this->assertSame(SampleStatus::Unreachable, Sample::latestFor($dead)?->status);
-        $this->assertSame(SampleStatus::Online, Sample::latestFor($alive)?->status);
-        foreach ($this->connector->opened as $open) {
-            $this->assertSame(3.0, $open['timeout']);
-        }
+        $this->assertSame(0, Sample::query()->count());
+        $this->assertSame([], $this->connector->opened);
+        Http::assertNothingSent();
+
+        Carbon::setTestNow(Carbon::createFromTimestamp($slot + 119));
+        (new PollServerJob($server->id, $slot))->handle($this->app->make(PlayerPoller::class));
+
+        $this->assertSame(1, Sample::query()->count());
+    }
+
+    /** A daemon that times out trips a breaker: its node's other servers skip it for the rest of the slot. */
+    public function test_slow_daemon_failure_skips_the_rest_of_the_node_for_the_slot(): void
+    {
+        $first = $this->minecraftServer();
+        $sameNode = $this->minecraftServer(ip: '10.0.0.7', nodeId: $first->node_id);
+        $otherNode = $this->minecraftServer();
+        $this->daemonDown = true;
+
+        // Threshold 0: every "missing" counts as slow, standing in for the daemon's 1 s timeout.
+        $this->assertSame(SampleStatus::Offline, $this->poll($first, daemonSlowSeconds: 0.0)->status);
+        $this->assertSame(1, $this->daemonCalls());
+
+        $this->assertSame(SampleStatus::Offline, $this->poll($sameNode, daemonSlowSeconds: 0.0)->status);
+        $this->assertSame(1, $this->daemonCalls(), 'same node, same slot: daemon not asked again');
+
+        $this->poll($otherNode, daemonSlowSeconds: 0.0);
+        $this->assertSame(2, $this->daemonCalls(), 'other nodes are not affected');
+
+        $this->daemonDown = false;
+        $this->answerPing('10.0.0.7');
+        $this->assertSame(SampleStatus::Online, $this->poll($sameNode, 1_800_000_120)->status, 'the breaker ends with the slot');
+    }
+
+    /** A fast "missing" (e.g. server not on the daemon) is not a node outage. */
+    public function test_fast_missing_status_does_not_trip_the_breaker(): void
+    {
+        $first = $this->minecraftServer();
+        $sameNode = $this->minecraftServer(ip: '10.0.0.7', nodeId: $first->node_id);
+        $this->daemonDown = true;
+
+        $this->poll($first, daemonSlowSeconds: 60.0);
+        $this->poll($sameNode, daemonSlowSeconds: 60.0);
+
+        $this->assertSame(2, $this->daemonCalls());
     }
 
     public function test_job_is_short_unique_per_slot_and_not_retried(): void
@@ -234,6 +282,11 @@ class PollingTest extends TestCase
 
         $sample = $this->poll($server);
 
+        $udp = array_values(array_filter($this->connector->opened, fn (array $open) => str_starts_with($open['uri'], 'udp://')));
+        $this->assertCount(1, $udp);
+        $this->assertLessThanOrEqual(3.0, $udp[0]['timeout']);
+        $this->assertGreaterThanOrEqual(0.25, $udp[0]['timeout']);
+
         $this->assertSame(SampleStatus::Online, $sample->status);
         $this->assertSame(3, $sample->online);
         $this->assertSame('query', $sample->source);
@@ -248,6 +301,7 @@ class PollingTest extends TestCase
     {
         $server = $this->minecraftServer(properties: "enable-query=true\n");
         $this->answerQuery(['Notch'], port: 25565);
+        $this->answerPing();
 
         $sample = $this->poll($server);
 
@@ -303,6 +357,7 @@ class PollingTest extends TestCase
     {
         $log = Log::spy();
         $server = $this->minecraftServer(properties: "enable-query=true\n");
+        $this->answerQuery(['Notch'], port: 25565);
 
         $first = $this->poll($server, 1_800_000_000);
         $second = $this->poll($server, 1_800_000_120);
@@ -311,6 +366,8 @@ class PollingTest extends TestCase
         $this->assertSame(SampleStatus::Unreachable, $second->status);
         $this->assertNull($first->online);
         $log->shouldHaveReceived('warning')->once();
+        // Ping failed, so Query was skipped: a dead server costs one timeout, not two.
+        $this->assertSame(['tcp://10.0.0.5:25565'], array_unique(array_column($this->connector->opened, 'uri')));
     }
 
     /** The panel turns a daemon error into ContainerStatus::Missing, i.e. "not running". */
@@ -355,7 +412,8 @@ class PollingTest extends TestCase
         $this->answerPing();
         $this->poll($server, 1_800_000_120);
 
-        Http::assertSentCount(2); // one status lookup (cached 15 s) + one server.properties read
+        $reads = Http::recorded(fn (Request $request) => str_contains($request->url(), '/files/contents'))->count();
+        $this->assertSame(1, $reads, 'server.properties is read once and cached');
     }
 
     // ---- schedule and retention ----------------------------------------------------------
@@ -372,6 +430,7 @@ class PollingTest extends TestCase
         $this->assertNotNull($poll);
         $this->assertSame('*/3 * * * *', $poll->expression);
         $this->assertTrue($poll->withoutOverlapping);
+        $this->assertSame(10, $poll->expiresAt);
         $this->assertNotNull($prune);
     }
 

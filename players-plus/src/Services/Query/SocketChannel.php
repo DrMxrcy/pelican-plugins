@@ -12,13 +12,16 @@ final class SocketChannel implements Channel
     private float $deadline;
 
     /** @param  resource  $socket */
-    private function __construct(private $socket, private readonly float $timeout)
+    private function __construct(private $socket, private readonly float $timeout, float $deadline)
     {
-        $this->deadline = microtime(true) + 2 * $timeout;
+        $this->deadline = $deadline;
     }
 
     public static function open(string $uri, float $timeout): self
     {
+        // Connecting counts toward the overall budget too (DNS resolution happens before this
+        // timeout applies and is not bounded by it).
+        $deadline = microtime(true) + 2 * $timeout;
         $errno = 0;
         $error = '';
         // A refused or unreachable server is a normal poll outcome, not a PHP warning.
@@ -33,7 +36,7 @@ final class SocketChannel implements Channel
             throw new QueryException("could not connect to $uri: " . ($error !== '' ? $error : "error $errno"));
         }
 
-        return new self($socket, $timeout);
+        return new self($socket, $timeout, $deadline);
     }
 
     public function write(string $bytes): void

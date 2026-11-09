@@ -7,6 +7,7 @@ use DrMxrcy\PlayersPlus\Enums\SampleStatus;
 use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\Services\PlayerPoller;
 use DrMxrcy\PlayersPlus\Services\PollResult;
+use DrMxrcy\PlayersPlus\Support\Settings;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -43,13 +44,18 @@ class PollServerJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(PlayerPoller $poller): void
     {
+        // A backed-up queue must not write samples for slots that are already over.
+        if (now()->getTimestamp() - $this->slot >= Settings::pollInterval() * 60) {
+            return;
+        }
+
         $server = Server::query()->find($this->serverId);
         if ($server === null) {
             return;
         }
 
         try {
-            $result = $poller->poll($server);
+            $result = $poller->poll($server, $this->slot);
         } catch (Throwable $exception) {
             $result = PollResult::unreachable($exception::class . ': ' . $exception->getMessage());
         }

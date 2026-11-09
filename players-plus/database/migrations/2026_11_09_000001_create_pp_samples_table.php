@@ -21,6 +21,8 @@ return new class extends Migration
 
             $table->foreign('server_id')->references('id')->on('servers')->cascadeOnDelete();
             $table->unique(['server_id', 'polled_at']);
+            // The daily prune deletes by age across all servers.
+            $table->index('polled_at');
         });
     }
 

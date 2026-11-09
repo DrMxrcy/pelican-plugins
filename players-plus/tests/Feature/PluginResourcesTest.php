@@ -2,15 +2,24 @@
 
 namespace DrMxrcy\PlayersPlus\Tests\Feature;
 
+use DrMxrcy\PlayersPlus\Console\Commands\PollPlayersCommand;
+use DrMxrcy\PlayersPlus\Console\Commands\PruneSamplesCommand;
+use DrMxrcy\PlayersPlus\Filament\Server\Pages\PlayersPage;
+use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\PlayersPlusPlugin;
 use DrMxrcy\PlayersPlus\Tests\TestCase;
+use FilesystemIterator;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 
 class PluginResourcesTest extends TestCase
 {
-    public function test_plugin_config_is_registered(): void
+    public function test_plugin_config_is_registered_with_its_defaults(): void
     {
-        $this->assertTrue(config()->has('players-plus'));
-        $this->assertSame(require dirname(__DIR__, 2) . '/config/players-plus.php', config('players-plus'));
+        $this->assertTrue(config('players-plus.enabled'));
+        $this->assertSame(2, config('players-plus.poll_interval'));
+        $this->assertSame(30, config('players-plus.retention_days'));
+        $this->assertSame(3, config('players-plus.timeout'));
     }
 
     public function test_plugin_translations_resolve(): void
@@ -28,28 +37,54 @@ class PluginResourcesTest extends TestCase
 
     /**
      * Player Counter and Server Analytics live in the same panel: every name this plugin adds
-     * must carry its own prefix so nothing collides.
+     * (env, tables, translations, routes, commands, cache keys) must carry its own prefix.
      */
     public function test_everything_is_namespaced(): void
     {
         $root = dirname(__DIR__, 2);
 
-        foreach (array_keys(require $root . '/config/players-plus.php') as $key) {
-            $this->assertIsString($key);
+        preg_match_all("/env\\('([A-Z_]+)'/", (string) file_get_contents($root . '/config/players-plus.php'), $env);
+        $this->assertNotEmpty($env[1]);
+        foreach ($env[1] as $name) {
+            $this->assertStringStartsWith('PLAYERS_PLUS_', $name);
         }
 
-        $config = (string) file_get_contents($root . '/config/players-plus.php');
-        preg_match_all("/env\('([A-Z_]+)'/", $config, $matches);
-        $this->assertNotEmpty($matches[1]);
-        foreach ($matches[1] as $env) {
-            $this->assertStringStartsWith('PLAYERS_PLUS_', $env);
-        }
-
+        $tables = [];
         foreach (glob($root . '/database/migrations/*.php') ?: [] as $migration) {
-            preg_match_all("/Schema::(?:create|table|dropIfExists)\('([a-z_]+)'/", (string) file_get_contents($migration), $tables);
-            foreach ($tables[1] as $table) {
-                $this->assertStringStartsWith('pp_', $table, basename($migration));
+            preg_match_all("/Schema::(?:create|table|dropIfExists)\\('([a-z_]+)'/", (string) file_get_contents($migration), $found);
+            array_push($tables, ...$found[1]);
+        }
+        $this->assertNotEmpty($tables);
+        foreach ($tables as $table) {
+            $this->assertStringStartsWith('pp_', $table);
+        }
+        $this->assertSame('pp_samples', (new Sample())->getTable());
+
+        $this->assertStringStartsWith('players-plus', (string) PlayersPage::getSlug());
+        $this->assertStringStartsWith('players-plus:', (new PollPlayersCommand())->getName());
+        $this->assertStringStartsWith('players-plus:', (new PruneSamplesCommand())->getName());
+
+        $translations = 0;
+        $cacheKeys = 0;
+        $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/src', FilesystemIterator::SKIP_DOTS));
+        foreach ($files as $file) {
+            $source = (string) file_get_contents((string) $file);
+            $rel = substr((string) $file, strlen($root) + 1);
+
+            preg_match_all("/trans\\(\\s*'([^']+)'/", $source, $keys);
+            foreach ($keys[1] as $key) {
+                $translations++;
+                $this->assertStringStartsWith('players-plus::', $key, $rel);
+            }
+
+            // Cache keys are dotted, interpolated literals such as "players-plus.query-port.$id".
+            preg_match_all('/"([a-z][a-z-]*\\.[a-z.-]*)\\$/', $source, $keys);
+            foreach ($keys[1] as $key) {
+                $cacheKeys++;
+                $this->assertStringStartsWith('players-plus.', $key, $rel);
             }
         }
+        $this->assertGreaterThan(10, $translations);
+        $this->assertGreaterThanOrEqual(3, $cacheKeys);
     }
 }

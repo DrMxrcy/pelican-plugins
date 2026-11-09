@@ -153,6 +153,17 @@ class OnlineViewTest extends TestCase
             ->assertSee(trans('players-plus::strings.page.stale_title'));
     }
 
+    /** Bedrock names Floodgate drops from the list must not trigger the "ping shows 12" hint. */
+    public function test_partial_hint_only_when_more_than_the_ping_cap_are_online(): void
+    {
+        $server = $this->account();
+        $this->sample($server, SampleStatus::Online, 3, 20, [['name' => 'Notch', 'uuid' => null]]);
+
+        Livewire::test(PlayersPage::class)->loadTable()
+            ->assertSee('3 / 20')
+            ->assertDontSee('enable-query=true');
+    }
+
     public function test_page_is_hidden_for_other_games(): void
     {
         $this->account(['source']);

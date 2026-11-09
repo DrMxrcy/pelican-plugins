@@ -88,6 +88,39 @@ class MinecraftQueryTest extends TestCase
         ], $result->players);
     }
 
+    public function test_oversized_ping_sample_is_deduped_and_capped(): void
+    {
+        $sample = [];
+        for ($i = 0; $i < 500; $i++) {
+            $sample[] = ['name' => 'p' . ($i % 300), 'id' => null];
+        }
+
+        $result = MinecraftQuery::parseStatusJson((string) json_encode(['players' => ['online' => 500, 'max' => 500, 'sample' => $sample]]));
+
+        $this->assertCount(MinecraftQuery::MAX_PLAYERS, $result->players);
+        $this->assertSame(MinecraftQuery::MAX_PLAYERS, count(array_unique(array_column($result->players, 'name'))));
+    }
+
+    public function test_ping_counts_above_the_storage_limit_are_clamped(): void
+    {
+        $result = MinecraftQuery::parseStatusJson('{"players":{"online":99999999999,"max":9223372036854775807}}');
+
+        $this->assertSame(MinecraftQuery::MAX_COUNT, $result->online);
+        $this->assertSame(MinecraftQuery::MAX_COUNT, $result->max);
+    }
+
+    public function test_name_validation(): void
+    {
+        $this->assertTrue(MinecraftQuery::isPlayerName('Notch'));
+        $this->assertTrue(MinecraftQuery::isPlayerName('.BedrockSteve'), 'Floodgate prefix');
+        $this->assertTrue(MinecraftQuery::isPlayerName('*BedrockSteve'));
+        $this->assertFalse(MinecraftQuery::isPlayerName("Notch\n"), 'trailing newline');
+        $this->assertFalse(MinecraftQuery::isPlayerName('..Steve'));
+        $this->assertFalse(MinecraftQuery::isPlayerName('Steve.'));
+        $this->assertFalse(MinecraftQuery::isPlayerName(''));
+        $this->assertFalse(MinecraftQuery::isPlayerName('Anonymous Player'));
+    }
+
     /** @return array<string, array{string}> */
     public static function badStatusJson(): array
     {
@@ -204,6 +237,30 @@ class MinecraftQueryTest extends TestCase
 
         $this->assertSame(['Notch'], $result->names);
         $this->assertSame(3, $result->online, 'the count is what the server reports');
+    }
+
+    public function test_oversized_query_list_is_deduped_and_capped(): void
+    {
+        $names = [];
+        for ($i = 0; $i < 1000; $i++) {
+            $names[] = 'p' . ($i % 400);
+        }
+
+        $result = MinecraftQuery::parseFullStat(Packets::fullStatResponse("\x01\x02\x03\x04", $names), "\x01\x02\x03\x04");
+
+        $this->assertCount(MinecraftQuery::MAX_PLAYERS, $result->names);
+        $this->assertSame($result->names, array_values(array_unique($result->names)));
+        $this->assertSame('p0', $result->names[0]);
+    }
+
+    public function test_query_counts_above_the_storage_limit_are_clamped(): void
+    {
+        $packet = Packets::fullStatResponse("\x01\x02\x03\x04", [], ['numplayers' => '99999999999999999999999', 'maxplayers' => '2147483648']);
+
+        $result = MinecraftQuery::parseFullStat($packet, "\x01\x02\x03\x04");
+
+        $this->assertSame(MinecraftQuery::MAX_COUNT, $result->online);
+        $this->assertSame(MinecraftQuery::MAX_COUNT, $result->max);
     }
 
     /** @return array<string, array{string}> */

@@ -47,9 +47,11 @@ final class PlayerList
 
     public static function isPartial(Sample $sample): bool
     {
+        // Ping's sample is capped by the server, so more online than the cap means names are
+        // missing. Names dropped for other reasons (e.g. invalid) don't trigger this hint.
         return $sample->status === SampleStatus::Online
             && $sample->source === 'ping'
-            && (int) $sample->online > count($sample->players ?? []);
+            && (int) $sample->online > self::PING_SAMPLE_LIMIT;
     }
 
     /** No sample for three poll intervals: the scheduler or the queue worker is probably not running. */

@@ -18,7 +18,14 @@ class MinecraftQuery
     /** Status JSON with a large favicon is ~50 KB; anything past this is not a status answer. */
     public const MAX_PACKET_BYTES = 1_048_576;
 
-    private const NAME_PATTERN = '/^[A-Za-z0-9_]{1,16}$/';
+    // Java names, optionally with the Floodgate/Geyser prefix (`.` or `*`) for Bedrock players.
+    private const NAME_PATTERN = '/^[.*]?[A-Za-z0-9_]{1,16}$/D';
+
+    /** Names kept per poll; a hostile server can send any number. */
+    public const MAX_PLAYERS = 200;
+
+    /** Counts are stored as unsigned 32-bit ints; clamp below the signed limit. */
+    public const MAX_COUNT = 2_147_483_647;
 
     private const NIL_UUID = '00000000000000000000000000000000';
 
@@ -101,16 +108,19 @@ class MinecraftQuery
         $sample = [];
         foreach (is_array($players['sample'] ?? null) ? $players['sample'] : [] as $entry) {
             $name = is_array($entry) ? ($entry['name'] ?? null) : null;
-            if (!is_string($name) || !self::isPlayerName($name)) {
+            if (!is_string($name) || !self::isPlayerName($name) || isset($sample[$name])) {
                 continue;
             }
 
-            $sample[] = ['name' => $name, 'uuid' => self::normalizeUuid($entry['id'] ?? null)];
+            $sample[$name] = ['name' => $name, 'uuid' => self::normalizeUuid($entry['id'] ?? null)];
+            if (count($sample) === self::MAX_PLAYERS) {
+                break;
+            }
         }
 
         $version = $data['version']['name'] ?? null;
 
-        return new PingResult($online, $max, $sample, is_string($version) ? $version : null);
+        return new PingResult(min($online, self::MAX_COUNT), min($max, self::MAX_COUNT), array_values($sample), is_string($version) ? $version : null);
     }
 
     /** @throws QueryException */
@@ -144,12 +154,30 @@ class MinecraftQuery
             throw new QueryException('bad player count');
         }
 
-        $names = array_values(array_filter(
-            explode("\x00", substr($packet, $split + 11)),
-            fn (string $name) => self::isPlayerName($name),
-        ));
+        $names = [];
+        foreach (explode("\x00", substr($packet, $split + 11)) as $name) {
+            if (self::isPlayerName($name)) {
+                $names[$name] = true;
+                if (count($names) === self::MAX_PLAYERS) {
+                    break;
+                }
+            }
+        }
 
-        return new QueryResult((int) $online, (int) $max, $names, isset($kv['version']) && $kv['version'] !== '' ? $kv['version'] : null);
+        return new QueryResult(
+            self::clampCount($online),
+            self::clampCount($max),
+            array_map('strval', array_keys($names)),
+            isset($kv['version']) && $kv['version'] !== '' ? $kv['version'] : null,
+        );
+    }
+
+    /** A decimal string of any length as a count no larger than MAX_COUNT. */
+    private static function clampCount(string $digits): int
+    {
+        $digits = ltrim($digits, '0');
+
+        return strlen($digits) > 10 ? self::MAX_COUNT : min((int) $digits, self::MAX_COUNT);
     }
 
     public static function isPlayerName(string $name): bool

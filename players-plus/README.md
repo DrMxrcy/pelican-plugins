@@ -14,6 +14,11 @@ Minecraft Java only. Bedrock, proxies (Velocity/Bungee) and other games are not 
 - The server's egg has the `minecraft` _tag_ (same rule as Modrinth Plus).
 - Pelican's queue worker and cron (`schedule:run` every minute) are running. Both are
   already required for plugin installs.
+- Each poll is one short queue job per server (at most ~3 s per step and ~9 s of game-server
+  time in total). A stock panel runs a single `queue:work`, so with many servers that don't
+  answer, polls queue up behind each other. Jobs whose poll interval has already passed are
+  dropped instead of writing stale samples, and a node whose daemon times out is skipped for
+  the rest of that interval. If you run many Minecraft servers, run more than one queue worker.
 - The panel can reach the game port. The address used is the allocation's alias when it is
   set, else its IP, else the node FQDN when the IP is `0.0.0.0` / `::`.
 
@@ -24,8 +29,17 @@ Minecraft Java only. Bedrock, proxies (Velocity/Bungee) and other games are not 
 2. **Query** (UDP): the full name list. Used only when `server.properties` has
    `enable-query=true`; it uses `query.port` (default: the game port).
 
+Query is only sent to a `query.port` that is one of the server's own allocation ports on the
+same IP, and only after Ping answered. Each poll keeps at most 200 names.
+
 A server stopped in the panel is recorded as **offline** without being contacted. A running
-server that answers neither is recorded as **unreachable**.
+server that does not answer Ping is recorded as **unreachable**.
+
+## Privacy
+
+Skin avatars are loaded from [mc-heads.net](https://mc-heads.net) by the viewer's browser
+(by UUID, or name when no UUID is known), so that service sees the viewer's IP address and
+which players are being looked at. The panel itself never contacts it.
 
 ## Settings
 
