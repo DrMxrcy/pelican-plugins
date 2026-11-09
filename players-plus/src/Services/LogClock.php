@@ -14,15 +14,18 @@ use DateTimeZone;
  * Pure: the starting point comes from the caller (the previous scan's last line, or a
  * first date worked out with firstDate() from the file's modification time).
  *
- * Log lines are tenant-controlled, so with a $ceiling (now, plus a little) nothing is ever
- * dated after it: a time-of-day line that would land later (a forged chain of backward steps,
- * each read as a midnight wrap) moves back to the latest such moment not after the ceiling,
- * and a line with an explicit date after the ceiling is ignored (null; the clock stays put).
+ * Log lines are tenant-controlled, so with a $ceiling (see ceiling()) nothing is ever dated
+ * after it: a line that would land later (a forged chain of backward steps each read as a
+ * midnight wrap, a future NeoForge date, a node clock far ahead) is ignored (null) and the
+ * clock stays where it was. Lines are never moved a day back to fit under the ceiling.
  */
 final class LogClock
 {
     /** A step back larger than this is a midnight wrap; anything smaller is out-of-order logging. */
     public const JITTER_SECONDS = 300;
+
+    /** How far ahead of the panel a node's clock may run before its log times are not believed. */
+    public const MAX_SKEW_SECONDS = 3600;
 
     private ?CarbonImmutable $last;
 
@@ -45,9 +48,6 @@ final class LogClock
     {
         if ($line->date !== null) {
             $at = self::onDay(CarbonImmutable::parse($line->date, $this->timezone), $line->seconds);
-            if ($this->ceiling !== null && $at->greaterThan($this->ceiling)) {
-                return null;
-            }
         } elseif ($this->last !== null) {
             $at = self::onDay($this->last, $line->seconds);
             if ($at->lessThan($this->last->subSeconds(self::JITTER_SECONDS))) {
@@ -62,14 +62,23 @@ final class LogClock
         }
 
         if ($this->ceiling !== null && $at->greaterThan($this->ceiling)) {
-            $days = (int) ceil(($at->getTimestamp() - $this->ceiling->getTimestamp()) / 86400);
-            $at = self::onDay($at->subDays($days), $line->seconds);
-            if ($at->greaterThan($this->ceiling)) {
-                $at = self::onDay($at->subDay(), $line->seconds); // a daylight-saving day
-            }
+            return null;
         }
 
         return $this->last = $at;
+    }
+
+    /**
+     * The latest moment a log line may carry: the file's modification time when the node's
+     * clock runs ahead of the panel's (clock skew), but never more than MAX_SKEW_SECONDS past
+     * $now, and never before $now.
+     */
+    public static function ceiling(?CarbonInterface $modified, CarbonInterface $now): CarbonImmutable
+    {
+        $now = CarbonImmutable::instance($now);
+        $modified = $modified === null ? $now : CarbonImmutable::instance($modified);
+
+        return $now->max($modified->min($now->addSeconds(self::MAX_SKEW_SECONDS)));
     }
 
     public function last(): ?CarbonImmutable

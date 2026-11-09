@@ -170,13 +170,13 @@ class PlayerIdentity
      *
      * @return array<string, string>
      */
-    public function usercache(Server $server): array
+    public function usercache(Server $server, ?int $timeoutSeconds = null): array
     {
         /** @var mixed $map */
         // Failures and oversized files are cached as an empty map too (no retry for 10 minutes).
-        $map = Cache::remember("players-plus.usercache.$server->id", self::CACHE_SECONDS, function () use ($server) {
+        $map = Cache::remember("players-plus.usercache.$server->id", self::CACHE_SECONDS, function () use ($server, $timeoutSeconds) {
             try {
-                $content = DaemonFiles::read($server, 'usercache.json', self::MAX_USERCACHE_BYTES);
+                $content = DaemonFiles::read($server, 'usercache.json', self::MAX_USERCACHE_BYTES, $timeoutSeconds);
             } catch (Throwable) {
                 return [];
             }

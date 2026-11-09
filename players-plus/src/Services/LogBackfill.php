@@ -4,6 +4,7 @@ namespace DrMxrcy\PlayersPlus\Services;
 
 use App\Models\Server;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Closure;
 use DrMxrcy\PlayersPlus\Enums\LogEventType;
 use DrMxrcy\PlayersPlus\Models\LogCursor;
@@ -20,14 +21,16 @@ use Throwable;
  * - Bounded work per scan, whatever the log holds: at most MAX_EVENTS join/leave lines, at most
  *   MAX_NEW_PLAYERS new player records and MERGE_SECONDS of merging. Hitting a limit ends the
  *   scan at that line; the next scan continues after it.
- * - Log times are never trusted past now + FUTURE_SLACK_SECONDS (the clock is capped there) or
- *   before now - MAX_AGE_DAYS (dropped).
+ * - Log times past LogClock::ceiling() (now, or the file's modification time when the node's
+ *   clock runs ahead, at most an hour) or before now - MAX_AGE_DAYS are dropped.
  * - Only a join paired with its leave creates a player record. A lone join of an unknown player
  *   waits in the cursor (names and UUIDs only) until a poll creates the player or the leave
- *   arrives; a lone leave of an unknown player is ignored. Pending joins expire after
- *   PENDING_HOURS and are dropped when the log rotates.
+ *   arrives; a lone leave of an unknown player is ignored. Pending joins expire PENDING_HOURS
+ *   of log time (not wall-clock time) before the newest line read, and are dropped when the
+ *   log rotates. A cut at a limit keeps them for the next scan.
  * - Daemon access (log, usercache) happens before the lock is taken; the usercache only when
- *   a name has no UUID from the log itself.
+ *   a name has no UUID from the log itself, with a short timeout, and not at all once the scan
+ *   has run USERCACHE_AFTER_SECONDS (those names stay name-only until a later scan or poll).
  */
 class LogBackfill
 {
@@ -41,7 +44,9 @@ class LogBackfill
 
     public const MERGE_SECONDS = 10;
 
-    public const FUTURE_SLACK_SECONDS = 120;
+    public const USERCACHE_AFTER_SECONDS = 20;
+
+    public const USERCACHE_TIMEOUT_SECONDS = 4;
 
     public const MAX_AGE_DAYS = 400;
 
@@ -65,10 +70,11 @@ class LogBackfill
      */
     public function scan(Server $server): void
     {
+        $started = ($this->clock)();
         $cursor = LogCursor::query()->where('server_id', $server->id)->first();
         $chunk = $this->reader->read($server, $cursor);
 
-        $ceiling = now()->addSeconds(self::FUTURE_SLACK_SECONDS);
+        $ceiling = LogClock::ceiling($chunk->modified, now());
         $floor = now()->subDays(self::MAX_AGE_DAYS);
         $clock = new LogClock($chunk->timezone, $chunk->restarted ? null : $cursor?->clock_at, $chunk->firstDate, $ceiling);
 
@@ -94,7 +100,9 @@ class LogBackfill
         $clockEnd = $clock->last();
 
         $pending = $chunk->restarted ? [] : self::pending($cursor);
-        $usercache = self::needsUsercache($events, $pending) ? $this->identity->usercache($server) : [];
+        $usercache = self::needsUsercache($events, $pending) && ($this->clock)() - $started < self::USERCACHE_AFTER_SECONDS
+            ? $this->identity->usercache($server, self::USERCACHE_TIMEOUT_SECONDS)
+            : [];
 
         $this->tracker->locked($server, function () use ($server, $cursor, $chunk, $events, $pending, $usercache, $cutLine, $clockEnd) {
             $current = LogCursor::query()->where('server_id', $server->id)->lockForUpdate()->first();
@@ -120,6 +128,9 @@ class LogBackfill
             } elseif ($cutLine !== null) {
                 $cutClock = $events[count($events) - 1]['clock'];
             }
+
+            $logNow = $cutLine === null ? ($clockEnd ?? $current?->clock_at) : $cutClock;
+            $pending = self::unexpired($pending, $logNow);
 
             $values = $cutLine === null
                 ? [
@@ -210,11 +221,25 @@ class LogBackfill
             }
         }
 
-        $expired = now()->subHours(self::PENDING_HOURS);
-        $pending = array_filter($pending, fn (array $join) => Carbon::parse($join['at'])->greaterThan($expired));
-        uasort($pending, fn (array $a, array $b) => strcmp($a['at'], $b['at']));
+        return [$pending, $stopped];
+    }
 
-        return [array_slice($pending, -self::MAX_PENDING, null, true), $stopped];
+    /**
+     * Pending joins younger than PENDING_HOURS of log time before $logNow (the newest line
+     * read), newest MAX_PENDING kept. Without a log time nothing expires.
+     *
+     * @param  array<string, array{name: string, uuid: string|null, at: string}>  $pending
+     * @return array<string, array{name: string, uuid: string|null, at: string}>
+     */
+    private static function unexpired(array $pending, ?CarbonInterface $logNow): array
+    {
+        if ($logNow !== null) {
+            $expired = Carbon::instance($logNow)->subHours(self::PENDING_HOURS);
+            $pending = array_filter($pending, fn (array $join) => Carbon::parse($join['at'])->greaterThanOrEqualTo($expired));
+        }
+        uasort($pending, fn (array $a, array $b) => Carbon::parse($a['at'])->getTimestamp() <=> Carbon::parse($b['at'])->getTimestamp());
+
+        return array_slice($pending, -self::MAX_PENDING, null, true);
     }
 
     /**

@@ -60,7 +60,7 @@ class LogReader
     {
         $deadline = ($this->clock)() + self::DEADLINE_SECONDS;
 
-        $stat = DaemonFiles::stat($server, self::PATH);
+        $stat = DaemonFiles::stat($server, self::PATH, self::DEADLINE_SECONDS);
         if ($stat['size'] > self::MAX_LOG_BYTES) {
             throw new FileSizeTooLargeException();
         }
@@ -129,10 +129,10 @@ class LogReader
             $firstDate = null;
             if ($restarted || $cursor->clock_at === null) {
                 // Dating needs every line to the end of the file: the last one is at most the
-                // modification time (never later than now), and each midnight wrap before it is
-                // a day back. Cut short by the deadline, the last line read stands in for the end.
-                $now = CarbonImmutable::now($timezone);
-                $firstDate = LogClock::firstDate(self::timed($lines, $reader), $modified === null ? $now : $modified->min($now));
+                // modification time, and each midnight wrap before it is a day back. Cut short by
+                // the deadline, the last line read stands in for the end. A node clock far ahead
+                // dates lines in the future, where LogClock's ceiling drops them.
+                $firstDate = LogClock::firstDate(self::timed($lines, $reader), $modified ?? CarbonImmutable::now($timezone));
             }
 
             return new LogChunk($identity, $stat['size'], $modified, $restarted, $start, $end, $lines, $lineEnds, $tail, $firstDate, $timezone, true, $more);

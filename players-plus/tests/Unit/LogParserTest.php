@@ -139,16 +139,16 @@ class LogParserTest extends TestCase
         $ceiling = CarbonImmutable::parse('2026-11-09 12:02:00', $tz);
         $clock = new LogClock($tz, null, '2026-11-09', $ceiling);
 
-        // Each step back of more than five minutes reads as a midnight wrap: ten days ahead.
-        $at = null;
-        foreach (range(0, 10) as $i) {
-            $at = $clock->at(new LogLine(43000 - $i * 600));
+        // Each step back of more than five minutes reads as a midnight wrap, a day ahead each:
+        // every such line is dropped, none is moved back a day, and the clock stays put.
+        $this->assertSame('2026-11-09 11:56:40', $clock->at(new LogLine(43000))?->format('Y-m-d H:i:s'));
+        foreach (range(1, 10) as $i) {
+            $this->assertNull($clock->at(new LogLine(43000 - $i * 600)));
         }
+        $this->assertSame('2026-11-09 11:56:40', $clock->last()?->format('Y-m-d H:i:s'));
 
-        $this->assertNotNull($at);
-        $this->assertTrue($at->lessThanOrEqualTo($ceiling));
-        $this->assertSame('2026-11-09 10:16:40', $at->format('Y-m-d H:i:s'), 'the latest such time not after the ceiling');
-        $this->assertTrue($clock->last()?->lessThanOrEqualTo($ceiling));
+        // A normal line after the chain is dated against the last believable one.
+        $this->assertSame('2026-11-09 12:00:00', $clock->at(new LogLine(43200))?->format('Y-m-d H:i:s'));
     }
 
     public function test_a_future_explicit_date_is_ignored_and_the_clock_stays(): void
@@ -159,6 +159,16 @@ class LogParserTest extends TestCase
         $this->assertNull($clock->at(new LogLine(3600, '2027-01-01')));
         $this->assertSame('2026-11-09 11:00:00', $clock->last()?->format('Y-m-d H:i:s'));
         $this->assertSame('2026-11-09 11:30:00', $clock->at(new LogLine(41400))?->format('Y-m-d H:i:s'));
+    }
+
+    public function test_the_ceiling_allows_a_node_clock_up_to_an_hour_ahead(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-09 12:30:00', 'UTC');
+
+        $this->assertSame('2026-11-09 12:30:00', LogClock::ceiling(null, $now)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-09 12:30:00', LogClock::ceiling($now->subHour(), $now)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-09 12:35:00', LogClock::ceiling($now->addMinutes(5), $now)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-09 13:30:00', LogClock::ceiling($now->addHours(3), $now)->format('Y-m-d H:i:s'));
     }
 
     public function test_a_stored_clock_after_the_ceiling_is_pulled_back(): void

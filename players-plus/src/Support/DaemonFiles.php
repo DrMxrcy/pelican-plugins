@@ -23,15 +23,24 @@ final class DaemonFiles
      * @throws FileSizeTooLargeException the file is larger than $maxBytes
      * @throws Throwable any other daemon error
      */
-    public static function read(Server $server, string $path, int $maxBytes): string
+    public static function read(Server $server, string $path, int $maxBytes, ?int $timeoutSeconds = null): string
     {
-        $stat = self::stat($server, $path);
+        $stat = self::stat($server, $path, $timeoutSeconds);
         if ($stat['size'] > $maxBytes) {
             throw new FileSizeTooLargeException();
         }
 
         // Still capped: the file may have grown between the listing and the read.
-        $content = self::repository($server)->getContent(ltrim($path, '/'), $maxBytes);
+        if ($timeoutSeconds === null) {
+            $content = self::repository($server)->getContent(ltrim($path, '/'), $maxBytes);
+        } else {
+            try {
+                $content = self::repository($server)->getHttpClient()->timeout($timeoutSeconds)
+                    ->get("/api/servers/$server->uuid/files/contents", ['file' => ltrim($path, '/')])->body();
+            } catch (RequestException $exception) {
+                throw $exception->response->status() === 404 ? new FileNotFoundException() : $exception;
+            }
+        }
         if (strlen($content) > $maxBytes) {
             throw new FileSizeTooLargeException();
         }
@@ -42,6 +51,7 @@ final class DaemonFiles
     /**
      * Size and modification time from the parent directory listing; nothing is downloaded.
      * The modification time keeps the daemon's UTC offset (null when missing or malformed).
+     * $timeoutSeconds replaces the panel's daemon timeout for this request.
      *
      * @return array{size: int, modified: CarbonImmutable|null}
      *
@@ -49,7 +59,7 @@ final class DaemonFiles
      * @throws FileSizeTooLargeException the listing has no usable size
      * @throws Throwable any other daemon error
      */
-    public static function stat(Server $server, string $path): array
+    public static function stat(Server $server, string $path, ?int $timeoutSeconds = null): array
     {
         $path = ltrim($path, '/');
         $slash = strrpos($path, '/');
@@ -58,14 +68,17 @@ final class DaemonFiles
 
         try {
             // Wings JSON: not trusted to be a list of entries.
-            $listing = self::repository($server)->getDirectory($directory);
+            $listing = $timeoutSeconds === null
+                ? self::repository($server)->getDirectory($directory)
+                : self::repository($server)->getHttpClient()->timeout($timeoutSeconds)
+                    ->get("/api/servers/$server->uuid/files/list-directory", ['directory' => $directory])->json();
         } catch (Throwable $exception) {
             // getDirectory() does not declare it, but a Wings 404 arrives as a RequestException.
             throw $exception instanceof RequestException && $exception->response->status() === 404 ? new FileNotFoundException() : $exception;
         }
 
         $entry = null;
-        foreach ($listing as $candidate) {
+        foreach (is_array($listing) ? $listing : [] as $candidate) {
             if (is_array($candidate) && ($candidate['name'] ?? null) === $name && ($candidate['file'] ?? false) === true) {
                 $entry = $candidate;
                 break;

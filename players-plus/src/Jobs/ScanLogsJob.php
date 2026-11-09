@@ -18,11 +18,16 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Scans one server's logs/latest.log. Short: reading stops after LogReader::DEADLINE_SECONDS
- * (15), the lock wait after LogBackfill::$lockWaitSeconds (5) and merging after
- * LogBackfill::MERGE_SECONDS (10), well inside the 55 s timeout (plus a cached usercache read,
- * only when a log name has no UUID of its own); and idempotent (the cursor moves with the sessions, in one transaction). It never touches the
- * poll loop: the only shared state is the per-server tracking lock, held for one transaction.
+ * Scans one server's logs/latest.log, well inside the 55 s timeout. Worst case, in order:
+ * - read: about 16 s (LogReader::DEADLINE_SECONDS = 15 covers the listing and the stream; the
+ *   download's own timeout is what is left of it, at least 1 s);
+ * - usercache: at most 2 x 4 s (LogBackfill::USERCACHE_TIMEOUT_SECONDS, listing + download),
+ *   only when a log name has no UUID and fewer than 20 s have passed, else skipped;
+ * - tracking lock wait: 5 s (LogBackfill::$lockWaitSeconds);
+ * - merge: 10 s (LogBackfill::MERGE_SECONDS) plus the event in progress, then one commit.
+ * About 40 s in total. Idempotent: the cursor moves with the sessions, in one transaction.
+ * It never touches the poll loop: the only shared state is the per-server tracking lock, held
+ * for one transaction.
  *
  * A failed read is not retried for FAILURE_BACKOFF seconds, so an unreachable node or an
  * oversized log costs one directory listing per backoff, not one per scan.

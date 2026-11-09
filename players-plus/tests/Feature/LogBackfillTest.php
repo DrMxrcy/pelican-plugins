@@ -233,8 +233,8 @@ class LogBackfillTest extends TestCase
         $this->log = "[13:00:00] [Server thread/INFO]: Starting minecraft server version 1.21.4\n"
             . "[13:05:00] [Server thread/INFO]: Alice joined the game\n"
             . "[13:06:00] [Server thread/INFO]: Alice left the game\n";
+        // The node's clock runs 36 minutes ahead of the panel (now is 12:30): still today.
         $this->modified = '2026-11-09T13:06:01+00:00';
-        Carbon::setTestNow('2026-11-09 13:10:00');
         $this->scan();
 
         $this->assertSame([['12:00:31', '12:10:44', 'log'], ['13:05:00', '13:06:00', 'log']], $this->sessions('Alice'));
@@ -452,15 +452,96 @@ class LogBackfillTest extends TestCase
         $this->assertSame([['12:00:31', '12:10:00', 'log']], $this->sessions('Dave'));
     }
 
-    public function test_a_future_modification_time_does_not_date_the_log_ahead(): void
+    public function test_a_node_clock_a_few_minutes_ahead_keeps_the_right_day(): void
     {
-        $this->log = $this->fixture('vanilla');
-        $this->modified = '2026-11-12T12:10:45+00:00'; // three days ahead
+        // Now is 12:30 on the panel; the node's clock says 12:36.
+        $this->log = "[12:34:00] [Server thread/INFO]: Alice joined the game\n[12:35:00] [Server thread/INFO]: Alice left the game\n";
+        $this->modified = '2026-11-09T12:36:00+00:00';
 
         $this->scan();
 
-        $session = PlayerSession::query()->sole();
-        $this->assertSame('2026-11-09 12:00:31', $session->started_at->format('Y-m-d H:i:s'));
+        $this->assertSame([['2026-11-09 12:34:00', '2026-11-09 12:35:00']], PlayerSession::query()->get()
+            ->map(fn (PlayerSession $s) => [$s->started_at->format('Y-m-d H:i:s'), $s->ended_at?->format('Y-m-d H:i:s')])->all());
+    }
+
+    public function test_times_far_ahead_of_the_panel_are_dropped_not_moved_a_day_back(): void
+    {
+        // The node's clock says 15:30 (three hours ahead): beyond the one-hour allowance.
+        $this->log = "[15:20:00] [Server thread/INFO]: Alice joined the game\n[15:25:00] [Server thread/INFO]: Alice left the game\n";
+        $this->modified = '2026-11-09T15:30:00+00:00';
+
+        $this->scan();
+
+        $this->assertSame(0, PlayerSession::query()->count());
+        $this->assertSame(0, Player::query()->count());
+
+        // Same with a modification time days ahead: nothing is dated in the future or a day early.
+        $this->log = $this->fixture('vanilla');
+        $this->modified = '2026-11-12T12:10:45+00:00';
+        LogCursor::query()->delete();
+        $this->scan();
+        $this->assertSame(0, PlayerSession::query()->count());
+    }
+
+    public function test_an_old_log_scanned_over_several_capped_scans_keeps_every_session(): void
+    {
+        // Three days old; players overlap, so every cut leaves a join waiting for its leave.
+        Carbon::setTestNow('2026-11-12 12:30:00');
+        $this->modified = '2026-11-09T20:00:00+00:00';
+        $log = '';
+        for ($i = 0; $i < 300; $i++) {
+            $log .= sprintf("[%s] [Server thread/INFO]: Old%05d joined the game\n", gmdate('H:i:s', 36000 + 60 * $i), $i);
+            if ($i > 0) {
+                $log .= sprintf("[%s] [Server thread/INFO]: Old%05d left the game\n", gmdate('H:i:s', 36030 + 60 * $i), $i - 1);
+            }
+        }
+        $this->log = $log . sprintf("[%s] [Server thread/INFO]: Old00299 left the game\n", gmdate('H:i:s', 36000 + 60 * 300));
+
+        for ($scan = 0; $scan < 6 && LogCursor::query()->first()?->offset !== strlen($this->log); $scan++) {
+            $this->scan();
+        }
+
+        $this->assertSame(strlen($this->log), LogCursor::query()->sole()->offset);
+        $this->assertSame(300, PlayerSession::query()->count());
+        $this->assertSame(300, Player::query()->count());
+        $this->assertConsistent();
+    }
+
+    public function test_pending_joins_expire_by_log_time_not_wall_clock(): void
+    {
+        Carbon::setTestNow('2026-11-12 12:30:00');
+        $this->modified = '2026-11-09T12:00:00+00:00';
+        $this->log = "[10:00:00] [Server thread/INFO]: Alice joined the game\n";
+        $this->scan();
+        $this->assertSame(['alice'], array_keys(LogCursor::query()->sole()->pending ?? []), 'three days old by the wall clock, but current in its log');
+
+        $this->logs('[10:30:00] [Server thread/INFO]: Alice left the game');
+        $this->modified = '2026-11-09T12:00:05+00:00';
+        $this->scan();
+        $this->assertSame(1, PlayerSession::query()->count());
+
+        // A join 25 log-hours before the newest line is dropped.
+        $this->logs('[11:00:00] [Server thread/INFO]: Bob joined the game', '[23:00:00] [Server thread/INFO]: tick', '[12:00:00] [Server thread/INFO]: tock');
+        $this->modified = '2026-11-10T12:00:05+00:00';
+        $this->scan();
+        $this->assertNull(LogCursor::query()->sole()->pending);
+    }
+
+    public function test_the_usercache_is_skipped_when_the_scan_is_already_late(): void
+    {
+        $this->log = "[12:00:31] [Server thread/INFO]: Alice joined the game\n[12:05:00] [Server thread/INFO]: Alice left the game\n";
+        $backfill = $this->app->make(LogBackfill::class);
+        // The read took the whole allowance; the merge itself is quick.
+        $calls = 0;
+        $backfill->clock = function () use (&$calls) {
+            return $calls++ === 0 ? 0.0 : (float) LogBackfill::USERCACHE_AFTER_SECONDS;
+        };
+
+        $backfill->scan($this->server);
+
+        $this->assertSame(0, FakeDaemonFiles::contentReads('usercache.json'));
+        $this->assertSame(0, Http::recorded(fn (Request $request) => FakeDaemonFiles::query($request, 'directory') === '/')->count(), 'no usercache listing either');
+        $this->assertNull(Player::query()->sole()->uuid, 'name only until a later scan or poll');
     }
 
     public function test_a_log_without_a_newline_is_not_downloaded_again_while_unchanged(): void
