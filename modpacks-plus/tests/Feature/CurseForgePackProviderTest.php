@@ -100,6 +100,33 @@ class CurseForgePackProviderTest extends TestCase
         $this->assertSame('https://media.forgecdn.net/avatars/thumbnails/1/2/64/64/logo.png', $hit['icon_url']);
     }
 
+    public function test_search_never_loops_over_more_hits_than_asked_for(): void
+    {
+        $hits = [];
+        for ($id = 1; $id <= 200; $id++) {
+            $hits[] = CurseForge::mod($id);
+        }
+        Http::fake([CurseForge::API.'mods/search*' => Http::response(['data' => $hits, 'pagination' => ['totalCount' => 200]])]);
+
+        $this->assertCount(20, $this->provider()->search(null, null, null, [], null, 1, 20)['hits']);
+    }
+
+    public function test_cached_details_are_kept_apart_per_mode(): void
+    {
+        Http::fake([
+            'api.curse.tools/v1/mods/'.CurseForge::PACK_ID.'/description' => Http::response(CurseForge::data('mirror')),
+            'api.curse.tools/v1/mods/'.CurseForge::PACK_ID => Http::response(CurseForge::data(CurseForge::mod(overrides: ['name' => 'From the mirror']))),
+            CurseForge::API.'mods/'.CurseForge::PACK_ID.'/description' => Http::response(CurseForge::data('api')),
+            CurseForge::API.'mods/'.CurseForge::PACK_ID => Http::response(CurseForge::data(CurseForge::mod(overrides: ['name' => 'From the API']))),
+        ]);
+        $modrinth = new ModrinthPackProvider(new ModrinthClient(), new Caps());
+        $mirror = new CurseForgePackProvider(new CurseForgeClient(null, true), $modrinth, new ModrinthMatcher(new ModrinthClient()), new Caps());
+
+        $this->assertSame('From the mirror', $mirror->project((string) CurseForge::PACK_ID)['title']);
+        // Once a key is set, nothing read through the mirror is reused.
+        $this->assertSame('From the API', $this->provider()->project((string) CurseForge::PACK_ID)['title']);
+    }
+
     public function test_search_past_the_curseforge_window_sends_nothing(): void
     {
         Http::fake();

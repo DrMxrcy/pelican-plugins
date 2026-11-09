@@ -63,6 +63,12 @@ class CurseForgePackProvider implements PackProvider
 
     private const MAX_CATEGORY_FILTERS = 10;
 
+    private const MAX_CATEGORIES = 500;
+
+    private const MAX_SCREENSHOTS = 20;
+
+    private const MAX_SMALL_LIST = 100;
+
     private const CACHE_MINUTES = 10;
 
     private const MAX_BODY_CHARS = 20000;
@@ -167,7 +173,7 @@ class CurseForgePackProvider implements PackProvider
         $response = $this->client->get('mods/search', $params);
 
         $hits = [];
-        foreach (is_array($response['data'] ?? null) ? $response['data'] : [] as $mod) {
+        foreach (self::items($response['data'] ?? null, $perPage) as $mod) {
             if (is_array($mod) && self::intId($mod['id'] ?? null) !== null && (int) ($mod['classId'] ?? 0) === self::CLASS_MODPACKS) {
                 $hits[] = $this->normaliseHit($mod);
             }
@@ -196,7 +202,7 @@ class CurseForgePackProvider implements PackProvider
             return [];
         }
 
-        $key = 'modpacks-plus:curseforge:categories';
+        $key = 'modpacks-plus:curseforge:'.$this->client->mode().':categories';
         $cached = Cache::get($key);
         if (is_array($cached)) {
             /** @var array<string, int> $cached */
@@ -212,7 +218,7 @@ class CurseForgePackProvider implements PackProvider
         }
 
         $categories = [];
-        foreach (is_array($response['data'] ?? null) ? $response['data'] : [] as $category) {
+        foreach (self::items($response['data'] ?? null, self::MAX_CATEGORIES) as $category) {
             $id = is_array($category) ? self::intId($category['id'] ?? null) : null;
             if ($id !== null && is_string($category['name'] ?? null) && empty($category['isClass'])
                 && (int) ($category['classId'] ?? 0) === self::CLASS_MODPACKS && preg_match('/^[\pL\pN &\'+.,\-]{1,64}$/u', $category['name'])) {
@@ -230,7 +236,7 @@ class CurseForgePackProvider implements PackProvider
     {
         $this->assertId($packId);
 
-        return Cache::remember("modpacks-plus:curseforge:project:$packId", now()->addMinutes(self::CACHE_MINUTES), function () use ($packId) {
+        return Cache::remember('modpacks-plus:curseforge:'.$this->client->mode().":project:$packId", now()->addMinutes(self::CACHE_MINUTES), function () use ($packId) {
             $mod = $this->mod($packId);
 
             try {
@@ -241,7 +247,7 @@ class CurseForgePackProvider implements PackProvider
             }
 
             $gallery = [];
-            foreach (is_array($mod['screenshots'] ?? null) ? $mod['screenshots'] : [] as $image) {
+            foreach (self::items($mod['screenshots'] ?? null, self::MAX_SCREENSHOTS) as $image) {
                 $url = is_array($image) ? self::imageUrl($image['url'] ?? null) : null;
                 if ($url !== null) {
                     $gallery[] = ['url' => $url, 'title' => is_string($image['title'] ?? null) ? $image['title'] : null];
@@ -270,11 +276,11 @@ class CurseForgePackProvider implements PackProvider
     {
         $this->assertId($packId);
 
-        return Cache::remember("modpacks-plus:curseforge:versions:$packId", now()->addMinutes(self::CACHE_MINUTES), function () use ($packId) {
+        return Cache::remember('modpacks-plus:curseforge:'.$this->client->mode().":versions:$packId", now()->addMinutes(self::CACHE_MINUTES), function () use ($packId) {
             $response = $this->client->get('mods/'.$packId.'/files', ['index' => 0, 'pageSize' => self::MAX_PAGE_SIZE]);
 
             $versions = [];
-            foreach (is_array($response['data'] ?? null) ? $response['data'] : [] as $file) {
+            foreach (self::items($response['data'] ?? null, self::MAX_PAGE_SIZE) as $file) {
                 // Server packs are installed through their client pack, never on their own.
                 if (is_array($file) && self::intId($file['id'] ?? null) !== null && (string) self::intId($file['modId'] ?? null) === $packId && empty($file['isServerPack'])) {
                     $versions[] = $this->normaliseVersion($file);
@@ -314,7 +320,7 @@ class CurseForgePackProvider implements PackProvider
         $file = $this->packFile($packId, $versionId);
         $mod = $this->mod($packId);
 
-        $archive = $this->archiveOf($file);
+        $archive = $this->archiveOf($file, $mod);
         if ($archive === null) {
             throw new PackUnavailableException('curseforge_no_download', is_string($file['fileName'] ?? null) ? $file['fileName'] : $versionId);
         }
@@ -358,9 +364,15 @@ class CurseForgePackProvider implements PackProvider
 
         $fallback = null;
         $serverPackId = self::intId($file['serverPackFileId'] ?? null);
+        // Through the mirror a server pack is never used: it could name any zip on the CurseForge
+        // CDN, and its files carry no hash of their own. The manifest build is used instead.
+        if ($serverPackId !== null && $this->client->mode() !== CurseForgeClient::MODE_KEY) {
+            $fallback = ['reason' => 'server_pack_mirror', 'detail' => ''];
+            $serverPackId = null;
+        }
         if ($serverPackId !== null) {
             try {
-                return $this->serverPackPlan($plan, $packId, $serverPackId, $validator, $workDir);
+                return $this->serverPackPlan($plan, $packId, $serverPackId, $validator, $workDir, $mod);
             } catch (UnsafePlanException $exception) {
                 if (!in_array($exception->reason, self::SERVER_PACK_FALLBACK_REASONS, true)) {
                     throw $exception;
@@ -386,7 +398,8 @@ class CurseForgePackProvider implements PackProvider
      * @throws UnsafePlanException
      * @throws PackUnavailableException `server_pack_unusable` when the manifest build should be used instead
      */
-    private function serverPackPlan(InstallPlan $plan, string $packId, int $serverPackId, PlanValidator $validator, string $workDir): InstallPlan
+    /** @param  array<mixed>  $mod  the pack */
+    private function serverPackPlan(InstallPlan $plan, string $packId, int $serverPackId, PlanValidator $validator, string $workDir, array $mod): InstallPlan
     {
         try {
             $response = $this->client->get('mods/'.$packId.'/files/'.$serverPackId);
@@ -403,7 +416,7 @@ class CurseForgePackProvider implements PackProvider
             throw new PackUnavailableException('server_pack_unusable', (string) $serverPackId);
         }
 
-        $serverPack = $this->archiveOf($file) ?? throw new PackUnavailableException('server_pack_unusable', (string) $serverPackId);
+        $serverPack = $this->archiveOf($file, $mod) ?? throw new PackUnavailableException('server_pack_unusable', (string) $serverPackId);
 
         // Size and hash format first, then download (size and sha1 checked) and read safely.
         $plan = $validator->validate($plan->with(['serverPack' => $serverPack, 'serverPackRoot' => '']));
@@ -517,13 +530,19 @@ class CurseForgePackProvider implements PackProvider
         $matches = $this->matcher->match(array_values(array_filter(array_map(fn (array $candidate) => $candidate['hashes']['sha1'] ?? null, $candidates))));
 
         $planFiles = [];
+        $clientOnly = [];
         foreach ($candidates as $candidate) {
             $match = $matches[$candidate['hashes']['sha1'] ?? ''] ?? null;
-            if ($match !== null && $match['size'] === $candidate['size']) {
+            $onModrinth = $match !== null && $match['size'] === $candidate['size'];
+            if ($onModrinth) {
                 $candidate['urls'] = array_merge([$match['url']], $candidate['urls']);
                 $candidate['hashes'] = ['sha512' => $match['sha512']] + $candidate['hashes'];
                 if ($candidate['side'] !== 'unsupported') {
                     $candidate['side'] = $match['server_side'];
+                    if ($candidate['side'] === 'unsupported') {
+                        // Said so by Modrinth: the summary names the project that decided it.
+                        $clientOnly[] = ['path' => $candidate['path'], 'project' => $match['project_slug'] ?? $match['project_id']];
+                    }
                 }
             }
 
@@ -533,10 +552,17 @@ class CurseForgePackProvider implements PackProvider
                 continue;
             }
 
+            // Only on CurseForge and too big for the panel to fetch and hash: the user downloads it.
+            if (!$onModrinth && $candidate['side'] !== 'unsupported' && $candidate['size'] > $this->caps->maxPanelFetchBytes) {
+                $manual[] = ['reason' => 'too_large'] + $candidate['manual'];
+
+                continue;
+            }
+
             $planFiles[] = PlanFile::fromArray($candidate);
         }
 
-        $plan = $validator->validate($plan->with(['files' => $planFiles, 'manualFiles' => $manual]));
+        $plan = $validator->validate($plan->with(['files' => $planFiles, 'manualFiles' => $manual, 'clientOnlyBy' => $clientOnly]));
 
         // Files on cdn.modrinth.com whose sha512 Modrinth vouches for at that URL may be pulled by
         // the node; everything else is fetched, redirect-checked and hashed by the panel.
@@ -607,7 +633,7 @@ class CurseForgePackProvider implements PackProvider
         $files = [];
         foreach (array_chunk(array_values(array_unique($ids)), self::RESOLVE_CHUNK) as $chunk) {
             $response = $this->client->post('mods/files', ['fileIds' => $chunk]);
-            foreach (is_array($response['data'] ?? null) ? $response['data'] : [] as $file) {
+            foreach (self::items($response['data'] ?? null, 2 * self::RESOLVE_CHUNK) as $file) {
                 $id = is_array($file) ? self::intId($file['id'] ?? null) : null;
                 if ($id !== null && in_array($id, $chunk, true)) {
                     $files[$id] = $file;
@@ -631,7 +657,7 @@ class CurseForgePackProvider implements PackProvider
         $mods = [];
         foreach (array_chunk($ids, self::RESOLVE_CHUNK) as $chunk) {
             $response = $this->client->post('mods', ['modIds' => $chunk]);
-            foreach (is_array($response['data'] ?? null) ? $response['data'] : [] as $mod) {
+            foreach (self::items($response['data'] ?? null, 2 * self::RESOLVE_CHUNK) as $mod) {
                 $id = is_array($mod) ? self::intId($mod['id'] ?? null) : null;
                 if ($id !== null && in_array($id, $chunk, true) && (int) ($mod['gameId'] ?? 0) === self::GAME_MINECRAFT) {
                     $mods[$id] = $mod;
@@ -835,7 +861,7 @@ class CurseForgePackProvider implements PackProvider
         $minecraft = [];
         $loaders = [];
         $types = array_flip(self::LOADER_TYPES);
-        foreach (is_array($mod['latestFilesIndexes'] ?? null) ? $mod['latestFilesIndexes'] : [] as $index) {
+        foreach (self::items($mod['latestFilesIndexes'] ?? null, self::MAX_SMALL_LIST) as $index) {
             if (!is_array($index)) {
                 continue;
             }
@@ -858,7 +884,7 @@ class CurseForgePackProvider implements PackProvider
         $id = (string) self::intId($mod['id']);
         $authors = is_array($mod['authors'] ?? null) ? $mod['authors'] : [];
         $categories = [];
-        foreach (is_array($mod['categories'] ?? null) ? $mod['categories'] : [] as $category) {
+        foreach (self::items($mod['categories'] ?? null, self::MAX_SMALL_LIST) as $category) {
             if (is_array($category) && is_string($category['name'] ?? null)) {
                 $categories[] = $category['name'];
             }
@@ -910,9 +936,14 @@ class CurseForgePackProvider implements PackProvider
      * downloads off) or the file name is unsafe.
      *
      * @param  array<mixed>  $file
+     * @param  array<mixed>|null  $mod  the pack: when its author turned third-party downloads off, nothing is fetched
      */
-    protected function archiveOf(array $file): ?PackArchive
+    protected function archiveOf(array $file, ?array $mod = null): ?PackArchive
     {
+        if ($mod !== null && ($mod['allowModDistribution'] ?? null) === false) {
+            return null;
+        }
+
         $id = self::intId($file['id'] ?? null);
         $name = is_string($file['fileName'] ?? null) ? $file['fileName'] : '';
         $downloadUrl = $file['downloadUrl'] ?? null;
@@ -934,13 +965,24 @@ class CurseForgePackProvider implements PackProvider
      */
     public static function hashes(array $file): array
     {
-        foreach (is_array($file['hashes'] ?? null) ? $file['hashes'] : [] as $hash) {
+        foreach (self::items($file['hashes'] ?? null, self::MAX_SMALL_LIST) as $hash) {
             if (is_array($hash) && ($hash['algo'] ?? null) === self::HASH_SHA1 && is_string($hash['value'] ?? null)) {
                 return ['sha1' => strtolower($hash['value'])];
             }
         }
 
         return [];
+    }
+
+    /**
+     * At most $max entries of an API list (anything else is no entries): a hostile answer can't
+     * make a request loop over more than was asked for.
+     *
+     * @return array<int, mixed>
+     */
+    private static function items(mixed $list, int $max): array
+    {
+        return is_array($list) ? array_slice(array_values($list), 0, max(0, $max)) : [];
     }
 
     /** CurseForge HTML descriptions as plain text (the page renders it as escaped markdown). */

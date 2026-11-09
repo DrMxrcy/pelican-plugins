@@ -45,7 +45,7 @@ final class PlanValidator
     ];
 
     /** Why a pack file is listed for the user to download instead of installed. */
-    public const MANUAL_REASONS = ['distribution_disabled', 'datapack', 'unsupported_type'];
+    public const MANUAL_REASONS = ['distribution_disabled', 'datapack', 'unsupported_type', 'too_large'];
 
     /**
      * Server-pack entries that start a server or install a loader (top-level scripts and jars,
@@ -217,8 +217,13 @@ final class PlanValidator
     {
         $segments = explode('/', strtolower($path));
 
+        // Top-level dotfiles and dot-folders (.env, .htaccess, .git/, …) are never part of what a server needs.
+        if (str_starts_with($segments[0], '.')) {
+            return true;
+        }
+
         if (count($segments) === 1) {
-            return (bool) preg_match('/\.(sh|bat|cmd|ps1|command|jar|exe)$/', $segments[0])
+            return (bool) preg_match('/\.(sh|bat|cmd|ps1|command|jar|exe|py|js|pl|rb|php)$/', $segments[0])
                 || in_array($segments[0], self::SERVER_PACK_LAUNCHER_FILES, true);
         }
 

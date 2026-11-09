@@ -187,8 +187,9 @@ class CurseForgeMirrorTest extends TestCase
      * answer points its download at the mirror itself (never fetched), mod C's at plain HTTP.
      *
      * @param  array<string, mixed>  $stubs
+     * @param  array<string, mixed>  $packFile  changes to the pack's file payload
      */
-    private function fakeMirrorPack(array $stubs = []): void
+    private function fakeMirrorPack(array $stubs = [], array $packFile = []): void
     {
         $files = [
             CurseForge::file(5000001, 201, 'a-mod.jar', 'a-bytes'),
@@ -196,7 +197,7 @@ class CurseForgeMirrorTest extends TestCase
             CurseForge::file(5000003, 203, 'c-mod.jar', 'c-bytes', ['downloadUrl' => 'http://edge.forgecdn.net/files/5000/3/c-mod.jar']),
         ];
         $zip = Mrpack::zip(['manifest.json' => CurseForge::manifest([[201, 5000001], [202, 5000002], [203, 5000003]]), 'overrides/config/a.toml' => 'a=1']);
-        $pack = CurseForge::file(CurseForge::FILE_ID, CurseForge::PACK_ID, CurseForge::PACK_FILE_NAME, $zip);
+        $pack = CurseForge::file(CurseForge::FILE_ID, CurseForge::PACK_ID, CurseForge::PACK_FILE_NAME, $zip, $packFile);
 
         Http::fake(array_merge([
             self::MIRROR.'mods/'.CurseForge::PACK_ID.'/files/'.CurseForge::FILE_ID => Http::response(CurseForge::data($pack)),
@@ -323,6 +324,18 @@ class CurseForgeMirrorTest extends TestCase
         } catch (UnsafePlanException $exception) {
             $this->assertSame('unsafe_path', $exception->reason);
         }
+    }
+
+    public function test_the_mirror_never_uses_a_server_pack(): void
+    {
+        $this->fakeMirrorPack(packFile: ['serverPackFileId' => CurseForge::SERVER_FILE_ID]);
+
+        $plan = $this->resolveThroughMirror();
+
+        $this->assertNull($plan->serverPack);
+        $this->assertSame(['reason' => 'server_pack_mirror', 'detail' => ''], $plan->serverPackFallback);
+        $this->assertSame(['mods/a-mod.jar'], array_map(fn (PlanFile $file) => $file->path, $plan->files));
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), (string) CurseForge::SERVER_FILE_ID) || str_contains($request->url(), (string) intdiv(CurseForge::SERVER_FILE_ID, 1000).'/2/'));
     }
 
     public function test_installs_through_the_mirror(): void

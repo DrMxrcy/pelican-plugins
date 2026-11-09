@@ -24,6 +24,9 @@ class ModrinthClient
 
     private const MAX_REDIRECTS = 3;
 
+    /** Largest Modrinth API answer read (header and while streaming). */
+    public const MAX_API_BYTES = 16 * 1024 * 1024;
+
     /** Seconds one panel-side download may take (keeps a job well under ~60 s). */
     public const DOWNLOAD_TIMEOUT = 30;
 
@@ -48,7 +51,42 @@ class ModrinthClient
             ->asJson()
             ->acceptJson()
             ->timeout($timeout)
-            ->connectTimeout(5);
+            ->connectTimeout(5)
+            // Never inflate (a small compressed body could decode to gigabytes); cap what is read.
+            ->withHeaders(['Accept-Encoding' => 'identity'])
+            ->withOptions(self::boundedOptions(self::MAX_API_BYTES));
+    }
+
+    /** Whether a Content-Encoding header means the body is sent as is. */
+    public static function isIdentityEncoding(string $encoding): bool
+    {
+        $encoding = strtolower(trim($encoding));
+
+        return $encoding === '' || $encoding === 'identity';
+    }
+
+    /**
+     * Guzzle options that never decode a compressed body and stop reading past $maxBytes
+     * (Content-Length and while streaming); an encoded answer is refused outright.
+     *
+     * @return array<string, mixed>
+     */
+    public static function boundedOptions(int $maxBytes): array
+    {
+        return [
+            'decode_content' => false,
+            'on_headers' => function (ResponseInterface $response) use ($maxBytes) {
+                $length = $response->getHeaderLine('Content-Length');
+                if (($length !== '' && (int) $length > $maxBytes) || !self::isIdentityEncoding($response->getHeaderLine('Content-Encoding'))) {
+                    throw new \RuntimeException('refused');
+                }
+            },
+            'progress' => function ($total, $downloaded) use ($maxBytes) {
+                if ($downloaded > $maxBytes) {
+                    throw new \RuntimeException('too large');
+                }
+            },
+        ];
     }
 
     public function userAgent(): string
@@ -95,9 +133,12 @@ class ModrinthClient
 
             $response = $request
                 ->withUserAgent($this->userAgent())
+                ->withHeaders(['Accept-Encoding' => 'identity'])
                 ->timeout($timeout)
                 ->connectTimeout(5)
                 ->withOptions([
+                    // Never inflate: the byte cap is about what lands on the panel's disk.
+                    'decode_content' => false,
                     'allow_redirects' => [
                         'max' => self::MAX_REDIRECTS,
                         'strict' => true,
@@ -109,6 +150,9 @@ class ModrinthClient
                         $length = $response->getHeaderLine('Content-Length');
                         if ($length !== '' && (int) $length > $maxBytes) {
                             throw new UnsafePlanException($tooLargeReason, $url);
+                        }
+                        if (!self::isIdentityEncoding($response->getHeaderLine('Content-Encoding'))) {
+                            throw new PackUnavailableException('download_failed', $url.' (encoded)');
                         }
                     },
                     'progress' => function ($total, $downloaded) use ($maxBytes, $tooLargeReason, $url) {
@@ -130,7 +174,7 @@ class ModrinthClient
             throw new PackUnavailableException('download_failed', $url, $exception);
         }
 
-        if ($response->status() !== 200) {
+        if ($response->status() !== 200 || !self::isIdentityEncoding($response->header('Content-Encoding'))) {
             @unlink($destination);
 
             throw new PackUnavailableException('download_failed', $url.' (HTTP '.$response->status().')');

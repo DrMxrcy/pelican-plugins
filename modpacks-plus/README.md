@@ -73,15 +73,17 @@ Checked before anything is written to the server; archive entries are checked ag
 - **Key-free mirror (opt-in, off by default).** *Use the public CurseForge mirror when no API key is set*
   reads CurseForge through `https://api.curse.tools/v1`, a third party's copy of the API running on their
   key: no uptime guarantee, it may be rate-limited or disappear, and it may not be allowed by CurseForge's
-  API terms. It is used for metadata only (HTTPS, never its `/v1/cf` form, which redirects to plain HTTP).
+  API terms. HTTPS only, never its `/v1/cf` form (it redirects to plain HTTP), no key is ever sent to it.
   A saved key always wins. If the mirror fails or rate-limits, the tab says "CurseForge unavailable — add an
-  API key" and no install starts. **With the mirror, you trust it to say which files (CurseForge file ids)
-  a pack contains and whether their authors allow third-party downloads.** It can't choose the bytes:
-  every file is still fetched from CurseForge's own CDN at the path built from its id and name (or from
-  Modrinth, see below) and checked against its hash.
-- **Server pack first.** When the pack version has a server pack (`serverPackFileId`, from the API only),
+  API key" and no install starts. **The mirror chooses which files and versions a pack contains and whether
+  files CurseForge blocks are fetched.** Downloads only ever come from the official CurseForge CDN or
+  Modrinth and are hash-checked, and server packs are never used through the mirror (packs are always
+  built from their manifest). Mods are code you are choosing to trust.
+- **Server pack first** (with an API key only). When the pack version has a server pack (`serverPackFileId`),
   its files are written like overrides; its start scripts, loader installers, `libraries/` and bundled Java
-  are skipped (the egg installs the loader version from the pack's `manifest.json`, see *Loader switching*).
+  are skipped, as are top-level dotfiles and scripts (`.py`, `.js`, `.pl`, `.rb`, `.php`, …); the summary
+  lists them by top-level folder (the egg installs the loader version from the pack's `manifest.json`,
+  see *Loader switching*).
   A server pack over the caps or unusable falls back to the manifest build; the summary says why.
 - **Manifest build.** Otherwise `manifest.json` is read, its files resolved in batches and placed by kind
   (`mods/`; resource and shader packs are client-only and skipped), optional files left out, `overrides/`
@@ -92,10 +94,12 @@ Checked before anything is written to the server; archive entries are checked ag
   are fetched, redirect-checked and sha1-verified by the panel (md5 is ignored), never pulled by the node.
 - **Modrinth first.** Every file is looked up on Modrinth by sha1. A match (same size) downloads from
   `cdn.modrinth.com`, verified by sha512, and is recorded for Modrinth Plus; Modrinth's side data drops
-  client-only mods (unknown files stay in). A failed Modrinth lookup stops the install (nothing guessed).
+  client-only mods (unknown files stay in; the summary names the Modrinth project that marked each one
+  client-only). A failed Modrinth lookup stops the install (nothing guessed).
   The summary counts files from Modrinth, from CurseForge and to download manually.
 - **Download manually.** Files whose author turned third-party downloads off (and that aren't on
-  Modrinth), and data packs (they belong in the world, which installs never touch), are listed in the
+  Modrinth), files only on CurseForge that are larger than `max_panel_fetch_bytes`, and data packs
+  (they belong in the world, which installs never touch), are listed in the
   summary with a link to their CurseForge page. They are never fetched or scraped.
 - **Also on Modrinth.** A CurseForge pack whose title (case-insensitive) and loader match a Modrinth
   modpack shows "Also on Modrinth — install from there", which lists it in the Modrinth tab. A suggestion
@@ -209,6 +213,8 @@ direct calls get 403.
   in that instant (e.g. a server started by hand) could be overwritten by the node.
 - Any `server.properties` line ending in a single backslash is read as a line continuation and stops
   the install (fail closed), even when it isn't next to `level-name`.
+- CurseForge searches are not throttled by the plugin: each search, page or filter change on the
+  CurseForge tab is one request against the admin's API key quota (or the mirror's).
 
 ## Settings
 

@@ -280,6 +280,18 @@ class CurseForgeModrinthFirstTest extends TestCase
         }
     }
 
+    public function test_misses_are_not_cached_for_oversized_lookups(): void
+    {
+        Http::fake(['api.modrinth.com/*' => Http::response('{}', 200, ['Content-Type' => 'application/json'])]);
+        $hashes = array_map(fn (int $i) => sha1((string) $i), range(1, 1001));
+
+        (new ModrinthMatcher(new ModrinthClient()))->match($hashes);
+        $this->assertFalse(Cache::has('modpacks-plus:modrinth-sha1:'.$hashes[0]));
+
+        (new ModrinthMatcher(new ModrinthClient()))->match([$hashes[0]]);
+        $this->assertTrue(Cache::has('modpacks-plus:modrinth-sha1:'.$hashes[0]));
+    }
+
     public function test_lookups_are_cached_per_hash(): void
     {
         $this->fakePack(['A' => ['PROJA', 'required']]);
@@ -314,6 +326,10 @@ class CurseForgeModrinthFirstTest extends TestCase
         $summary = $install->summary ?? [];
         $this->assertSame(['modrinth' => 3, 'curseforge' => 2, 'manual' => 1], $summary['sources'] ?? null);
         $this->assertStringContainsString(e(trans('modpacks-plus::strings.summary.sources', ['modrinth' => 3, 'curseforge' => 2, 'manual' => 1])), (string) InstallProgress::summary($install));
+
+        // The client-only mod is named with the Modrinth project that decided it.
+        $this->assertSame([['path' => 'mods/m-mod.jar', 'project' => 'm-mod']], $summary['client_only_by'] ?? null);
+        $this->assertStringContainsString('mods/m-mod.jar (m-mod)', (string) InstallProgress::summary($install));
 
         // Plan 33: the Modrinth matches are recorded for Modrinth Plus.
         $this->assertSame('written', $summary['modrinth_metadata']['status'] ?? null, (string) json_encode($summary['modrinth_metadata'] ?? null));

@@ -208,6 +208,28 @@ class CurseForgeResolvePlanTest extends TestCase
         $this->assertOnlyAllowedRequests();
     }
 
+    public function test_a_pack_whose_author_blocks_downloads_is_never_fetched(): void
+    {
+        $this->fakeManifestPack(stubs: [
+            CurseForge::API.'mods/'.CurseForge::PACK_ID => Http::response(CurseForge::data(CurseForge::mod(overrides: ['allowModDistribution' => false]))),
+        ]);
+
+        $this->assertUnavailable(fn () => $this->resolve(), 'curseforge_no_download');
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'forgecdn'));
+    }
+
+    public function test_curseforge_only_files_over_the_panel_fetch_cap_are_listed_not_fatal(): void
+    {
+        $this->fakeManifestPack();
+
+        $plan = $this->resolve(new Caps(maxPanelFetchBytes: 5));
+
+        $this->assertSame([], $plan->files);
+        $tooLarge = array_values(array_filter($plan->manualFiles, fn (array $entry) => $entry['reason'] === 'too_large'));
+        $this->assertSame(['a-mod-1.0', 'f mod+1'], array_column($tooLarge, 'name'));
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'a-mod-1.0.jar'));
+    }
+
     public function test_a_tampered_pack_archive_is_rejected(): void
     {
         $this->fakeManifestPack(packFile: ['hashes' => [['value' => sha1('something else'), 'algo' => 1]]]);

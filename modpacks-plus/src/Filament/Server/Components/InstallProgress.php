@@ -134,6 +134,12 @@ final class InstallProgress
                 'reason' => self::reason($summary['server_pack_fallback']['reason'], (string) ($summary['server_pack_fallback']['detail'] ?? '')),
             ]);
         }
+        if (!empty($summary['client_only_by']) && is_array($summary['client_only_by'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.client_only_by', ['files' => implode(', ', array_map(
+                fn ($entry) => is_array($entry) ? ((string) ($entry['path'] ?? '')).' ('.((string) ($entry['project'] ?? '')).')' : '',
+                $summary['client_only_by'],
+            ))]);
+        }
         if (!empty($summary['skipped_pack_files'])) {
             $lines[] = trans('modpacks-plus::strings.summary.skipped_pack_files', ['paths' => implode(', ', array_map('strval', (array) $summary['skipped_pack_files']))]);
         }

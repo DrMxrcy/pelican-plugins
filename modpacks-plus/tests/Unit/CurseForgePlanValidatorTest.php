@@ -7,6 +7,7 @@ use DrMxrcy\ModpacksPlus\Data\OverrideEntry;
 use DrMxrcy\ModpacksPlus\Data\PackArchive;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
+use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -239,6 +240,14 @@ class CurseForgePlanValidatorTest extends TestCase
             'eula' => ['eula.txt', true],
             'libraries' => ['libraries/a/b.jar', true],
             'bundled java' => ['jre/bin/java', true],
+            'dotfile' => ['.env', true],
+            'dot folder' => ['.git/config', true],
+            'python' => ['run.py', true],
+            'node' => ['start.js', true],
+            'perl' => ['x.pl', true],
+            'ruby' => ['x.rb', true],
+            'php' => ['index.php', true],
+            'kubejs script' => ['kubejs/server_scripts/x.js', false],
             'mod jar' => ['mods/a.jar', false],
             'nested script' => ['config/start.sh', false],
             'readme' => ['README.txt', false],
@@ -249,5 +258,10 @@ class CurseForgePlanValidatorTest extends TestCase
     public function test_launcher_files(string $path, bool $launcher): void
     {
         $this->assertSame($launcher, PlanValidator::isServerPackLauncherFile($path));
+    }
+
+    public function test_skipped_pack_files_are_summarised_by_top_level_entry(): void
+    {
+        $this->assertSame(['libraries/ (3)', 'start.sh', 'jre/ (1)'], InstallEngine::collapse(['libraries/a/b.jar', 'start.sh', 'libraries/c.jar', 'jre/bin/java', 'libraries/d']));
     }
 }

@@ -25,6 +25,8 @@ final class InstallPlan
      * @param  array<int, string>  $skippedPackFiles  server-pack start scripts, installers and bundled Java not written
      * @param  string|null  $serverPackRoot  the folder inside $serverPack its files are under ('' = the zip root)
      * @param  array{reason: string, detail: string}|null  $serverPackFallback  why a server pack was not used
+     * @param  array<int, array{path: string, project: string}>  $clientOnlyBy  skipped client files and the Modrinth
+     *                                                                          project whose server_side said so
      */
     public function __construct(
         public readonly string $provider,
@@ -46,6 +48,7 @@ final class InstallPlan
         public readonly array $skippedPackFiles = [],
         public readonly ?string $serverPackRoot = null,
         public readonly ?array $serverPackFallback = null,
+        public readonly array $clientOnlyBy = [],
     ) {}
 
     /**
@@ -86,6 +89,7 @@ final class InstallPlan
             'skippedPackFiles' => $this->skippedPackFiles,
             'serverPackRoot' => $this->serverPackRoot,
             'serverPackFallback' => $this->serverPackFallback,
+            'clientOnlyBy' => $this->clientOnlyBy,
         ], $changes);
 
         return new self(...$data);
@@ -128,6 +132,7 @@ final class InstallPlan
             'skipped_pack_files' => $this->skippedPackFiles,
             'server_pack_root' => $this->serverPackRoot,
             'server_pack_fallback' => $this->serverPackFallback,
+            'client_only_by' => $this->clientOnlyBy,
         ];
     }
 
@@ -159,6 +164,12 @@ final class InstallPlan
             serverPackFallback: is_array($data['server_pack_fallback'] ?? null) && is_string($data['server_pack_fallback']['reason'] ?? null)
                 ? ['reason' => $data['server_pack_fallback']['reason'], 'detail' => is_string($data['server_pack_fallback']['detail'] ?? null) ? $data['server_pack_fallback']['detail'] : '']
                 : null,
+            clientOnlyBy: array_values(array_filter(array_map(
+                fn ($entry) => is_array($entry) && is_string($entry['path'] ?? null) && is_string($entry['project'] ?? null)
+                    && PlanValidator::isSafeRelativePath($entry['path']) && preg_match('/^[A-Za-z0-9_\-.]{1,64}$/', $entry['project'])
+                    ? ['path' => $entry['path'], 'project' => $entry['project']] : null,
+                $list('client_only_by'),
+            ))),
         );
     }
 }

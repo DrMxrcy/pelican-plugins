@@ -47,12 +47,18 @@ final class CurseForgeClient
 
     public const MODE_MIRROR = 'mirror';
 
+    /**
+     * Largest API answer read (header and while streaming): a hostile or broken API or mirror
+     * can't make a page request or a queue worker hold an unbounded body in memory.
+     */
+    public const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+
     /** Relative API paths: lowercase words and numeric ids only (no scheme, host, `..`, query). */
     private const PATH_PATTERN = '#^[a-z]+(/[a-z0-9]+)*$#';
 
     private readonly ?string $apiKey;
 
-    public function __construct(#[\SensitiveParameter] ?string $apiKey = null, private readonly bool $mirror = false)
+    public function __construct(#[\SensitiveParameter] ?string $apiKey = null, private readonly bool $mirror = false, private readonly int $maxResponseBytes = self::MAX_RESPONSE_BYTES)
     {
         $this->apiKey = $apiKey !== null && self::isValidKey($apiKey) ? $apiKey : null;
     }
@@ -153,15 +159,16 @@ final class CurseForgeClient
                 ->acceptJson()
                 ->timeout($timeout)
                 ->connectTimeout(5)
-                // A redirect would carry the key header to wherever it points.
-                ->withOptions(['allow_redirects' => false])
+                // A redirect would carry the key header to wherever it points. Never inflate (a small
+                // compressed body could decode to gigabytes); stop reading past the cap.
+                ->withOptions(['allow_redirects' => false] + ModrinthClient::boundedOptions($this->maxResponseBytes))
                 ->beforeSending(function (Request $request) use ($base) {
                     if (!self::isApiUrl($request->url(), $base)) {
                         throw new \RuntimeException('blocked');
                     }
                 })
                 // The key only ever goes to api.curseforge.com; the mirror gets no key at all.
-                ->withHeaders($mode === self::MODE_KEY ? ['x-api-key' => (string) $this->apiKey] : []);
+                ->withHeaders(['Accept-Encoding' => 'identity'] + ($mode === self::MODE_KEY ? ['x-api-key' => (string) $this->apiKey] : []));
 
             $response = $method === 'GET' ? $request->get($path, $payload) : $request->asJson()->post($path, $payload);
         } catch (Throwable) {
@@ -193,6 +200,17 @@ final class CurseForgeClient
 
         if (($status === 401 || $status === 403) && $this->mode() === self::MODE_KEY) {
             throw new PackUnavailableException('curseforge_key_rejected', $path.' (HTTP '.$status.')');
+        }
+
+        // Checked again before the body is touched: an encoded body is never decoded, and handlers
+        // that don't report progress (and fakes) still can't hand over more than the cap.
+        if (!ModrinthClient::isIdentityEncoding($response->header('Content-Encoding'))) {
+            throw new PackUnavailableException($this->unavailable(), $path.' (encoded)');
+        }
+        $length = $response->header('Content-Length');
+        $size = $response->toPsrResponse()->getBody()->getSize();
+        if (($length !== '' && (int) $length > $this->maxResponseBytes) || $size === null || $size > $this->maxResponseBytes) {
+            throw new PackUnavailableException($this->unavailable(), $path.' (too large)');
         }
 
         $data = $status >= 200 && $status < 300 ? $response->json() : null;

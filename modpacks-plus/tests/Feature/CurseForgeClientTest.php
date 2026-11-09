@@ -5,6 +5,7 @@ namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\ModpacksPlusPlugin;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
+use DrMxrcy\ModpacksPlus\Tests\Support\CurseForge;
 use DrMxrcy\ModpacksPlus\Tests\Support\RecordingPlugin;
 use DrMxrcy\ModpacksPlus\Tests\Support\SettingsFormHarness;
 use DrMxrcy\ModpacksPlus\Tests\TestCase;
@@ -172,6 +173,22 @@ class CurseForgeClientTest extends TestCase
 
         $this->assertSame($reason, $exception->reason);
         $this->assertExceptionClean($exception);
+    }
+
+    public function test_an_oversized_answer_is_never_decoded(): void
+    {
+        $client = new CurseForgeClient(self::KEY, false, 1024);
+        Http::fake([
+            CurseForge::API.'mods/1' => Http::response(['data' => str_repeat('x', 4096)]),
+            CurseForge::API.'mods/2' => Http::response(['data' => []], 200, ['Content-Length' => (string) (64 * 1024 * 1024)]),
+        ]);
+
+        foreach (['mods/1', 'mods/2'] as $path) {
+            $exception = $this->catchUnavailable(fn () => $client->get($path));
+            $this->assertSame('curseforge_unavailable', $exception->reason, $path);
+            $this->assertStringContainsString('too large', $exception->detail, $path);
+        }
+        $this->assertSame(8 * 1024 * 1024, CurseForgeClient::MAX_RESPONSE_BYTES);
     }
 
     public function test_without_a_key_nothing_is_requested(): void

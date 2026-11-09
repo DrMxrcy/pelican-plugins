@@ -354,7 +354,8 @@ class InstallEngine
             'skipped_client_files' => $plan ? count($plan->skippedClientFiles) : 0,
             'skipped_overrides' => $plan ? $plan->skippedOverrides : [],
             'skipped_client_overrides' => $plan ? $plan->skippedClientOverrides : [],
-            'skipped_pack_files' => $plan ? $plan->skippedPackFiles : [],
+            'skipped_pack_files' => $plan ? self::collapse($plan->skippedPackFiles) : [],
+            'client_only_by' => $plan ? $plan->clientOnlyBy : [],
             'manual_files' => $plan ? $plan->manualFiles : [],
             'server_pack' => $plan?->serverPack !== null,
             'server_pack_fallback' => $plan?->serverPackFallback,
@@ -409,7 +410,6 @@ class InstallEngine
         return [$failed, $resumed];
     }
 
-    /** Panel-side scratch folder for this install (the downloaded archive). */
     /**
      * Where a CurseForge plan's files come from: Modrinth (matched by hash), the CurseForge
      * CDN, or the user (download manually).
@@ -426,6 +426,30 @@ class InstallEngine
         return $sources;
     }
 
+    /**
+     * Paths summarised by top-level entry: files as they are, folders as `folder/ (count)`.
+     *
+     * @param  array<int, string>  $paths
+     * @return array<int, string>
+     */
+    public static function collapse(array $paths): array
+    {
+        $tops = [];
+        foreach ($paths as $path) {
+            $segments = explode('/', $path, 2);
+            $key = count($segments) === 1 ? $segments[0] : $segments[0].'/';
+            $tops[$key] = ($tops[$key] ?? 0) + 1;
+        }
+
+        $lines = [];
+        foreach ($tops as $top => $count) {
+            $lines[] = str_ends_with((string) $top, '/') ? $top.' ('.$count.')' : (string) $top;
+        }
+
+        return $lines;
+    }
+
+    /** Panel-side scratch folder for this install (the downloaded archive). */
     public function workDir(PackInstall $install): string
     {
         return storage_path('app/private/modpacks-plus/installs/'.$install->id);

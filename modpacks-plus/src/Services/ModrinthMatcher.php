@@ -33,11 +33,13 @@ class ModrinthMatcher
 
     private const CACHE_PREFIX = 'modpacks-plus:modrinth-sha1:';
 
+    private const MAX_CACHED_MISSES = 1000;
+
     public function __construct(private readonly ModrinthClient $client) {}
 
     /**
      * @param  array<int, string>  $sha1s
-     * @return array<string, array{project_id: string, version_id: string, url: string, sha512: string, size: int, server_side: string}> by sha1
+     * @return array<string, array{project_id: string, version_id: string, url: string, sha512: string, size: int, server_side: string, project_slug?: string}> by sha1
      *
      * @throws PackUnavailableException
      */
@@ -56,7 +58,7 @@ class ModrinthMatcher
         foreach (array_keys($wanted) as $sha1) {
             $cached = Cache::get(self::CACHE_PREFIX.$sha1);
             if (is_array($cached)) {
-                /** @var array{project_id: string, version_id: string, url: string, sha512: string, size: int, server_side: string} $cached */
+                /** @var array{project_id: string, version_id: string, url: string, sha512: string, size: int, server_side: string, project_slug?: string} $cached */
                 $matches[$sha1] = $cached;
             } elseif ($cached !== false) {
                 $todo[] = (string) $sha1;
@@ -73,14 +75,21 @@ class ModrinthMatcher
             }
         }
 
-        $sides = $this->sides(array_values(array_unique(array_column($found, 'project_id'))));
+        $projects = $this->sides(array_values(array_unique(array_column($found, 'project_id'))));
 
+        // Misses are only remembered for an ordinary pack's worth of hashes, so the cache can't be
+        // filled with arbitrary keys.
+        $cacheMisses = count($todo) <= self::MAX_CACHED_MISSES;
         foreach ($todo as $sha1) {
             if (isset($found[$sha1])) {
-                $match = $found[$sha1] + ['server_side' => $sides[$found[$sha1]['project_id']] ?? 'unknown'];
+                $project = $projects[$found[$sha1]['project_id']] ?? null;
+                $match = $found[$sha1] + [
+                    'server_side' => $project['side'] ?? 'unknown',
+                    'project_slug' => $project['slug'] ?? $found[$sha1]['project_id'],
+                ];
                 Cache::put(self::CACHE_PREFIX.$sha1, $match, now()->addHour());
                 $matches[$sha1] = $match;
-            } else {
+            } elseif ($cacheMisses) {
                 Cache::put(self::CACHE_PREFIX.$sha1, false, now()->addMinutes(10));
             }
         }
@@ -119,10 +128,10 @@ class ModrinthMatcher
     }
 
     /**
-     * Each project's server_side.
+     * Each project's server_side and slug.
      *
      * @param  array<int, string>  $projectIds
-     * @return array<string, string>
+     * @return array<string, array{side: string, slug: string}>
      *
      * @throws PackUnavailableException
      */
@@ -130,10 +139,14 @@ class ModrinthMatcher
     {
         $sides = [];
         foreach (array_chunk($projectIds, self::PROJECT_CHUNK) as $chunk) {
-            foreach ($this->get('projects', ['ids' => json_encode($chunk)]) as $project) {
+            foreach (array_slice($this->get('projects', ['ids' => json_encode($chunk)]), 0, count($chunk)) as $project) {
                 if (is_array($project) && is_string($project['id'] ?? null) && in_array($project['id'], $chunk, true)) {
                     $side = $project['server_side'] ?? null;
-                    $sides[$project['id']] = is_string($side) && in_array($side, self::SIDES, true) ? $side : 'unknown';
+                    $slug = $project['slug'] ?? null;
+                    $sides[$project['id']] = [
+                        'side' => is_string($side) && in_array($side, self::SIDES, true) ? $side : 'unknown',
+                        'slug' => is_string($slug) && ModrinthPackProvider::isValidId($slug) ? $slug : $project['id'],
+                    ];
                 }
             }
         }
