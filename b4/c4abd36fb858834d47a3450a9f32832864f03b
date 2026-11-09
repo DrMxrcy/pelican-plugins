@@ -1,0 +1,35 @@
+players-plus/database/migrations/2026_11_09_000010_create_pp_log_cursors_table.php
+  s_1d8485e49bfacb::t_8a7cb615636fe9 1-37
+players-plus/src/Models/LogCursor.php
+  s_1d8485e49bfacb::t_fe805942912fba 1-59
+players-plus/src/Services/LogChunk.php
+  s_1d8485e49bfacb::t_247b0867daf4c4 1-34
+players-plus/src/Services/LogReader.php
+  s_1d8485e49bfacb::t_e9d31a6321c560 1-110
+players-plus/src/Support/DaemonFiles.php
+  s_1d8485e49bfacb::t_51cb8877d1e4f1 8,11-12,21-23,27,30-55,63-65,71,80,84-90,93-123
+players-plus/src/Support/StreamLines.php
+  s_1d8485e49bfacb::t_4922aedcd70feb 1-89
+players-plus/tests/Feature/LogReaderTest.php
+  s_1d8485e49bfacb::t_8a7106077b8fc3 1-202
+players-plus/tests/Feature/PluginResourcesTest.php
+  s_1d8485e49bfacb::t_986ae387fe45d9 10,83-84
+players-plus/tests/Fixtures/FakeDaemonFiles.php
+  s_1d8485e49bfacb::t_ab8685978b65f7 21,23,31-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b4c4abd36fb858834d47a3450a9f32832864f03b",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
