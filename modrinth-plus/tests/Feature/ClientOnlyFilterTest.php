@@ -3,23 +3,46 @@
 namespace DrMxrcy\ModrinthPlus\Tests\Feature;
 
 use App\Models\Server;
+use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
+use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
+use DrMxrcy\ModrinthPlus\Filament\Server\Pages\MinecraftModrinthModPage;
 use DrMxrcy\ModrinthPlus\Services\MinecraftModrinthService;
 use DrMxrcy\ModrinthPlus\Tests\TestCase;
+use Filament\Actions\Testing\TestAction;
+use Filament\Facades\Filament;
+use Filament\Tables\Columns\TextColumn;
+use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Livewire\Features\SupportTesting\Testable;
+use Livewire\Livewire;
 use Mockery;
 use Mockery\MockInterface;
 
 class ClientOnlyFilterTest extends TestCase
 {
+    use CreatesTestModels;
+    use RefreshDatabase;
+
     private const SERVER_SIDE_GROUP = ['server_side:required', 'server_side:optional', 'server_side:unknown'];
+
+    /** @var array<int, bool> includeClientOnly flag of every getProjects() call the page made, in order */
+    private array $includeClientOnlyCalls = [];
 
     protected function setUp(): void
     {
         parent::setUp();
 
         cache()->flush();
+    }
+
+    protected function tearDown(): void
+    {
+        Filament::setCurrentPanel(null);
+
+        parent::tearDown();
     }
 
     /** Service with the server-derived loader/version stubbed so no database is needed. */
@@ -170,5 +193,116 @@ class ClientOnlyFilterTest extends TestCase
 
         $this->assertSame('first', $again['hits'][0]['slug']);
         Http::assertSentCount(1);
+    }
+
+    /**
+     * Mods page on the All tab whose search returns Sodium (client-only) and Lithium. The
+     * facade is faked, so the hits come back whatever the toggle says.
+     */
+    private function modsPage(): Testable
+    {
+        Filament::setCurrentPanel('server');
+
+        [$user, $server] = $this->generateTestAccount();
+        $server->egg->forceFill(['features' => ['modrinth_mods']])->save();
+
+        $this->actingAs($user);
+        Filament::setTenant($server);
+
+        MinecraftModrinth::shouldReceive('getMinecraftVersion')->andReturn('26.3');
+        MinecraftModrinth::shouldReceive('getLoaderFromServer')->andReturn(null);
+        MinecraftModrinth::shouldReceive('listFolder')->andReturn([]);
+        MinecraftModrinth::shouldReceive('getProjectVersions')->andReturn([]);
+        MinecraftModrinth::shouldReceive('getProjectVersionsBulk')->andReturn([]);
+        MinecraftModrinth::shouldReceive('getInstalledModsMetadata')->andReturn([]);
+        MinecraftModrinth::shouldReceive('getCategories')->andReturn([]);
+        MinecraftModrinth::shouldReceive('getProjects')->andReturnUsing(function (Server $server, ModrinthProjectType $type, int $page = 1, ?string $search = null, bool $includeClientOnly = false) {
+            $this->includeClientOnlyCalls[] = $includeClientOnly;
+
+            return [
+                'hits' => [$this->hit('sodium', 'unsupported', 'required'), $this->hit('lithium', 'optional', 'optional')],
+                'total_hits' => 2,
+                'versions' => [],
+            ];
+        });
+
+        return Livewire::test(MinecraftModrinthModPage::class)->set('activeTab', 'all')->loadTable();
+    }
+
+    /** @return array<string, mixed> */
+    private function hit(string $id, string $serverSide, string $clientSide): array
+    {
+        return [
+            'project_id' => $id,
+            'slug' => $id,
+            'title' => ucfirst($id),
+            'description' => "The $id mod",
+            'author' => 'someone',
+            'downloads' => 10,
+            'date_modified' => '2026-01-01T00:00:00Z',
+            'icon_url' => null,
+            'project_type' => 'mod',
+            'server_side' => $serverSide,
+            'client_side' => $clientSide,
+        ];
+    }
+
+    /** Turns "Include client-only mods" on, the way the user does. */
+    private function includeClientOnly(Testable $page): Testable
+    {
+        return $page->callAction(TestAction::make('toggle_client_only')->table());
+    }
+
+    private function description(Testable $page, string $rowKey): string|Htmlable|null
+    {
+        /** @var MinecraftModrinthModPage $instance */
+        $instance = $page->instance();
+
+        $column = $instance->getTable()->getColumn('title');
+        $this->assertInstanceOf(TextColumn::class, $column);
+
+        $column->record($instance->getTableRecord($rowKey));
+
+        return $column->getDescriptionBelow();
+    }
+
+    /** Plan 37: with client-only mods shown, Sodium on the All tab must be told apart from server mods. */
+    public function test_all_tab_badges_client_only_hits_when_they_are_shown(): void
+    {
+        $page = $this->includeClientOnly($this->modsPage());
+
+        $this->assertSame(true, end($this->includeClientOnlyCalls));
+
+        $description = $this->description($page, '0');
+        $this->assertInstanceOf(Htmlable::class, $description, 'Sodium has no badge on the All tab');
+        $html = $description->toHtml();
+        $this->assertStringContainsString('fi-color-danger', $html);
+        $this->assertStringContainsString(e(trans('modrinth-plus::strings.client_only.search_badge')), $html);
+        $this->assertStringContainsString(e(trans('modrinth-plus::strings.client_only.search_badge_tooltip')), $html);
+        $this->assertStringContainsString(e('The sodium mod'), $html);
+        // The Installed-tab wording ("safe to remove") does not belong on a search result.
+        $this->assertStringNotContainsString(e(trans('modrinth-plus::strings.client_only.badge')), $html);
+
+        // Server mods stay unbadged.
+        $this->assertSame('The lithium mod', $this->description($page, '1'));
+    }
+
+    public function test_all_tab_badges_client_only_hits_when_the_config_shows_them(): void
+    {
+        config()->set('modrinth-plus.hide_client_only', false);
+
+        $description = $this->description($this->modsPage(), '0');
+
+        $this->assertInstanceOf(Htmlable::class, $description);
+        $this->assertStringContainsString(e(trans('modrinth-plus::strings.client_only.search_badge')), $description->toHtml());
+    }
+
+    /** Fails if: client-only mods become visible by default. */
+    public function test_client_only_mods_stay_hidden_by_default(): void
+    {
+        $this->modsPage();
+
+        $this->assertNotEmpty($this->includeClientOnlyCalls);
+        $this->assertNotContains(true, $this->includeClientOnlyCalls);
     }
 }
