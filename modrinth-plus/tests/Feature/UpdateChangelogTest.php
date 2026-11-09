@@ -212,6 +212,7 @@ class UpdateChangelogTest extends TestCase
             ->assertMountedActionModalDontSeeHtml('href="/admin"');
 
         $this->assertStringContainsString('rel="noopener noreferrer nofollow"', $page->getMountedActionModalHtml());
+        $this->assertStringNotContainsStringIgnoringCase('changelog more', strip_tags($page->getMountedActionModalHtml()));
     }
 
     public function test_versions_modal_renders_changelogs_safely_with_a_fallback(): void
@@ -223,5 +224,25 @@ class UpdateChangelogTest extends TestCase
             ->assertMountedActionModalSeeHtml('<strong>dragons</strong>')
             ->assertMountedActionModalDontSeeHtml('<script>alert')
             ->assertMountedActionModalSee(trans('modrinth-plus::strings.changelog.none'));
+    }
+
+    public function test_no_generated_entry_label_reaches_the_update_dialog_or_versions_modal(): void
+    {
+        // Live panel QA: the dialog read "0.166.0+26.3 / Update changelog 0 / <changelog>" --
+        // Filament's label made from the entry name, kept in the HTML as screen-reader text.
+        $this->fakeModrinth(3, 1);
+
+        $page = $this->page()
+            ->mountAction(TestAction::make('update')->table(self::ROW))
+            ->assertMountedActionModalSee(['Notes for 3.0.0', 'Notes for 2.0.0']);
+        // Text only (tags and attributes dropped): wire:key etc. legitimately carry the name.
+        $text = strip_tags($page->getMountedActionModalHtml());
+        $this->assertDoesNotMatchRegularExpression('/changelog \d/i', $text);
+
+        $html = $this->page()
+            ->mountAction(TestAction::make('versions')->table(self::ROW))
+            ->assertMountedActionModalSee('Notes for 3.0.0')
+            ->getMountedActionModalHtml();
+        $this->assertDoesNotMatchRegularExpression('/changelog \d/i', strip_tags($html));
     }
 }

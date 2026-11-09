@@ -1109,6 +1109,8 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             $url = 'https://modrinth.com/' . rawurlencode((string) ($record['project_type'] ?? '')) . '/' . rawurlencode((string) ($record['slug'] ?? '')) . '/versions';
 
             $components[] = TextEntry::make('update_changelog_more')
+                // Named, so the screen-reader label isn't Filament's "Update changelog more".
+                ->label(trans('modrinth-plus::strings.version.changelog'))
                 ->hiddenLabel()
                 ->state(new HtmlString(sprintf(
                     '<a href="%s" target="_blank" rel="noopener noreferrer nofollow" class="fi-link">%s</a>',
@@ -1122,7 +1124,9 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
     /**
      * A version's changelog: Modrinth's markdown rendered safely (see Changelog::render()), or
-     * "No changelog provided".
+     * "No changelog provided". Labelled "Changelog" even where the label is hidden: a hidden
+     * label still renders as screen-reader text, and Filament's fallback is the entry name
+     * ("Update changelog 0"), which live panel QA saw in the update dialog.
      *
      * @param  array<string, mixed>  $versionData
      */
@@ -1132,6 +1136,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         $html = Changelog::render($changelog);
 
         return TextEntry::make($name)
+            ->label(trans('modrinth-plus::strings.version.changelog'))
             ->state($html ?? trans('modrinth-plus::strings.changelog.none'))
             ->prose($html !== null)
             ->color($html === null ? 'gray' : null);
@@ -1499,8 +1504,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                                     ->state(fn () => isset($versionData['date_published']) ? Carbon::parse($versionData['date_published'], 'UTC')->diffForHumans() : ''),
                             ];
 
-                            $sectionComponents[] = $this->changelogEntry('changelog_' . $versionIndex, $versionData)
-                                ->label(trans('modrinth-plus::strings.version.changelog'));
+                            $sectionComponents[] = $this->changelogEntry('changelog_' . $versionIndex, $versionData);
 
                             if (($versionData['id'] ?? null) === $installedVersionId) {
                                 $headerAction = Action::make('installed_' . $versionIndex)
