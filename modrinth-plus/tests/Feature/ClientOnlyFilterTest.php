@@ -16,6 +16,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Js;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Mockery;
@@ -92,6 +93,21 @@ class ClientOnlyFilterTest extends TestCase
                 $this->assertNotSame($line, trans($line, locale: $locale), "$locale: $key missing");
             }
         }
+    }
+
+    /** Plan 37: each side badge says how it differs from the other, in every locale. */
+    public function test_side_badge_strings_exist_in_every_locale(): void
+    {
+        foreach (['en', 'de'] as $locale) {
+            foreach (['client_only.search_badge', 'client_only.search_badge_tooltip', 'client_only.badge_tooltip', 'sides.players_need_it_tooltip'] as $key) {
+                $line = "modrinth-plus::strings.$key";
+                $this->assertNotSame($line, trans($line, locale: $locale), "$locale: $key missing");
+            }
+        }
+
+        $this->assertSame("Players need it too: install on the server and on every player's game", trans('modrinth-plus::strings.sides.players_need_it_tooltip', locale: 'en'));
+        $this->assertSame('Client-only: does nothing on a server; players add it to their own game if they want it', trans('modrinth-plus::strings.client_only.search_badge_tooltip', locale: 'en'));
+        $this->assertSame('Client-only', trans('modrinth-plus::strings.client_only.search_badge', locale: 'en'));
     }
 
     public function test_config_defaults_to_hiding_client_only(): void
@@ -278,7 +294,7 @@ class ClientOnlyFilterTest extends TestCase
         $html = $description->toHtml();
         $this->assertStringContainsString('fi-color-danger', $html);
         $this->assertStringContainsString(e(trans('modrinth-plus::strings.client_only.search_badge')), $html);
-        $this->assertStringContainsString(e(trans('modrinth-plus::strings.client_only.search_badge_tooltip')), $html);
+        $this->assertStringContainsString(Js::from(trans('modrinth-plus::strings.client_only.search_badge_tooltip'))->toHtml(), $html);
         $this->assertStringContainsString(e('The sodium mod'), $html);
         // The Installed-tab wording ("safe to remove") does not belong on a search result.
         $this->assertStringNotContainsString(e(trans('modrinth-plus::strings.client_only.badge')), $html);

@@ -27,7 +27,9 @@ return [
         'hide' => 'Client-only ausblenden',
         'tooltip' => 'Reine Client-Mods und -Plugins (etwa Sodium oder Iris) haben auf einem Server keine Wirkung.',
         'badge' => 'Nur für den Client — wirkt auf einem Server nicht, kann sicher entfernt werden',
-        'badge_tooltip' => 'Der Server lädt diese Mod nie; nur Spieler nutzen sie in ihrem eigenen Spiel',
+        'badge_tooltip' => 'Nur für den Client: wirkt auf einem Server nicht; Spieler fügen sie bei Bedarf ihrem eigenen Spiel hinzu',
+        'search_badge' => 'Nur für den Client',
+        'search_badge_tooltip' => 'Nur für den Client: wirkt auf einem Server nicht; Spieler fügen sie bei Bedarf ihrem eigenen Spiel hinzu',
     ],
 
     'filters' => [
@@ -84,7 +86,7 @@ return [
 
     'sides' => [
         'players_need_it' => 'Auch für Spieler nötig',
-        'players_need_it_tooltip' => 'Spieler müssen diese Mod ebenfalls installieren',
+        'players_need_it_tooltip' => 'Auch für Spieler nötig: auf dem Server und im Spiel jedes Spielers installieren',
     ],
 
     'compatibility' => [

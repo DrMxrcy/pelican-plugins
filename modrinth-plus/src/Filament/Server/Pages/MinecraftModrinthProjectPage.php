@@ -187,6 +187,12 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         return true;
     }
 
+    /** Whether the All tab currently lists client-only projects (toggle on, or the config never hides them). */
+    protected function clientOnlyShown(): bool
+    {
+        return $this->showClientOnly || !config('modrinth-plus.hide_client_only', true);
+    }
+
     /** Heading of the update/uninstall confirmation (`modals.update_heading`, `modals.uninstall_heading`). */
     protected static function modalHeading(string $key): string
     {
@@ -1410,8 +1416,13 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                                 // Datapacks: no side badges.
                             } elseif (Sides::playersNeedIt($record)) {
                                 $badges[] = $this->renderBadge('warning', 'tabler-users', 'sides.players_need_it');
-                            } elseif ($this->activeTab === 'installed' && Sides::isClientOnly($record)) {
-                                $badges[] = $this->renderBadge('danger', 'tabler-alert-triangle', 'client_only.badge');
+                            } elseif (Sides::isClientOnly($record)) {
+                                if ($this->activeTab === 'installed') {
+                                    $badges[] = $this->renderBadge('danger', 'tabler-alert-triangle', 'client_only.badge');
+                                } elseif ($this->clientOnlyShown()) {
+                                    // Search results: the toggle (or the config) let client-only mods through.
+                                    $badges[] = $this->renderBadge('danger', 'tabler-alert-triangle', 'client_only.search_badge');
+                                }
                             }
                         }
 

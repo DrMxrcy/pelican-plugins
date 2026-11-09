@@ -10,6 +10,7 @@ use Filament\Facades\Filament;
 use Filament\Tables\Columns\TextColumn;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Js;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 
@@ -143,7 +144,8 @@ class PlayersNeedItBadgeTest extends TestCase
         $html = $actual->toHtml();
         $this->assertStringContainsString('fi-badge', $html);
         $this->assertStringContainsString(e(trans('modrinth-plus::strings.sides.players_need_it')), $html);
-        $this->assertStringContainsString(e(trans('modrinth-plus::strings.sides.players_need_it_tooltip')), $html);
+        // The tooltip goes into an Alpine expression, so it is JS-encoded (an apostrophe becomes \u0027).
+        $this->assertStringContainsString(Js::from(trans('modrinth-plus::strings.sides.players_need_it_tooltip'))->toHtml(), $html);
         $this->assertStringContainsString(e($description), $html);
     }
 

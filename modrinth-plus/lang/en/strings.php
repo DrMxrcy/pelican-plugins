@@ -27,7 +27,9 @@ return [
         'hide' => 'Hide client-only',
         'tooltip' => 'Client-only mods and plugins (like Sodium or Iris) do nothing on a server.',
         'badge' => 'Client-only — does nothing on a server, safe to remove',
-        'badge_tooltip' => 'The server never loads this mod; only players use it on their own game',
+        'badge_tooltip' => 'Client-only: does nothing on a server; players add it to their own game if they want it',
+        'search_badge' => 'Client-only',
+        'search_badge_tooltip' => 'Client-only: does nothing on a server; players add it to their own game if they want it',
     ],
 
     'filters' => [
@@ -84,7 +86,7 @@ return [
 
     'sides' => [
         'players_need_it' => 'Players need it too',
-        'players_need_it_tooltip' => 'Players must install this mod too',
+        'players_need_it_tooltip' => 'Players need it too: install on the server and on every player\'s game',
     ],
 
     'compatibility' => [
