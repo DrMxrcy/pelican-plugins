@@ -137,6 +137,32 @@ class ScanLogsTest extends TestCase
         $this->assertSame(1, Http::recorded()->count());
     }
 
+    public function test_a_log_too_slow_to_stream_is_backed_off(): void
+    {
+        $server = $this->minecraftServer();
+        $this->files = ['logs/latest.log' => "[12:00:00] [Server thread/INFO]: x\n"];
+        $reader = new LogReader();
+        $now = 0.0;
+        $reader->clock = function () use (&$now) {
+            $t = $now;
+            $now += LogReader::DEADLINE_SECONDS + 1;
+
+            return $t;
+        };
+        $this->app->instance(LogReader::class, $reader);
+
+        $this->dispatchJob($server);
+        $this->dispatchJob($server);
+
+        $this->assertSame(1, FakeDaemonFiles::listings(), 'backed off after the slow read');
+        $this->assertSame(0, LogCursor::query()->count());
+    }
+
+    public function test_job_uniqueness_ends_before_the_next_scheduled_scan(): void
+    {
+        $this->assertLessThan(300, (new ScanLogsJob(1))->uniqueFor);
+    }
+
     public function test_schedule_scans_every_five_minutes_without_overlapping(): void
     {
         (new PlayersPlusServiceProvider($this->app))->boot();

@@ -23,6 +23,11 @@ use DrMxrcy\PlayersPlus\Enums\LogEventType;
  */
 final class LogParser
 {
+    /** NeoForge dates outside these years are junk (or forged), not a time to store. */
+    public const MIN_YEAR = 2009;
+
+    public const MAX_YEAR = 2100;
+
     /** Longer lines are stack traces or junk, never an event. */
     public const MAX_LINE_BYTES = 4096;
 
@@ -60,7 +65,8 @@ final class LogParser
         if ($m[1] !== '') {
             $parsed = DateTimeImmutable::createFromFormat('!dMY', $m[1] . $m[2] . $m[3]);
             $errors = DateTimeImmutable::getLastErrors();
-            if ($parsed === false || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
+            if ($parsed === false || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+                || (int) $parsed->format('Y') < self::MIN_YEAR || (int) $parsed->format('Y') > self::MAX_YEAR) {
                 return null;
             }
             $date = $parsed->format('Y-m-d');

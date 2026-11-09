@@ -5,6 +5,7 @@ namespace DrMxrcy\PlayersPlus\Jobs;
 use App\Exceptions\Http\Server\FileSizeTooLargeException;
 use App\Models\Server;
 use DrMxrcy\PlayersPlus\Services\LogBackfill;
+use DrMxrcy\PlayersPlus\Services\LogReadTooSlow;
 use DrMxrcy\PlayersPlus\Support\Settings;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
@@ -17,8 +18,10 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Scans one server's logs/latest.log. Short (reading stops after LogReader::DEADLINE_SECONDS)
- * and idempotent (the cursor moves with the sessions, in one transaction). It never touches the
+ * Scans one server's logs/latest.log. Short: reading stops after LogReader::DEADLINE_SECONDS
+ * (15), the lock wait after LogBackfill::$lockWaitSeconds (5) and merging after
+ * LogBackfill::MERGE_SECONDS (10), well inside the 55 s timeout (plus a cached usercache read,
+ * only when a log name has no UUID of its own); and idempotent (the cursor moves with the sessions, in one transaction). It never touches the
  * poll loop: the only shared state is the per-server tracking lock, held for one transaction.
  *
  * A failed read is not retried for FAILURE_BACKOFF seconds, so an unreachable node or an
@@ -37,7 +40,8 @@ class ScanLogsJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 55;
 
-    public int $uniqueFor = 300;
+    /** Shorter than the 5-minute schedule, so a lost lock never skips the next scan. */
+    public int $uniqueFor = 240;
 
     public function __construct(public readonly int $serverId) {}
 
@@ -61,7 +65,8 @@ class ScanLogsJob implements ShouldBeUnique, ShouldQueue
             $backfill->scan($server);
         } catch (FileNotFoundException) {
             // No log yet (never started, or a non-vanilla layout): try again next time.
-        } catch (FileSizeTooLargeException) {
+        } catch (FileSizeTooLargeException|LogReadTooSlow) {
+            // Too big, or the node streams it too slowly to reach the cursor: back off quietly.
             Cache::put("players-plus.log-scan-failed.$this->serverId", true, self::FAILURE_BACKOFF);
         } catch (Throwable $exception) {
             Cache::put("players-plus.log-scan-failed.$this->serverId", true, self::FAILURE_BACKOFF);

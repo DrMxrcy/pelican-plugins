@@ -125,6 +125,50 @@ class LogParserTest extends TestCase
         $this->assertNull(LogClock::firstDate([], CarbonImmutable::parse('2026-11-09 12:00:00', $tz)));
     }
 
+    public function test_neoforge_dates_must_be_real_calendar_dates_in_range(): void
+    {
+        $this->assertNull(LogParser::line('[31Feb2026 12:00:00.000] [Server thread/INFO] [x/]: Alice joined the game'));
+        $this->assertNull(LogParser::line('[09Nov9999 12:00:00.000] [Server thread/INFO] [x/]: Alice joined the game'));
+        $this->assertNull(LogParser::line('[09Nov1970 12:00:00.000] [Server thread/INFO] [x/]: Alice joined the game'));
+        $this->assertSame('2026-11-09', LogParser::line('[09Nov2026 12:00:00.000] [Server thread/INFO] [x/]: Alice joined the game')?->date);
+    }
+
+    public function test_a_forged_chain_of_wraps_never_dates_past_the_ceiling(): void
+    {
+        $tz = new DateTimeZone('UTC');
+        $ceiling = CarbonImmutable::parse('2026-11-09 12:02:00', $tz);
+        $clock = new LogClock($tz, null, '2026-11-09', $ceiling);
+
+        // Each step back of more than five minutes reads as a midnight wrap: ten days ahead.
+        $at = null;
+        foreach (range(0, 10) as $i) {
+            $at = $clock->at(new LogLine(43000 - $i * 600));
+        }
+
+        $this->assertNotNull($at);
+        $this->assertTrue($at->lessThanOrEqualTo($ceiling));
+        $this->assertSame('2026-11-09 10:16:40', $at->format('Y-m-d H:i:s'), 'the latest such time not after the ceiling');
+        $this->assertTrue($clock->last()?->lessThanOrEqualTo($ceiling));
+    }
+
+    public function test_a_future_explicit_date_is_ignored_and_the_clock_stays(): void
+    {
+        $tz = new DateTimeZone('UTC');
+        $clock = new LogClock($tz, CarbonImmutable::parse('2026-11-09 11:00:00', $tz), null, CarbonImmutable::parse('2026-11-09 12:02:00', $tz));
+
+        $this->assertNull($clock->at(new LogLine(3600, '2027-01-01')));
+        $this->assertSame('2026-11-09 11:00:00', $clock->last()?->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-09 11:30:00', $clock->at(new LogLine(41400))?->format('Y-m-d H:i:s'));
+    }
+
+    public function test_a_stored_clock_after_the_ceiling_is_pulled_back(): void
+    {
+        $tz = new DateTimeZone('UTC');
+        $clock = new LogClock($tz, CarbonImmutable::parse('2026-11-20 08:00:00', $tz), null, CarbonImmutable::parse('2026-11-09 12:02:00', $tz));
+
+        $this->assertSame('2026-11-09 12:00:00', $clock->at(new LogLine(43200))?->format('Y-m-d H:i:s'));
+    }
+
     public function test_clock_continues_from_the_previous_scan(): void
     {
         $tz = new DateTimeZone('UTC');

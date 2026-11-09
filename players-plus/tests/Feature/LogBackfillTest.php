@@ -234,6 +234,7 @@ class LogBackfillTest extends TestCase
             . "[13:05:00] [Server thread/INFO]: Alice joined the game\n"
             . "[13:06:00] [Server thread/INFO]: Alice left the game\n";
         $this->modified = '2026-11-09T13:06:01+00:00';
+        Carbon::setTestNow('2026-11-09 13:10:00');
         $this->scan();
 
         $this->assertSame([['12:00:31', '12:10:44', 'log'], ['13:05:00', '13:06:00', 'log']], $this->sessions('Alice'));
@@ -309,17 +310,172 @@ class LogBackfillTest extends TestCase
         $this->log = $this->fixture('vanilla');
         $lock = Cache::lock("players-plus.track.{$this->server->id}", 60);
         $lock->get();
-        $tracker = $this->app->make(SessionTracker::class);
-        $tracker->lockWaitSeconds = 0;
-        $this->app->instance(SessionTracker::class, $tracker);
+        $backfill = $this->app->make(LogBackfill::class);
+        $backfill->lockWaitSeconds = 0; // the lock's wait loop reads the frozen test clock
 
-        $this->scan();
+        $backfill->scan($this->server);
         $this->assertSame(0, LogCursor::query()->count());
         $this->assertSame(0, PlayerSession::query()->count());
 
         $lock->release();
         $this->scan();
         $this->assertSame([['12:00:31', '12:10:44', 'log']], $this->sessions('Alice'));
+    }
+
+    // ---- bounded work (plan 28 review) ---------------------------------------------------
+
+    /** $count distinct players, each joining and leaving a second apart. */
+    private static function flood(int $count, bool $joins = true, bool $leaves = true): string
+    {
+        $log = '';
+        for ($i = 0; $i < $count; $i++) {
+            [$in, $out] = [gmdate('H:i:s', 36000 + 2 * $i), gmdate('H:i:s', 36001 + 2 * $i)];
+            $name = sprintf('Flood%05d', $i);
+            $log .= $joins ? "[$in] [Server thread/INFO]: $name joined the game\n" : '';
+            $log .= $leaves ? "[$out] [Server thread/INFO]: $name left the game\n" : '';
+        }
+
+        return $log;
+    }
+
+    public function test_a_flood_of_new_players_is_capped_per_scan_and_the_cursor_moves_on(): void
+    {
+        $this->log = self::flood(1000);
+
+        $started = microtime(true);
+        $this->scan();
+
+        $this->assertSame(LogBackfill::MAX_NEW_PLAYERS, Player::query()->count());
+        $cursor = LogCursor::query()->sole();
+        $this->assertGreaterThan(0, $cursor->offset);
+        $this->assertLessThan(strlen($this->log), $cursor->offset);
+        $this->assertSame(0, $cursor->size, 'more to read');
+        $this->assertSame(substr_count(substr($this->log, 0, $cursor->offset), "\n"), 2 * LogBackfill::MAX_NEW_PLAYERS, 'ends right after the 100th pair');
+
+        $this->scan();
+        $this->assertSame(2 * LogBackfill::MAX_NEW_PLAYERS, Player::query()->count());
+        $this->assertSame(2 * LogBackfill::MAX_NEW_PLAYERS, PlayerSession::query()->count());
+        $this->assertLessThan(30, microtime(true) - $started);
+        $this->assertConsistent();
+    }
+
+    public function test_at_most_500_join_or_leave_lines_are_merged_per_scan(): void
+    {
+        $this->poll('12:02:00', [self::alice()]);
+        $lines = '';
+        for ($i = 0; $i < 400; $i++) {
+            $time = gmdate('H:i:s', 36000 + 2 * $i);
+            $lines .= "[$time] [Server thread/INFO]: Alice left the game\n[$time] [Server thread/INFO]: Alice joined the game\n";
+        }
+        $this->log = $lines;
+
+        $this->scan();
+
+        $cursor = LogCursor::query()->sole();
+        $this->assertSame(LogBackfill::MAX_EVENTS, substr_count(substr($this->log, 0, $cursor->offset), "\n"));
+        $this->scan();
+        $this->assertSame(strlen($this->log), LogCursor::query()->sole()->offset);
+    }
+
+    public function test_lone_joins_and_leaves_of_unknown_players_create_no_rows(): void
+    {
+        $this->log = self::flood(300, joins: false) . self::flood(300, leaves: false);
+
+        $this->scan();
+        $this->scan();
+
+        $this->assertSame(0, Player::query()->count());
+        $this->assertSame(LogBackfill::MAX_PENDING, count(LogCursor::query()->sole()->pending ?? []));
+    }
+
+    public function test_the_merge_stops_at_its_time_budget_on_a_line_boundary(): void
+    {
+        $this->log = $this->fixture('vanilla') . "[12:15:00] [Server thread/INFO]: Bob joined the game\n[12:20:00] [Server thread/INFO]: Bob left the game\n";
+        $backfill = $this->app->make(LogBackfill::class);
+        $now = 0.0;
+        $backfill->clock = function () use (&$now) {
+            $t = $now;
+            $now += LogBackfill::MERGE_SECONDS;
+
+            return $t;
+        };
+
+        $backfill->scan($this->server);
+
+        // Every clock reading costs the whole budget: the merge stops after the first join/leave.
+        $cursor = LogCursor::query()->sole();
+        $this->assertSame(0, PlayerSession::query()->count());
+        $this->assertStringEndsWith("Alice joined the game\n", substr($this->log, 0, $cursor->offset));
+        $this->assertSame(['alice'], array_keys($cursor->pending ?? []));
+
+        $this->scan();
+        $this->assertSame(2, PlayerSession::query()->count());
+        $this->assertSame(strlen($this->log), LogCursor::query()->sole()->offset);
+    }
+
+    // ---- untrusted times (plan 28 review) ------------------------------------------------
+
+    public function test_a_forged_chain_of_wraps_creates_nothing_in_the_future(): void
+    {
+        $chain = '';
+        foreach (range(0, 9) as $day) {
+            $chain .= sprintf("[%s] [Server thread/INFO]: tick\n", gmdate('H:i:s', 43000 - $day * 600));
+        }
+        $this->log = $chain . "[12:20:00] [Server thread/INFO]: Alice joined the game\n[12:25:00] [Server thread/INFO]: Alice left the game\n";
+
+        $this->scan();
+
+        foreach (PlayerSession::query()->get() as $session) {
+            $this->assertTrue($session->started_at->lessThanOrEqualTo(now()->addMinutes(2)));
+            $this->assertTrue(($session->ended_at ?? now())->lessThanOrEqualTo(now()->addMinutes(2)));
+        }
+        foreach (Player::query()->get() as $player) {
+            $this->assertTrue($player->last_seen_at->lessThanOrEqualTo(now()->addMinutes(2)));
+        }
+        $this->assertTrue(LogCursor::query()->sole()->clock_at?->lessThanOrEqualTo(now()->addMinutes(2)));
+    }
+
+    public function test_future_and_out_of_range_neoforge_dates_are_ignored(): void
+    {
+        $this->log = "[09Nov2027 12:00:31.000] [Server thread/INFO] [x/]: Alice joined the game\n"
+            . "[09Nov2027 12:10:00.000] [Server thread/INFO] [x/]: Alice left the game\n"
+            . "[09Nov9999 12:00:31.000] [Server thread/INFO] [x/]: Bob joined the game\n"
+            . "[09Nov9999 12:10:00.000] [Server thread/INFO] [x/]: Bob left the game\n"
+            . "[09Nov2024 12:00:31.000] [Server thread/INFO] [x/]: Carol joined the game\n"
+            . "[09Nov2024 12:10:00.000] [Server thread/INFO] [x/]: Carol left the game\n"
+            . "[09Nov2026 12:00:31.000] [Server thread/INFO] [x/]: Dave joined the game\n"
+            . "[09Nov2026 12:10:00.000] [Server thread/INFO] [x/]: Dave left the game\n";
+
+        $this->scan();
+
+        $this->assertSame(['Dave'], Player::query()->pluck('name')->all(), 'future, year-9999 and 2-year-old lines are dropped');
+        $this->assertSame([['12:00:31', '12:10:00', 'log']], $this->sessions('Dave'));
+    }
+
+    public function test_a_future_modification_time_does_not_date_the_log_ahead(): void
+    {
+        $this->log = $this->fixture('vanilla');
+        $this->modified = '2026-11-12T12:10:45+00:00'; // three days ahead
+
+        $this->scan();
+
+        $session = PlayerSession::query()->sole();
+        $this->assertSame('2026-11-09 12:00:31', $session->started_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_a_log_without_a_newline_is_not_downloaded_again_while_unchanged(): void
+    {
+        $this->log = '[12:00:00] [Server thread/INFO]: Starting';
+
+        $this->scan();
+        $this->scan();
+
+        $this->assertSame(1, FakeDaemonFiles::contentReads('latest.log'));
+        $this->assertNull(LogCursor::query()->sole()->identity);
+
+        $this->logs(' minecraft server', '[12:00:31] [Server thread/INFO]: Alice joined the game', '[12:01:00] [Server thread/INFO]: Alice left the game');
+        $this->scan();
+        $this->assertSame(1, PlayerSession::query()->count());
     }
 
     public function test_a_session_source_label_exists_for_log(): void

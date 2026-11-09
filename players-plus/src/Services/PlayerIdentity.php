@@ -43,6 +43,24 @@ class PlayerIdentity
             : $this->resolveByUuid($server, $name, $uuid, $seenAt));
     }
 
+    /**
+     * Whether resolve() would find an existing record for this name/UUID instead of creating
+     * one. Lets a log scan skip lines about players it has never seen (no row for a stray leave).
+     *
+     * @param  array<string, string>  $usercache
+     */
+    public function known(Server $server, string $name, ?string $uuid, array $usercache): bool
+    {
+        $uuid ??= $usercache[strtolower($name)] ?? null;
+        $players = fn () => Player::query()->where('server_id', $server->id);
+
+        if ($uuid === null) {
+            return $players()->where('name', $name)->exists();
+        }
+
+        return $players()->where('uuid', $uuid)->exists() || $players()->whereNull('uuid')->where('name', $name)->exists();
+    }
+
     private function resolveByUuid(Server $server, string $name, string $uuid, Carbon $seenAt): Player
     {
         $player = Player::query()->where('server_id', $server->id)->where('uuid', $uuid)->first();

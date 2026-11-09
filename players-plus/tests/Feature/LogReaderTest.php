@@ -9,6 +9,7 @@ use DrMxrcy\PlayersPlus\Models\LogCursor;
 use DrMxrcy\PlayersPlus\Services\LogChunk;
 use DrMxrcy\PlayersPlus\Services\LogParser;
 use DrMxrcy\PlayersPlus\Services\LogReader;
+use DrMxrcy\PlayersPlus\Services\LogReadTooSlow;
 use DrMxrcy\PlayersPlus\Tests\Fixtures\FakeDaemonFiles;
 use DrMxrcy\PlayersPlus\Tests\TestCase;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
@@ -37,6 +38,7 @@ class LogReaderTest extends TestCase
     {
         parent::setUp();
 
+        Carbon::setTestNow('2026-11-09 12:30:00');
         $this->server = $this->createServerModel();
         Http::fake(function (Request $request) {
             $files = $this->log === null ? [] : ['logs/latest.log' => $this->log];
@@ -64,6 +66,7 @@ class LogReaderTest extends TestCase
             'size' => $chunk->cursorSize(),
             'file_modified_at' => LogCursor::storable($chunk->modified),
             'offset' => $chunk->end,
+            'tail' => $chunk->tail,
             'clock_at' => Carbon::parse('2026-11-09 11:10:44'),
         ]);
     }
@@ -221,6 +224,47 @@ class LogReaderTest extends TestCase
         $this->assertSame($chunk->end, $next->start);
         $this->assertFalse($next->restarted);
         $this->assertGreaterThanOrEqual($chunk->end + LogReader::MAX_CHUNK_BYTES, $next->end, 'the unchanged file is read on, not skipped');
+    }
+
+    public function test_same_first_line_but_another_line_at_the_offset_is_a_rotation(): void
+    {
+        $head = "[11:00:00] [Server thread/INFO]: Starting minecraft server version 1.21.4\n";
+        $this->log = $head . "[11:00:05] [Server thread/INFO]: Alice joined the game\n";
+        $cursor = $this->cursorAfter($this->read());
+
+        // A restart within the same second: same first line, longer file, different content.
+        $this->log = $head . "[11:00:05] [Server thread/INFO]: Bob23 joined the game\n[11:01:00] [Server thread/INFO]: Bob23 left the game\n";
+        $this->modified = '2026-11-09T12:20:00+01:00';
+        $chunk = $this->read($cursor->refresh());
+
+        $this->assertTrue($chunk->restarted);
+        $this->assertSame(0, $chunk->end);
+        $this->assertTrue($chunk->more, 'read again from 0 next time');
+
+        $chunk = $this->read($this->cursorAfter($chunk)->refresh());
+        $this->assertSame(0, $chunk->start);
+        $this->assertCount(3, $chunk->lines);
+    }
+
+    public function test_a_prefix_that_cannot_be_skipped_in_time_is_too_slow_not_a_rotation(): void
+    {
+        $line = '[12:00:00] [Server thread/INFO]: ' . str_repeat('x', 90) . "\n";
+        $this->log = str_repeat($line, 25_000);
+        $cursor = $this->cursorAfter($this->read());
+        $this->log .= $line;
+        $this->modified = '2026-11-09T12:20:00+01:00';
+
+        $reader = $this->app->make(LogReader::class);
+        $now = 0.0;
+        $reader->clock = function () use (&$now) {
+            $t = $now;
+            $now += 4.0;
+
+            return $t;
+        };
+
+        $this->expectException(LogReadTooSlow::class);
+        $reader->read($this->server, $cursor->refresh());
     }
 
     public function test_an_oversized_log_is_refused_before_download(): void

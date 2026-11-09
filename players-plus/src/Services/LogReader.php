@@ -21,11 +21,13 @@ use Throwable;
  * - Otherwise the file is streamed (Wings has no range requests, so from byte 0): the bytes
  *   before the cursor are skipped without being kept, and at most MAX_CHUNK_BYTES of complete
  *   lines after it are returned. Memory stays bounded whatever the file size.
- * - Rotation: a different first line, or a file smaller than the offset, restarts at 0.
+ * - Rotation: a different first line, a different line ending at the offset, or a file
+ *   smaller than the offset restarts at 0.
  * - Files over MAX_LOG_BYTES are refused before any download, and no read ever takes more
  *   than min(listed size, MAX_LOG_BYTES) bytes from the stream, even if the file grew since.
- * - Every scan stops at a wall-clock deadline (DEADLINE_SECONDS) and keeps the complete lines
- *   it has; the next scan resumes from the cursor.
+ * - Every scan stops at a wall-clock deadline (DEADLINE_SECONDS, started before the listing;
+ *   the download's own timeout is what is left of it) and keeps the complete lines it has; the
+ *   next scan resumes from the cursor. Not reaching the cursor in time is LogReadTooSlow.
  */
 class LogReader
 {
@@ -38,7 +40,7 @@ class LogReader
     public const MAX_LOG_BYTES = 33_554_432;
 
     /** Seconds a scan may spend reading, well under the job's timeout. */
-    public const DEADLINE_SECONDS = 20;
+    public const DEADLINE_SECONDS = 15;
 
     /** @var Closure(): float seconds, monotonic; replaceable in tests */
     public Closure $clock;
@@ -51,10 +53,13 @@ class LogReader
     /**
      * @throws FileNotFoundException
      * @throws FileSizeTooLargeException
+     * @throws LogReadTooSlow the stream did not reach the cursor before the deadline
      * @throws Throwable any other daemon error
      */
     public function read(Server $server, ?LogCursor $cursor): LogChunk
     {
+        $deadline = ($this->clock)() + self::DEADLINE_SECONDS;
+
         $stat = DaemonFiles::stat($server, self::PATH);
         if ($stat['size'] > self::MAX_LOG_BYTES) {
             throw new FileSizeTooLargeException();
@@ -62,18 +67,23 @@ class LogReader
         $modified = $stat['modified'];
         $timezone = $modified?->getTimezone() ?? new DateTimeZone((string) config('app.timezone', 'UTC'));
 
-        if ($cursor?->identity !== null && $stat['size'] === $cursor->size && $modified !== null
+        // Unchanged since the last scan (also a log that had no complete line then): no download.
+        if ($cursor !== null && $stat['size'] === $cursor->size && $modified !== null
             && $cursor->file_modified_at?->getTimestamp() === $modified->getTimestamp()) {
-            return new LogChunk($cursor->identity, $stat['size'], $modified, false, $cursor->offset, $cursor->offset, [], null, $timezone, false);
+            return new LogChunk($cursor->identity, $stat['size'], $modified, false, $cursor->offset, $cursor->offset, [], [], $cursor->tail, null, $timezone, false);
         }
 
-        $deadline = ($this->clock)() + self::DEADLINE_SECONDS;
-        $stream = DaemonFiles::open($server, self::PATH, self::DEADLINE_SECONDS + 5);
+        $remaining = (int) ceil($deadline - ($this->clock)());
+        $stream = DaemonFiles::open($server, self::PATH, max(1, $remaining));
         try {
             $reader = new StreamLines($stream, LogParser::MAX_LINE_BYTES, min($stat['size'], self::MAX_LOG_BYTES), fn (): bool => ($this->clock)() >= $deadline);
             $first = $reader->next();
             if ($first === null) {
-                return new LogChunk(null, $stat['size'], $modified, true, 0, 0, [], null, $timezone, true);
+                if ($reader->timedOut()) {
+                    throw new LogReadTooSlow();
+                }
+
+                return new LogChunk(null, $stat['size'], $modified, true, 0, 0, [], [], null, null, $timezone, true);
             }
 
             $identity = hash('sha256', $first);
@@ -81,28 +91,51 @@ class LogReader
             $start = $restarted ? 0 : $cursor->offset;
 
             $lines = [];
+            $lineEnds = [];
+            $tail = null;
             if ($start === 0) {
                 $lines[] = $first;
-            } elseif (!$reader->skipTo($start)) {
-                // Out of time, or the file shrank since the listing: the next scan tries again.
-                return new LogChunk($identity, $stat['size'], $modified, false, $start, $start, [], null, $timezone, true, true);
+                $lineEnds[] = $reader->position();
+            } else {
+                // Walk to the cursor a line at a time: the line ending there must be the one the
+                // last scan stopped after, or this is another log with the same first line.
+                $line = $first;
+                while ($reader->position() < $start && ($line = $reader->next()) !== null);
+                if ($line === null || $reader->position() < $start) {
+                    if ($reader->timedOut()) {
+                        throw new LogReadTooSlow();
+                    }
+
+                    // The file shrank since the listing: the next scan sees it.
+                    return new LogChunk($identity, $stat['size'], $modified, false, $start, $start, [], [], $cursor->tail, null, $timezone, true, true);
+                }
+                if ($reader->position() !== $start || $cursor->tail === null || !hash_equals($cursor->tail, hash('sha256', $line))) {
+                    // Rotated: start over from 0 on the next scan (this stream is already past it).
+                    return new LogChunk($identity, $stat['size'], $modified, true, 0, 0, [], [], null, null, $timezone, true, true);
+                }
+                $tail = $cursor->tail;
             }
 
             while ($reader->position() - $start < self::MAX_CHUNK_BYTES && ($line = $reader->next()) !== null) {
                 $lines[] = $line;
+                $lineEnds[] = $reader->position();
             }
             $end = $reader->position();
             $more = $reader->timedOut() || $end - $start >= self::MAX_CHUNK_BYTES;
+            if ($lines !== []) {
+                $tail = hash('sha256', $lines[array_key_last($lines)]);
+            }
 
             $firstDate = null;
             if ($restarted || $cursor->clock_at === null) {
                 // Dating needs every line to the end of the file: the last one is at most the
-                // modification time, and each midnight wrap before it is a day back. Cut short by
-                // the deadline, the last line read stands in for the end (unread wraps are lost).
-                $firstDate = LogClock::firstDate(self::timed($lines, $reader), $modified ?? CarbonImmutable::now($timezone));
+                // modification time (never later than now), and each midnight wrap before it is
+                // a day back. Cut short by the deadline, the last line read stands in for the end.
+                $now = CarbonImmutable::now($timezone);
+                $firstDate = LogClock::firstDate(self::timed($lines, $reader), $modified === null ? $now : $modified->min($now));
             }
 
-            return new LogChunk($identity, $stat['size'], $modified, $restarted, $start, $end, $lines, $firstDate, $timezone, true, $more);
+            return new LogChunk($identity, $stat['size'], $modified, $restarted, $start, $end, $lines, $lineEnds, $tail, $firstDate, $timezone, true, $more);
         } finally {
             $stream->close();
         }

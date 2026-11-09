@@ -16,11 +16,14 @@ return new class extends Migration
             $table->char('identity', 64)->nullable();
             // File size and modification time at the last scan; both unchanged skips the download.
             // Size 0 while a backlog remains (chunk cap or deadline), so the next scan reads on.
+            // A log with no complete line yet is remembered with identity null and its size.
             $table->unsignedBigInteger('size')->default(0);
             // dateTime, not timestamp: no implicit ON UPDATE CURRENT_TIMESTAMP on MySQL/MariaDB.
             $table->dateTime('file_modified_at')->nullable();
             // Byte offset of the first line not yet parsed (always at a line start).
             $table->unsignedBigInteger('offset')->default(0);
+            // sha256 of the line ending at the offset: a different line there is a rotation too.
+            $table->char('tail', 64)->nullable();
             // Moment of the last timestamped line parsed, so the next scan dates its lines.
             $table->dateTime('clock_at')->nullable();
             // Joins still waiting for their leave line: name => {at, uuid}. Names and UUIDs only.

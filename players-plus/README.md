@@ -114,6 +114,19 @@ twice. Only the current `latest.log` is read, not rotated `*.log.gz` files.
   at midnight. The `logged in with entity id … from /<ip>` line is ignored: no IP address
   is stored. Turn this off with the **Read join and leave times from server logs** setting
   (`PLAYERS_PLUS_LOG_SCAN`).
+- Log times are not trusted blindly: nothing is dated in the future (a later time moves back to
+  the most recent such moment, a future NeoForge date is ignored) or more than 400 days back.
+- Each scan merges at most 500 join/leave lines and creates at most 100 new players, and stops
+  merging after 10 s; the rest waits for the next scan. Only a join paired with its leave
+  creates a player; a lone leave of an unknown name is ignored.
+
+Known limits:
+
+- Wings cannot send part of a file, so a grown log is streamed from its first byte up to the
+  new lines (up to 32 MB) on every scan that finds it changed.
+- A daylight-saving change inside one log shifts the times on one side of it by an hour.
+- Old log lines are credited to whoever holds that name now when the log gives no UUID (an
+  offline-mode server, or a name renamed since).
 
 ## Privacy
 

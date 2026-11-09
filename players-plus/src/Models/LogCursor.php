@@ -17,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int $size file size at the last scan
  * @property Carbon|null $file_modified_at file modification time at the last scan
  * @property int $offset byte offset of the first unparsed line
+ * @property string|null $tail sha256 of the line ending at the offset
  * @property Carbon|null $clock_at moment of the last timestamped line parsed
  * @property array<string, mixed>|null $pending joins waiting for their leave: lower-case name => {name, at, uuid}
  * @property Carbon|null $last_scanned_at

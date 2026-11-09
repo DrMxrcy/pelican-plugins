@@ -60,13 +60,14 @@ class SessionTracker
     /**
      * Runs $work in one transaction under the server's tracking lock: one run per server at a
      * time, so two runs (polls or log scans) can't both open or move a session for one player.
-     * False, without running it, when the lock is not free within $lockWaitSeconds.
+     * False, without running it, when the lock is not free within $waitSeconds (default
+     * $lockWaitSeconds).
      */
-    public function locked(Server $server, Closure $work): bool
+    public function locked(Server $server, Closure $work, ?int $waitSeconds = null): bool
     {
         try {
             Cache::lock("players-plus.track.$server->id", 60)->block(
-                $this->lockWaitSeconds,
+                $waitSeconds ?? $this->lockWaitSeconds,
                 fn () => DB::transaction(fn () => $work()),
             );
         } catch (LockTimeoutException) {
