@@ -63,6 +63,7 @@ return [
         ],
         'metadata_kept' => 'Already tracked by Modrinth Plus under another file, left as it was: :files',
         'metadata_conflicts' => 'Not recorded for Modrinth Plus because another entry already uses the file name: :files',
+        'metadata_previous' => 'The previous Modrinth Plus list of installed mods, pins included, is kept in :path.',
     ],
     'reasons' => [
         'unsafe_level_name' => 'The world folder (level-name in server.properties) is not a folder inside the server: :detail',

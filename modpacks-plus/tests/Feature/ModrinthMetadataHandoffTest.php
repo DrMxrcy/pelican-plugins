@@ -71,10 +71,20 @@ class ModrinthMetadataHandoffTest extends TestCase
         Http::fake($stubs + ['*' => Http::response('unexpected', 500)]);
     }
 
-    private function install(Server $server): PackInstall
+    /**
+     * @param  string|null  $metadataAtFinalize  when given, this metadata file appears in mods/
+     *                                           right before finalize (e.g. Modrinth Plus wrote it
+     *                                           meanwhile); a pack can't ship one itself
+     */
+    private function install(Server $server, ?string $metadataAtFinalize = null): PackInstall
     {
         app(InstallEngine::class)->start($server, null, ModrinthPackProvider::ID, Mrpack::PACK_ID, Mrpack::VERSION_ID, 'Test Pack', '1.0.0');
-        $this->runJobs(between: fn () => $this->finishBackups($server));
+        $this->runJobs(between: function ($job) use ($server, $metadataAtFinalize) {
+            $this->finishBackups($server);
+            if ($metadataAtFinalize !== null && $job instanceof FinalizeStep) {
+                $this->files->seed([self::PATH => $metadataAtFinalize]);
+            }
+        });
 
         $install = $this->latestInstall();
         $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
@@ -107,22 +117,45 @@ class ModrinthMetadataHandoffTest extends TestCase
 
         $this->assertSame('written', $install->summary['modrinth_metadata']['status'] ?? null);
         $this->assertSame(2, $install->summary['modrinth_metadata']['added'] ?? null);
-        $this->assertStringContainsString(e(trans('modpacks-plus::strings.summary.metadata.written', ['added' => 2, 'updated' => 0])), InstallProgress::summary($install)->toHtml());
+        $html = InstallProgress::summary($install)->toHtml();
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.summary.metadata.written', ['added' => 2, 'updated' => 0])), $html);
+        // Ruling 8: the previous Modrinth Plus list and pins stay in the moved-aside folder, and the summary says where.
+        $this->assertSame($install->moved_aside_path.'/'.self::PATH, $install->summary['modrinth_metadata']['previous'] ?? null);
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.summary.metadata_previous', ['path' => $install->moved_aside_path.'/'.self::PATH])), $html);
+    }
+
+    public function test_a_pack_cannot_ship_its_own_metadata_file(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $forged = '{"installed_mods": [{"project_id": "FAKE", "project_slug": "fake", "project_title": "Fake", "version_id": "x", "version_number": "1", "filename": "sodium.jar", "installed_at": "2026-01-01T00:00:00+00:00", "pinned": true}]}';
+        $this->pack([
+            'overrides/mods/.modrinth-metadata.json' => $forged,
+            'server-overrides/plugins/.Modrinth-Metadata.json' => $forged,
+        ]);
+
+        $install = $this->install($server);
+
+        // Fails if: the pack's file is written, so Modrinth Plus would trust its fake entries.
+        // Written once: by the hand-off, never by the overrides step.
+        $this->assertCount(1, array_keys($this->files->callsOf('write'), self::PATH, true));
+        $this->assertNotContains('plugins/.Modrinth-Metadata.json', $this->files->callsOf('write'));
+        $this->assertArrayNotHasKey('plugins/.Modrinth-Metadata.json', $this->files->files);
+        $this->assertSame(['AANobbMI', 'gvQqBUqZ'], array_column(json_decode($this->files->files[self::PATH], true)['installed_mods'], 'project_id'));
+        $this->assertEqualsCanonicalizing(['mods/.modrinth-metadata.json', 'plugins/.Modrinth-Metadata.json'], $install->summary['skipped_overrides'] ?? []);
     }
 
     public function test_an_unreadable_metadata_file_is_left_untouched_and_reported(): void
     {
         $this->app->instance(ServerFiles::class, new FailingReadServerFiles($this->files, self::PATH));
         [, $server] = $this->scenarioServer();
-        // The pack itself ships a metadata file; the daemon then fails to read it back.
-        $this->pack(['overrides/mods/.modrinth-metadata.json' => '{"installed_mods": [], "from": "pack"}']);
+        $this->pack();
 
-        $install = $this->install($server);
+        // A metadata file exists by finalize; the daemon then fails to read it.
+        $install = $this->install($server, '{"installed_mods": [], "from": "modrinth plus"}');
 
         // Fails if: a failed read is taken as "no file" and the file is replaced.
-        $this->assertSame('{"installed_mods": [], "from": "pack"}', $this->files->files[self::PATH] ?? null);
-        // Written once, by the overrides step; never again by the hand-off.
-        $this->assertCount(1, array_keys($this->files->callsOf('write'), self::PATH, true));
+        $this->assertSame('{"installed_mods": [], "from": "modrinth plus"}', $this->files->files[self::PATH] ?? null);
+        $this->assertNotContains(self::PATH, $this->files->callsOf('write'));
         $this->assertSame('unreadable', $install->summary['modrinth_metadata']['status'] ?? null);
         $this->assertStringContainsString(e(trans('modpacks-plus::strings.summary.metadata.unreadable', ['path' => self::PATH])), InstallProgress::summary($install)->toHtml());
     }
@@ -130,9 +163,9 @@ class ModrinthMetadataHandoffTest extends TestCase
     public function test_an_unparsable_metadata_file_is_left_untouched_and_reported(): void
     {
         [, $server] = $this->scenarioServer();
-        $this->pack(['overrides/mods/.modrinth-metadata.json' => '{"installed_mods": [ broken']);
+        $this->pack();
 
-        $install = $this->install($server);
+        $install = $this->install($server, '{"installed_mods": [ broken');
 
         $this->assertSame('{"installed_mods": [ broken', $this->files->files[self::PATH] ?? null);
         $this->assertSame('invalid', $install->summary['modrinth_metadata']['status'] ?? null);

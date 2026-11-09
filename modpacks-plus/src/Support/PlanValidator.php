@@ -55,6 +55,9 @@ final class PlanValidator
     /** Archive prefixes applied to the server, lowest precedence first. */
     public const OVERRIDE_PREFIXES = ['overrides/', 'server-overrides/'];
 
+    /** Modrinth Plus / minecraft-modrinth metadata files, which overrides may not write (any case). */
+    public const MODRINTH_METADATA_FILES = ['mods/.modrinth-metadata.json', 'plugins/.modrinth-metadata.json'];
+
     private const MAX_PATH_LENGTH = 1024;
 
     private const MAX_URL_LENGTH = 2048;
@@ -176,6 +179,11 @@ final class PlanValidator
      * or replacing it would take a world along, e.g. `saves` when the world is `saves/world`).
      * Compared case-insensitively, which only ever protects more.
      */
+    public static function isModrinthMetadata(string $path): bool
+    {
+        return in_array(strtolower($path), self::MODRINTH_METADATA_FILES, true);
+    }
+
     public function isProtected(string $path): bool
     {
         $path = strtolower($path);
@@ -388,7 +396,9 @@ final class PlanValidator
                 throw new UnsafePlanException('override_too_large', $path);
             }
 
-            if ($this->isProtected($path)) {
+            // Plan 33: a pack never ships the file Modrinth Plus trusts as "installed"
+            // (fake ids, file names or pins); the hand-off writes it from verified hashes.
+            if ($this->isProtected($path) || self::isModrinthMetadata($path)) {
                 $skippedOverrides[] = $path;
 
                 continue;

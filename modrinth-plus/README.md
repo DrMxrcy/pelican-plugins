@@ -20,7 +20,7 @@ This plugin uses the same page slugs and the same `.modrinth-metadata.json` file
 
 ## Modpacks
 
-Mods installed by a modpack through Modpacks Plus are listed as installed here, with a **From modpack &lt;name&gt;** badge, and can be updated one by one. Updating one (alone or with "Update all") warns first that it may break the pack. Modpacks Plus marks them with an extra `installed_as_modpack` key in `.modrinth-metadata.json`; this plugin keeps that key on install, update, pin and uninstall and never needs Modpacks Plus installed.
+Mods installed by a modpack through Modpacks Plus are listed as installed here, with a **From modpack &lt;name&gt;** badge, and can be updated one by one. Updating one, or installing another version of it from its versions list, warns first that it may break the pack; so does "Update all", which lists them. Modpacks Plus marks them with an extra `installed_as_modpack` key in `.modrinth-metadata.json`; this plugin keeps that key on install, update, pin and uninstall and never needs Modpacks Plus installed.
 
 ## Install
 

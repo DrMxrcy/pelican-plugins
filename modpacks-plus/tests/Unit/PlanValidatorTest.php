@@ -503,6 +503,29 @@ class PlanValidatorTest extends TestCase
         $this->assertSame([$path], $plan->skippedOverrides);
     }
 
+    /** @return array<string, array{string, string}> */
+    public static function metadataOverrides(): array
+    {
+        return [
+            'mods' => ['overrides/mods/.modrinth-metadata.json', 'mods/.modrinth-metadata.json'],
+            'plugins' => ['overrides/plugins/.modrinth-metadata.json', 'plugins/.modrinth-metadata.json'],
+            'server-overrides, other case' => ['server-overrides/MODS/.Modrinth-Metadata.JSON', 'MODS/.Modrinth-Metadata.JSON'],
+        ];
+    }
+
+    /** Plan 33 review: a pack must not be able to pre-seed what Modrinth Plus trusts as installed. */
+    #[DataProvider('metadataOverrides')]
+    public function test_an_override_of_the_modrinth_metadata_file_is_skipped(string $entry, string $path): void
+    {
+        $plan = $this->validator()->validate($this->plan([], [
+            new OverrideEntry($entry, $path, 10),
+            new OverrideEntry('overrides/mods/.modrinth-metadata.json.bak', 'mods/.modrinth-metadata.json.bak', 10),
+        ]));
+
+        $this->assertSame(['mods/.modrinth-metadata.json.bak'], array_map(fn (OverrideEntry $override) => $override->path, $plan->overrides));
+        $this->assertSame([$path], $plan->skippedOverrides);
+    }
+
     public function test_a_nested_level_name_protects_the_world_its_dimensions_and_its_parents(): void
     {
         $validator = $this->validator(worlds: ['saves/world']);

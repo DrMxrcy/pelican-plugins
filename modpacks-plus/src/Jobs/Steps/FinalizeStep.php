@@ -46,11 +46,23 @@ class FinalizeStep extends InstallStep
     private function recordModrinthMetadata(PackInstall $install, Server $server): array
     {
         try {
-            return app(ModrinthMetadataWriter::class)->record($server, $this->files(), $install);
+            $result = app(ModrinthMetadataWriter::class)->record($server, $this->files(), $install);
         } catch (\Throwable $exception) {
             report($exception);
 
-            return ['status' => 'error'];
+            $result = ['status' => 'error'];
         }
+
+        // The previous Modrinth Plus list (and its pins) moved aside with mods/: say where.
+        $previous = $install->moved_aside_path === null ? null : $install->moved_aside_path.'/'.ModrinthMetadataWriter::PATH;
+        try {
+            if ($previous !== null && $this->files()->stat($server, $previous) !== null) {
+                $result['previous'] = $previous;
+            }
+        } catch (\Throwable) {
+            // Only informational.
+        }
+
+        return $result;
     }
 }

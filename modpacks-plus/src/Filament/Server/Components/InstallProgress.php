@@ -128,22 +128,29 @@ final class InstallProgress
     private static function metadataLines(mixed $result): array
     {
         $status = is_array($result) && is_string($result['status'] ?? null) ? $result['status'] : null;
-        $key = 'modpacks-plus::strings.summary.metadata.'.$status;
-        if ($status === null || $status === 'nothing' || !trans()->has($key)) {
+        if ($status === null) {
             return [];
         }
 
         /** @var array<string, mixed> $result */
-        $lines = [trans($key, [
-            'added' => (int) ($result['added'] ?? 0),
-            'updated' => (int) ($result['updated'] ?? 0),
-            'path' => ModrinthMetadataWriter::PATH,
-        ])];
+        $lines = [];
+        $key = 'modpacks-plus::strings.summary.metadata.'.$status;
+        if ($status !== 'nothing' && trans()->has($key)) {
+            $lines[] = trans($key, [
+                'added' => (int) ($result['added'] ?? 0),
+                'updated' => (int) ($result['updated'] ?? 0),
+                'path' => ModrinthMetadataWriter::PATH,
+            ]);
+        }
 
         foreach (['kept', 'conflicts'] as $list) {
             if (!empty($result[$list]) && is_array($result[$list])) {
                 $lines[] = trans('modpacks-plus::strings.summary.metadata_'.$list, ['files' => implode(', ', array_map('strval', $result[$list]))]);
             }
+        }
+
+        if (is_string($result['previous'] ?? null)) {
+            $lines[] = trans('modpacks-plus::strings.summary.metadata_previous', ['path' => $result['previous']]);
         }
 
         return $lines;

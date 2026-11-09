@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 
 use App\Models\Server;
 use DrMxrcy\ModpacksPlus\Data\InstallPlan;
+use DrMxrcy\ModpacksPlus\Data\OverrideEntry;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthClient;
@@ -66,8 +67,11 @@ class ModrinthMetadataWriterTest extends TestCase
         );
     }
 
-    /** @param  array<int, PlanFile>|null  $files */
-    private function install(?array $files = null): PackInstall
+    /**
+     * @param  array<int, PlanFile>|null  $files
+     * @param  array<int, OverrideEntry>  $overrides
+     */
+    private function install(?array $files = null, array $overrides = []): PackInstall
     {
         $plan = new InstallPlan(
             provider: 'modrinth',
@@ -84,6 +88,7 @@ class ModrinthMetadataWriterTest extends TestCase
                 self::file('mods/unknown.jar', 'unknown-bytes'),
                 self::file('config/sodium.jar', 'not a mod folder'),
             ],
+            overrides: $overrides,
         );
 
         $install = new PackInstall();
@@ -288,14 +293,59 @@ class ModrinthMetadataWriterTest extends TestCase
         $this->assertSame([], $this->files->callsOf('read'));
     }
 
-    public function test_a_failed_project_lookup_falls_back_to_ids_and_file_names(): void
+    public function test_a_failed_project_lookup_writes_nothing(): void
     {
+        // Ruling (plan 33 review): no id-as-slug / jar-as-title fallback that would stick forever.
         $this->fakeModrinth(projectsStatus: 503);
 
-        $this->assertSame('written', $this->record()['status']);
+        $this->assertSame('lookup_failed', $this->record()['status']);
+        $this->assertArrayNotHasKey(self::PATH, $this->files->files);
+        $this->assertSame([], $this->files->callsOf('read'));
+    }
 
-        $entries = json_decode($this->files->files[self::PATH], true)['installed_mods'];
-        $this->assertSame(['AANobbMI', 'sodium'], [$entries[0]['project_slug'], $entries[0]['project_title']]);
+    public function test_a_project_missing_from_the_project_lookup_is_not_recorded(): void
+    {
+        Http::fake([
+            'api.modrinth.com/v2/version_files' => Http::response([
+                hash('sha512', 'sodium-bytes') => self::version('sodium-bytes', 'AANobbMI', 'sodV2', '0.5.8'),
+                hash('sha512', 'lithium-bytes') => self::version('lithium-bytes', 'gvQqBUqZ', 'litV2', '0.11.2'),
+            ]),
+            'api.modrinth.com/v2/projects*' => Http::response([['id' => 'AANobbMI', 'slug' => 'sodium', 'title' => 'Sodium']]),
+            '*' => Http::response('unexpected', 500),
+        ]);
+
+        $result = $this->record();
+
+        $this->assertSame(1, $result['added']);
+        $this->assertSame(['sodium.jar'], array_column(json_decode($this->files->files[self::PATH], true)['installed_mods'], 'filename'));
+    }
+
+    public function test_an_oversized_file_is_unreadable_and_never_downloaded(): void
+    {
+        $this->fakeModrinth();
+        $big = str_repeat(' ', ModrinthMetadataWriter::MAX_BYTES + 1);
+        $this->files->seed([self::PATH => $big]);
+
+        $result = $this->record();
+
+        // Fails if: the whole file is pulled through the daemon before its size is checked.
+        $this->assertSame('unreadable', $result['status']);
+        $this->assertSame([], $this->files->callsOf('read'));
+        $this->assertSame([], $this->files->callsOf('write'));
+        $this->assertSame($big, $this->files->files[self::PATH]);
+    }
+
+    public function test_a_jar_an_override_also_writes_is_not_recorded(): void
+    {
+        $this->fakeModrinth();
+
+        // The index claims sodium's hash, but the overrides ship other bytes under that name.
+        $result = $this->record($this->install(overrides: [new OverrideEntry('overrides/mods/sodium.jar', 'mods/sodium.jar', 12)]));
+
+        $this->assertSame(1, $result['added']);
+        $this->assertSame(['lithium.jar'], array_column(json_decode($this->files->files[self::PATH], true)['installed_mods'], 'filename'));
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/version_files')
+            && !in_array(hash('sha512', 'sodium-bytes'), $request['hashes'], true));
     }
 
     public function test_waits_for_modrinth_plus_metadata_lock_and_gives_up_without_writing(): void

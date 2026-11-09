@@ -173,6 +173,7 @@ return [
         'update_warning' => 'This mod came with the modpack :name: updating it on its own may break the pack.',
         'update_all_warning' => 'These came with a modpack, and updating them on their own may break it: :list.',
         'update_all_entry' => ':name (:pack)',
+        'install_heading' => 'Change a modpack mod?',
     ],
 
     'update_all' => [

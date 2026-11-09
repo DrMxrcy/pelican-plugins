@@ -1163,6 +1163,27 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     }
 
     /**
+     * What installing this version from the versions modal must confirm first: an
+     * incompatibility, and/or that it replaces a modpack mod's jar with another version.
+     * Null when nothing needs confirming.
+     *
+     * @param  array<string, mixed>  $record
+     * @param  array<string, mixed>  $versionData
+     */
+    protected function installVersionWarning(array $record, array $versionData): ?string
+    {
+        $modpack = $this->installedAsModpack($record);
+        $installedMod = $modpack === null ? null : $this->getInstalledMod($record['project_id']);
+        $packWarning = $installedMod !== null && $installedMod['version_id'] !== ($versionData['id'] ?? null)
+            ? trans('modrinth-plus::strings.modpack.update_warning', ['name' => $modpack])
+            : null;
+
+        $warnings = array_filter([$this->incompatibleWarning($versionData), $packWarning]);
+
+        return $warnings === [] ? null : implode(' ', $warnings);
+    }
+
+    /**
      * The install button of one version in the versions modal.
      *
      * @param  array<string, mixed>  $record
@@ -1176,10 +1197,15 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
             ->icon('tabler-download')
             ->visible($primaryFile !== null)
             ->authorize(fn () => $this->canInstallProject($record))
-            // Only opens a confirmation when the version is incompatible with something installed.
-            ->requiresConfirmation(fn () => $this->incompatibleWarning($versionData) !== null)
-            ->modalHeading(fn () => $this->incompatibleWarning($versionData) !== null ? trans('modrinth-plus::strings.dependencies.incompatible_heading') : null)
-            ->modalDescription(fn () => $this->incompatibleWarning($versionData))
+            // Only opens a confirmation when the version is incompatible with something installed,
+            // or would replace the jar of a mod that came with a modpack (plan 33).
+            ->requiresConfirmation(fn () => $this->installVersionWarning($record, $versionData) !== null)
+            ->modalHeading(fn () => match (true) {
+                $this->incompatibleWarning($versionData) !== null => trans('modrinth-plus::strings.dependencies.incompatible_heading'),
+                $this->installVersionWarning($record, $versionData) !== null => trans('modrinth-plus::strings.modpack.install_heading'),
+                default => null,
+            })
+            ->modalDescription(fn () => $this->installVersionWarning($record, $versionData))
             ->action(function () use ($record, $versionData, $primaryFile) {
                 abort_unless($this->canInstallProject($record), 403);
 
@@ -1226,13 +1252,11 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
     }
 
     /**
-     * @throws Exception
-     */
-    /**
      * A small badge for the title column's description; `$key` names a `strings.php` entry
      * whose `_tooltip` sibling holds the tooltip. Blade escapes both.
+     *
+     * @param  array<string, string>  $replace  translation parameters
      */
-    /** @param  array<string, string>  $replace  translation parameters (escaped by Blade) */
     private function renderBadge(string $color, string $icon, string $key, array $replace = []): string
     {
         return Blade::render('<x-filament::badge :color="$color" size="sm" :icon="$icon" :tooltip="$tooltip">{{ $label }}</x-filament::badge>', [

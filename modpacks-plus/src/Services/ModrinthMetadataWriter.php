@@ -31,8 +31,11 @@ use Throwable;
  *   `installed_at` and anything else kept) only when it came from a pack or names the same
  *   jar; a user's own entry for another jar is left alone ("kept"), and a jar name another
  *   project's entry already claims is skipped ("conflicts").
- * - Fail closed: a file that can't be read (daemon error, timeout, too large) or isn't a
- *   metadata document is never written. Missing or empty is an empty document.
+ * - Fail closed: a file that can't be read (daemon error, timeout, over MAX_BYTES by its
+ *   listed size, checked before reading) or isn't a metadata document is never written.
+ *   Missing or empty is an empty document. A failed Modrinth lookup (hashes or projects)
+ *   writes nothing either: slugs and titles are never guessed.
+ * - Jars an override also writes are not recorded (their bytes aren't the hashed ones).
  * - Read and write happen under Modrinth Plus's own lock, `modrinth_metadata:{server id}`
  *   on the panel's default cache store, so the two plugins never interleave writes.
  */
@@ -76,7 +79,7 @@ class ModrinthMetadataWriter
         }
 
         try {
-            $candidates = $this->candidates($server, $files, $plan->files);
+            $candidates = $this->candidates($server, $files, $plan->files, array_map(fn ($override) => $override->path, $plan->overrides));
         } catch (Throwable $exception) {
             report($exception);
 
@@ -95,7 +98,15 @@ class ModrinthMetadataWriter
             return $result;
         }
 
+        // Slug and title come from Modrinth or the entry isn't written: a guessed one would stick.
         $projects = $this->projects(array_values(array_unique(array_column($matches, 'project_id'))));
+        if ($projects === null) {
+            return ['status' => 'lookup_failed'] + $result;
+        }
+        $matches = array_filter($matches, fn (array $version) => isset($projects[$version['project_id']]));
+        if ($matches === []) {
+            return $result;
+        }
         $tag = [
             'provider' => $install->provider,
             'pack_id' => $install->pack_id,
@@ -116,14 +127,19 @@ class ModrinthMetadataWriter
      * Plan files that are top-level jars in mods/, on disk with the planned size, keyed by
      * file name, with the hash to look up.
      *
+     * A jar an override also writes is skipped: its bytes may not be the ones the hash
+     * vouches for.
+     *
      * @param  array<int, PlanFile>  $planFiles
+     * @param  array<int, string>  $overridePaths
      * @return array<string, array{algorithm: string, hash: string}>
      */
-    private function candidates(Server $server, ServerFiles $files, array $planFiles): array
+    private function candidates(Server $server, ServerFiles $files, array $planFiles, array $overridePaths): array
     {
+        $overridden = array_fill_keys($overridePaths, true);
         $wanted = [];
         foreach ($planFiles as $file) {
-            if (!preg_match('#^mods/[^/]+\.jar$#i', $file->path)) {
+            if (!preg_match('#^mods/[^/]+\.jar$#i', $file->path) || isset($overridden[$file->path])) {
                 continue;
             }
 
@@ -226,13 +242,13 @@ class ModrinthMetadataWriter
     }
 
     /**
-     * Slug and title per project id, best effort: on failure the entry falls back to the id
-     * and the jar name, as Modrinth Plus's "Scan folder" does.
+     * Slug and title per project id; null when a request failed. Projects missing from the
+     * answer are left out (their entries are not written).
      *
      * @param  list<string>  $ids
-     * @return array<string, array{slug: string, title: string}>
+     * @return array<string, array{slug: string, title: string}>|null
      */
-    private function projects(array $ids): array
+    private function projects(array $ids): ?array
     {
         $projects = [];
         foreach (array_chunk($ids, self::PROJECTS_CHUNK) as $chunk) {
@@ -242,10 +258,14 @@ class ModrinthMetadataWriter
             } catch (Throwable $exception) {
                 report($exception);
 
-                continue;
+                return null;
             }
 
-            foreach (is_array($data) ? $data : [] as $project) {
+            if (!is_array($data)) {
+                return null;
+            }
+
+            foreach ($data as $project) {
                 if (is_array($project) && is_string($project['id'] ?? null) && is_string($project['slug'] ?? null) && is_string($project['title'] ?? null)) {
                     $projects[$project['id']] = ['slug' => $project['slug'], 'title' => mb_strimwidth($project['title'], 0, 250, '…')];
                 }
@@ -267,7 +287,13 @@ class ModrinthMetadataWriter
     private function merge(Server $server, ServerFiles $files, array $matches, array $projects, array $tag, array $result): array
     {
         try {
-            $content = $files->read($server, self::PATH, self::MAX_BYTES);
+            // Size first: the daemon read pulls the whole body before any length check.
+            $stat = $files->stat($server, self::PATH);
+            if ($stat !== null && ($stat['directory'] || $stat['size'] > self::MAX_BYTES)) {
+                return ['status' => 'unreadable'] + $result;
+            }
+
+            $content = $stat === null ? '' : $files->read($server, self::PATH, self::MAX_BYTES);
         } catch (FileNotFoundException) {
             $content = '';
         } catch (Throwable $exception) {
@@ -330,9 +356,9 @@ class ModrinthMetadataWriter
                     continue;
                 }
 
-                $project = $projects[$version['project_id']] ?? null;
-                $entry->project_slug ??= $project['slug'] ?? $version['project_id'];
-                $entry->project_title ??= $project['title'] ?? self::titleFromJar($filename);
+                $project = $projects[$version['project_id']];
+                $entry->project_slug ??= $project['slug'];
+                $entry->project_title ??= $project['title'];
                 $entry->version_id = $version['version_id'];
                 $entry->version_number = $version['version_number'];
                 $entry->filename = $filename;
@@ -350,11 +376,11 @@ class ModrinthMetadataWriter
                 continue;
             }
 
-            $project = $projects[$version['project_id']] ?? null;
+            $project = $projects[$version['project_id']];
             $mods[] = (object) [
                 'project_id' => $version['project_id'],
-                'project_slug' => $project['slug'] ?? $version['project_id'],
-                'project_title' => $project['title'] ?? self::titleFromJar($filename),
+                'project_slug' => $project['slug'],
+                'project_title' => $project['title'],
                 'version_id' => $version['version_id'],
                 'version_number' => $version['version_number'],
                 'filename' => $filename,
@@ -411,10 +437,5 @@ class ModrinthMetadataWriter
         }
 
         return $document;
-    }
-
-    private static function titleFromJar(string $filename): string
-    {
-        return (string) preg_replace('/\.jar$/i', '', $filename);
     }
 }

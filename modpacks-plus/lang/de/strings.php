@@ -63,6 +63,7 @@ return [
         ],
         'metadata_kept' => 'Von Modrinth Plus bereits unter einer anderen Datei verwaltet, unverändert gelassen: :files',
         'metadata_conflicts' => 'Nicht für Modrinth Plus eingetragen, weil ein anderer Eintrag den Dateinamen schon verwendet: :files',
+        'metadata_previous' => 'Die bisherige Modrinth-Plus-Liste der installierten Mods, samt angehefteter, liegt weiter in :path.',
     ],
     'reasons' => [
         'unsafe_level_name' => 'Der Weltordner (level-name in server.properties) ist kein Ordner im Server: :detail',

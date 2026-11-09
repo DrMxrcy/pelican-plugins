@@ -73,9 +73,14 @@ the other: the shared file is the only link.
   pack name, version number). Older Modrinth Plus versions and the official plugin ignore it.
 - The file is only appended to or merged into: other entries (pinned or not), unknown keys and the
   order are kept. A mod you track yourself under another jar is left alone.
-- Written under Modrinth Plus's metadata lock. If the file can't be read, isn't valid, or the lock or
-  Modrinth isn't available, nothing is written and the install summary says so; the install itself
-  still succeeds.
+- The pack's own mods folder replaces the old one, so the old `mods/.modrinth-metadata.json` (Modrinth
+  Plus's previous list and pins) moves aside with it and is kept in
+  `.modpacks-plus/previous-<date>-<id>/mods/.modrinth-metadata.json`; the install summary says where.
+- A pack can't ship its own `.modrinth-metadata.json` (in `mods/` or `plugins/`): such overrides are
+  skipped and listed in the summary. Jars a pack also writes through overrides aren't recorded.
+- Written under Modrinth Plus's metadata lock. If the file can't be read (or is over 8 MB), isn't
+  valid, or the lock or Modrinth isn't available, nothing is written and the install summary says so;
+  the install itself still succeeds.
 
 ## Permissions
 

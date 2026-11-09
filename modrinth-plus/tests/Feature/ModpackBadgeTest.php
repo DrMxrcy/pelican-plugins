@@ -9,6 +9,7 @@ use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
 use DrMxrcy\ModrinthPlus\Facades\MinecraftModrinth;
 use DrMxrcy\ModrinthPlus\Filament\Server\Pages\MinecraftModrinthModPage;
 use DrMxrcy\ModrinthPlus\Tests\TestCase;
+use Filament\Actions\Action;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\Notifications\Collection;
@@ -240,5 +241,49 @@ class ModpackBadgeTest extends TestCase
             ->callMountedAction();
 
         $this->assertEqualsCanonicalizing(['alpha-new.jar', 'beta-new.jar'], $this->downloads);
+    }
+
+    /**
+     * The install button of one version in the versions modal, as the page builds it.
+     *
+     * @param  array<string, mixed>  $version
+     */
+    private function installVersionAction(string $id, string $title, array $version): Action
+    {
+        $page = $this->page();
+        $instance = $page->instance();
+
+        /** @var Action $action */
+        $action = (new \ReflectionMethod($instance, 'makeInstallVersionAction'))
+            ->invoke($instance, 0, self::project($id, $title), $version, $version['files'][0]);
+
+        return $action;
+    }
+
+    public function test_installing_another_version_of_a_pack_mod_from_the_versions_modal_warns_first(): void
+    {
+        $this->account();
+        $this->fakeServer();
+
+        $warning = trans('modrinth-plus::strings.modpack.update_warning', ['name' => self::PACK]);
+        $action = $this->installVersionAction('alpha', 'Alpha', self::version('alpha'));
+
+        // Fails if: the jar of a pack mod is replaced without the pack warning.
+        $this->assertTrue($action->isConfirmationRequired());
+        $this->assertStringContainsString($warning, (string) $action->getModalDescription());
+
+        $action->call();
+        $this->assertSame(['alpha-new.jar'], $this->downloads);
+        $this->assertSame(self::PACK, $this->installed[0]['installed_as_modpack']['pack_name']);
+    }
+
+    public function test_the_versions_modal_does_not_warn_for_the_installed_version_or_other_mods(): void
+    {
+        $this->account();
+        $this->fakeServer();
+
+        $installed = ['id' => 'alpha-old', 'version_number' => 'old.0'] + self::version('alpha');
+        $this->assertFalse($this->installVersionAction('alpha', 'Alpha', $installed)->isConfirmationRequired());
+        $this->assertFalse($this->installVersionAction('beta', 'Beta', self::version('beta'))->isConfirmationRequired());
     }
 }
