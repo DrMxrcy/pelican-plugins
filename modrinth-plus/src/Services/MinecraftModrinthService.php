@@ -7,6 +7,7 @@ use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthProjectType;
 use DrMxrcy\ModrinthPlus\Enums\ModrinthSearchIndex;
 use DrMxrcy\ModrinthPlus\Exceptions\ServerPropertiesUnreadableException;
+use DrMxrcy\ModrinthPlus\Support\Compatibility;
 use DrMxrcy\ModrinthPlus\Support\SearchFacets;
 use DrMxrcy\ModrinthPlus\Support\ServerProperties;
 use DrMxrcy\ModrinthPlus\Support\Sides;
@@ -29,6 +30,12 @@ class MinecraftModrinthService
     protected const VERSIONS_CACHE_MINUTES = 30;
 
     protected const EMPTY_VERSIONS_CACHE_MINUTES = 5;
+
+    /** Compatibility summary (page banner) TTL; the key changes with version, loader and installs anyway. */
+    protected const COMPATIBILITY_SUMMARY_CACHE_HOURS = 6;
+
+    /** A summary with failed lookups is kept briefly only, so the banner catches up once Modrinth answers. */
+    protected const PARTIAL_COMPATIBILITY_SUMMARY_CACHE_MINUTES = 5;
 
     protected const MODRINTH_API_URL = 'https://api.modrinth.com/v2';
 
@@ -690,6 +697,94 @@ class MinecraftModrinthService
         }
 
         return $results;
+    }
+
+    /**
+     * How many installed projects of this type have no build for the server's current Minecraft
+     * version + loader (incompatible, or needing an update; see Compatibility). Lookups that
+     * failed are counted as `unknown`, never as incompatible.
+     *
+     * Cached per server + project type for COMPATIBILITY_SUMMARY_CACHE_HOURS, and only reused
+     * while the Minecraft version, the loader and the installed version ids are the same, so a
+     * changed version or an install/update/uninstall is picked up on the next call. A summary
+     * with unknown results is kept for PARTIAL_COMPATIBILITY_SUMMARY_CACHE_MINUTES only.
+     *
+     * Null when it cannot be worked out: the loader is unknown, or the metadata file could not
+     * be read. Asks Modrinth only through getProjectVersionsBulk().
+     *
+     * @return array{incompatible: int, unknown: int, total: int}|null
+     */
+    public function getCompatibilitySummary(Server $server, ModrinthProjectType $modrinthProjectType): ?array
+    {
+        try {
+            $loader = $this->getLoaderFromServer($server, $modrinthProjectType);
+
+            if ($loader === null) {
+                return null;
+            }
+
+            $installedMods = $this->readInstalledModsMetadata($server, $modrinthProjectType);
+
+            if ($installedMods === null) {
+                return null;
+            }
+
+            $minecraftVersion = $this->getMinecraftVersion($server);
+            $key = self::compatibilitySummaryCacheKey($server, $modrinthProjectType);
+            $fingerprint = self::compatibilityFingerprint($minecraftVersion, $loader['name'], $installedMods);
+
+            $cached = cache()->get($key);
+            if (is_array($cached) && ($cached['fingerprint'] ?? null) === $fingerprint && is_array($cached['summary'] ?? null)) {
+                /** @var array{incompatible: int, unknown: int, total: int} */
+                return $cached['summary'];
+            }
+
+            $versions = $installedMods === [] ? [] : $this->getProjectVersionsBulk(array_column($installedMods, 'project_id'), $server, $modrinthProjectType);
+            $statuses = array_count_values(array_column(Compatibility::report($installedMods, $versions, true), 'status'));
+
+            $summary = [
+                'incompatible' => ($statuses[Compatibility::INCOMPATIBLE] ?? 0) + ($statuses[Compatibility::NEEDS_UPDATE] ?? 0),
+                'unknown' => $statuses[Compatibility::UNKNOWN] ?? 0,
+                'total' => count($installedMods),
+            ];
+
+            cache()->put(
+                $key,
+                ['fingerprint' => $fingerprint, 'summary' => $summary],
+                $summary['unknown'] > 0 ? now()->addMinutes(self::PARTIAL_COMPATIBILITY_SUMMARY_CACHE_MINUTES) : now()->addHours(self::COMPATIBILITY_SUMMARY_CACHE_HOURS),
+            );
+
+            return $summary;
+        } catch (Exception $exception) {
+            report($exception);
+
+            return null;
+        }
+    }
+
+    /** Drops the cached compatibility summary, e.g. after the installed projects changed. */
+    public static function forgetCompatibilitySummary(Server $server, ModrinthProjectType $modrinthProjectType): void
+    {
+        cache()->forget(self::compatibilitySummaryCacheKey($server, $modrinthProjectType));
+    }
+
+    protected static function compatibilitySummaryCacheKey(Server $server, ModrinthProjectType $modrinthProjectType): string
+    {
+        return "modrinth_compatibility:{$server->id}:{$modrinthProjectType->value}";
+    }
+
+    /**
+     * What the cached summary was worked out for: Minecraft version, loader and the installed
+     * version of every project (order-independent).
+     *
+     * @param  array<int, array{project_id: string, version_id: string}>  $installedMods
+     */
+    protected static function compatibilityFingerprint(?string $minecraftVersion, string $loader, array $installedMods): string
+    {
+        $installed = array_map(fn (array $mod) => $mod['project_id'] . '@' . $mod['version_id'], $installedMods);
+        sort($installed);
+
+        return hash('sha256', json_encode([$minecraftVersion, $loader, $installed], JSON_THROW_ON_ERROR));
     }
 
     /**

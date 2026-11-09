@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static array<int, array<string, mixed>> getInstalledModsFromModrinth(array<int, InstalledModMetadata> $installedMods, int $page = 1)
  * @method static array<int, ModrinthVersion> getProjectVersions(string $projectId, Server $server, ?ModrinthProjectType $modrinthProjectType = null)
  * @method static array<string, array<int, ModrinthVersion>|null> getProjectVersionsBulk(array<int, string> $projectIds, Server $server, ?ModrinthProjectType $modrinthProjectType = null)
+ * @method static array{incompatible: int, unknown: int, total: int}|null getCompatibilitySummary(Server $server, ModrinthProjectType $modrinthProjectType)
  * @method static string getProjectFolder(Server $server, ModrinthProjectType $modrinthProjectType)
  * @method static string getLevelName(Server $server)
  * @method static array<int, InstalledModMetadata> getInstalledModsMetadata(Server $server, ModrinthProjectType $modrinthProjectType)
