@@ -13,6 +13,7 @@ class SettingsTest extends TestCase
         $this->assertTrue(Settings::enabled());
         $this->assertSame(2, Settings::pollInterval());
         $this->assertSame(30, Settings::retentionDays());
+        $this->assertSame(365, Settings::rollupRetentionDays());
         $this->assertSame(3.0, Settings::timeout());
     }
 
@@ -29,6 +30,11 @@ class SettingsTest extends TestCase
         config()->set('players-plus.retention_days', -4);
         $this->assertSame(5, Settings::pollInterval());
         $this->assertSame(1, Settings::retentionDays());
+
+        config()->set('players-plus.rollup_retention_days', 0);
+        $this->assertSame(1, Settings::rollupRetentionDays());
+        config()->set('players-plus.rollup_retention_days', 'forever');
+        $this->assertSame(365, Settings::rollupRetentionDays());
     }
 
     public function test_enabled_reads_env_style_strings(): void
@@ -46,8 +52,8 @@ class SettingsTest extends TestCase
 
         $data = (new PlayersPlusPlugin())->getSettingsFormData();
 
-        $this->assertSame(['enabled' => true, 'poll_interval' => 4, 'retention_days' => 30], $data);
-        $this->assertCount(3, (new PlayersPlusPlugin())->getSettingsForm());
+        $this->assertSame(['enabled' => true, 'poll_interval' => 4, 'retention_days' => 30, 'rollup_retention_days' => 365], $data);
+        $this->assertCount(4, (new PlayersPlusPlugin())->getSettingsForm());
     }
 
     public function test_save_writes_prefixed_clamped_environment_values(): void
@@ -63,12 +69,13 @@ class SettingsTest extends TestCase
             }
         };
 
-        $plugin->saveSettings(['enabled' => false, 'poll_interval' => 12, 'retention_days' => '7']);
+        $plugin->saveSettings(['enabled' => false, 'poll_interval' => 12, 'retention_days' => '7', 'rollup_retention_days' => 99999]);
 
         $this->assertSame([
             'PLAYERS_PLUS_ENABLED' => 'false',
             'PLAYERS_PLUS_POLL_INTERVAL' => 5,
             'PLAYERS_PLUS_RETENTION_DAYS' => 7,
+            'PLAYERS_PLUS_ROLLUP_RETENTION_DAYS' => Settings::MAX_RETENTION_DAYS,
         ], $plugin->written);
     }
 }

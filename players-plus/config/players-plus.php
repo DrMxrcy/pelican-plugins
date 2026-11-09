@@ -10,6 +10,9 @@ return [
     // Days raw samples are kept before the daily prune deletes them.
     'retention_days' => env('PLAYERS_PLUS_RETENTION_DAYS', 30),
 
+    // Days hourly rollups (7 d / 30 d charts, peaks, heatmap) are kept.
+    'rollup_retention_days' => env('PLAYERS_PLUS_ROLLUP_RETENTION_DAYS', 365),
+
     // Seconds each network step (connect, read) may take when querying a game server.
     'timeout' => env('PLAYERS_PLUS_TIMEOUT', 3),
 ];

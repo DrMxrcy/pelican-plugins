@@ -10,6 +10,8 @@ return [
         'poll_interval_help' => 'How often every running Minecraft server is asked who is online (1 to 5 minutes).',
         'retention_days' => 'Keep samples for',
         'retention_days_help' => 'Older samples are deleted once a day.',
+        'rollup_retention_days' => 'Keep hourly history for',
+        'rollup_retention_days_help' => 'Hourly averages and peaks behind the 7 and 30 day charts and the heatmap. Older hours are deleted once a day.',
         'minutes' => 'minutes',
         'days' => 'days',
         'saved' => 'Settings saved',

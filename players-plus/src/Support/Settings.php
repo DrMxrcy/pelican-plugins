@@ -30,6 +30,12 @@ final class Settings
         return self::clampInt(config('players-plus.retention_days'), 1, self::MAX_RETENTION_DAYS, 30);
     }
 
+    /** Days hourly rollups are kept; defaults to a year. */
+    public static function rollupRetentionDays(): int
+    {
+        return self::clampInt(config('players-plus.rollup_retention_days'), 1, self::MAX_RETENTION_DAYS, 365);
+    }
+
     /** Seconds for each network step of a game-server query. */
     public static function timeout(): float
     {

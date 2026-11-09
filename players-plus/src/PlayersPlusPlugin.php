@@ -46,6 +46,7 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
             'enabled' => Settings::enabled(),
             'poll_interval' => Settings::pollInterval(),
             'retention_days' => Settings::retentionDays(),
+            'rollup_retention_days' => Settings::rollupRetentionDays(),
         ];
     }
 
@@ -71,6 +72,14 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
                 ->minValue(1)
                 ->maxValue(Settings::MAX_RETENTION_DAYS)
                 ->suffix(trans('players-plus::strings.settings.days')),
+            TextInput::make('rollup_retention_days')
+                ->label(trans('players-plus::strings.settings.rollup_retention_days'))
+                ->helperText(trans('players-plus::strings.settings.rollup_retention_days_help'))
+                ->integer()
+                ->required()
+                ->minValue(1)
+                ->maxValue(Settings::MAX_RETENTION_DAYS)
+                ->suffix(trans('players-plus::strings.settings.days')),
         ];
     }
 
@@ -81,6 +90,7 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
             'PLAYERS_PLUS_ENABLED' => filter_var($data['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN) ? 'true' : 'false',
             'PLAYERS_PLUS_POLL_INTERVAL' => Settings::clampInt($data['poll_interval'] ?? null, Settings::MIN_INTERVAL, Settings::MAX_INTERVAL, 2),
             'PLAYERS_PLUS_RETENTION_DAYS' => Settings::clampInt($data['retention_days'] ?? null, 1, Settings::MAX_RETENTION_DAYS, 30),
+            'PLAYERS_PLUS_ROLLUP_RETENTION_DAYS' => Settings::clampInt($data['rollup_retention_days'] ?? null, 1, Settings::MAX_RETENTION_DAYS, 365),
         ]);
 
         Notification::make()

@@ -21,6 +21,7 @@ class PluginResourcesTest extends TestCase
         $this->assertTrue(config('players-plus.enabled'));
         $this->assertSame(2, config('players-plus.poll_interval'));
         $this->assertSame(30, config('players-plus.retention_days'));
+        $this->assertSame(365, config('players-plus.rollup_retention_days'));
         $this->assertSame(3, config('players-plus.timeout'));
     }
 

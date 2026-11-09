@@ -10,6 +10,8 @@ return [
         'poll_interval_help' => 'Wie oft jeder laufende Minecraft-Server gefragt wird, wer online ist (1 bis 5 Minuten).',
         'retention_days' => 'Messwerte behalten für',
         'retention_days_help' => 'Ältere Messwerte werden einmal täglich gelöscht.',
+        'rollup_retention_days' => 'Stundenverlauf behalten für',
+        'rollup_retention_days_help' => 'Stündliche Durchschnitte und Spitzen für die 7- und 30-Tage-Diagramme und die Heatmap. Ältere Stunden werden einmal täglich gelöscht.',
         'minutes' => 'Minuten',
         'days' => 'Tage',
         'saved' => 'Einstellungen gespeichert',
