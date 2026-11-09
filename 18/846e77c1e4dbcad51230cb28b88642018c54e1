@@ -1,0 +1,43 @@
+players-plus/database/migrations/2026_11_09_000001_create_pp_samples_table.php
+  s_1d8485e49bfacb::t_2dd91ed8cfd4c8 1-31
+players-plus/src/Console/Commands/PollPlayersCommand.php
+  s_1d8485e49bfacb::t_1b56f94fdfb092 1-55
+players-plus/src/Console/Commands/PruneSamplesCommand.php
+  s_1d8485e49bfacb::t_b09aa1a921233b 1-23
+players-plus/src/Enums/SampleStatus.php
+  s_1d8485e49bfacb::t_f558f4a1758f02 1-29
+players-plus/src/Jobs/PollServerJob.php
+  s_1d8485e49bfacb::t_947b2cde1428cd 1-80
+players-plus/src/Models/Sample.php
+  s_1d8485e49bfacb::t_95da00863dc376 1-54
+players-plus/src/Providers/PlayersPlusServiceProvider.php
+  s_1d8485e49bfacb::t_2658155b9be418 5-10,15-18,20-31
+players-plus/src/Services/PlayerPoller.php
+  s_1d8485e49bfacb::t_67c49807f6bea4 1-98
+players-plus/src/Services/PollResult.php
+  s_1d8485e49bfacb::t_f135d1c10cd782 1-31
+players-plus/src/Services/QueryPortResolver.php
+  s_1d8485e49bfacb::t_007fcf362091d3 1-48
+players-plus/src/Support/Minecraft.php
+  s_1d8485e49bfacb::t_c405a6198d7dda 1-16
+players-plus/src/Support/ServerProperties.php
+  s_1d8485e49bfacb::t_b7742044fd26b2 1-61
+players-plus/tests/Feature/PollingTest.php
+  s_1d8485e49bfacb::t_2e4588043607b3 1-359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "18846e77c1e4dbcad51230cb28b88642018c54e1",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
