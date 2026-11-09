@@ -1,0 +1,27 @@
+modpacks-plus/src/Support/DiskBudget.php
+  s_1d8485e49bfacb::t_f135d1d241c0b3 1-147
+modpacks-plus/tests/Unit/DiskBudgetTest.php
+  s_1d8485e49bfacb::t_547f27cf60c344 1-147
+modpacks-plus/tests/Feature/DiskBudgetConfigTest.php
+  s_1d8485e49bfacb::t_eebc139c33104d 1-38
+modpacks-plus/config/modpacks-plus.php
+  s_1d8485e49bfacb::t_6f449d3304abcc 43-50
+modpacks-plus/src/Support/Caps.php
+  s_1d8485e49bfacb::t_238842bfe572a1 12,16-18,28-31,41-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "85bbcca0c5bb83d04156d614910e4a6b024beecc",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
