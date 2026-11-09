@@ -321,7 +321,9 @@ class PlayersOverviewTest extends TestCase
 
         $this->seedMany(27);
         $this->assertSame($update, count($this->updateQueries(fn ($page) => $page->call('gotoPage', 2))), 'page 2');
-        $name = (string) Server::query()->orderByDesc('id')->value('name');
+        // A name no other (random factory) server name can contain, so the search matches exactly one.
+        $name = 'pp-search-target-'.bin2hex(random_bytes(6));
+        Server::query()->orderByDesc('id')->firstOrFail()->forceFill(['name' => $name])->save();
         $this->assertSame($update, count($this->updateQueries(fn ($page) => $page->searchTable($name)->assertCountTableRecords(1))), 'search');
 
         /** @var Node $node */
