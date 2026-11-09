@@ -1,0 +1,33 @@
+players-plus/src/Jobs/ScanLogsJob.php
+  s_1d8485e49bfacb::t_aef91e0f6d7cbe 21-30
+players-plus/src/Services/LogBackfill.php
+  s_1d8485e49bfacb::t_1e533274aff8c1 7,24-25,28-30,32-33,47-49,73,77,103-105,132-134,224-240,242
+players-plus/src/Services/LogClock.php
+  s_1d8485e49bfacb::t_933e2742b53f9d 17-20,27-29,65,71-83
+players-plus/src/Services/LogReader.php
+  s_1d8485e49bfacb::t_fff03d337432be 63,132-135
+players-plus/src/Services/PlayerIdentity.php
+  s_1d8485e49bfacb::t_85c53faf827535 173,177,179
+players-plus/src/Support/DaemonFiles.php
+  s_1d8485e49bfacb::t_d6fb67c3eae0a6 26,28,34-43,54,62,71-74,81
+players-plus/tests/Feature/LogBackfillTest.php
+  s_1d8485e49bfacb::t_ca1eb924d969b9 236,455,457-478,480-498,500-525,527-540,542-544
+players-plus/tests/Unit/LogParserTest.php
+  s_1d8485e49bfacb::t_d6b36da2dce278 142-146,148,150-151,164-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cd6cb4fbfeea68e92fd9b9cbbb6bc92ec66b3cbf",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
