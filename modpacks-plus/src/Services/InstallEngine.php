@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Services;
 
 use App\Models\Server;
 use App\Models\User;
+use DrMxrcy\ModpacksPlus\Data\InstallPlan;
 use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
 use DrMxrcy\ModpacksPlus\Exceptions\StaleJobException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
@@ -357,6 +358,7 @@ class InstallEngine
             'manual_files' => $plan ? $plan->manualFiles : [],
             'server_pack' => $plan?->serverPack !== null,
             'server_pack_fallback' => $plan?->serverPackFallback,
+            'sources' => $plan !== null && $plan->provider === 'curseforge' && $plan->serverPack === null ? self::sources($plan) : null,
             'modrinth_metadata' => $install->progressValue('modrinth_metadata'),
             'loader_switch' => $install->isLoaderSwitch() ? [
                 'loader' => $install->loader_switch['loader'] ?? null,
@@ -408,6 +410,22 @@ class InstallEngine
     }
 
     /** Panel-side scratch folder for this install (the downloaded archive). */
+    /**
+     * Where a CurseForge plan's files come from: Modrinth (matched by hash), the CurseForge
+     * CDN, or the user (download manually).
+     *
+     * @return array{modrinth: int, curseforge: int, manual: int}
+     */
+    public static function sources(InstallPlan $plan): array
+    {
+        $sources = ['modrinth' => 0, 'curseforge' => 0, 'manual' => count($plan->manualFiles)];
+        foreach ($plan->files as $file) {
+            $sources[parse_url((string) $file->url, PHP_URL_HOST) === 'cdn.modrinth.com' ? 'modrinth' : 'curseforge']++;
+        }
+
+        return $sources;
+    }
+
     public function workDir(PackInstall $install): string
     {
         return storage_path('app/private/modpacks-plus/installs/'.$install->id);

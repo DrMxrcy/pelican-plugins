@@ -11,6 +11,7 @@ use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgePackProvider;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthClient;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
+use DrMxrcy\ModpacksPlus\Services\ModrinthMatcher;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use DrMxrcy\ModpacksPlus\Tests\Support\CurseForge;
@@ -52,7 +53,7 @@ class CurseForgeResolvePlanTest extends TestCase
     {
         $caps ??= new Caps();
 
-        return new CurseForgePackProvider(new CurseForgeClient(CurseForge::KEY), new ModrinthPackProvider(new ModrinthClient(), $caps), $caps);
+        return new CurseForgePackProvider(new CurseForgeClient(CurseForge::KEY), new ModrinthPackProvider(new ModrinthClient(), $caps), new ModrinthMatcher(new ModrinthClient()), $caps);
     }
 
     private function resolve(?Caps $caps = null): InstallPlan

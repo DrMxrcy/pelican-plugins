@@ -23,7 +23,7 @@ class PackProviders
             ModrinthPackProvider::ID => $this->modrinth(),
             // Built even when CurseForge is not set up: its API calls then refuse before any request,
             // while a running install can still re-read its (CDN-hosted) archive.
-            CurseForgePackProvider::ID => new CurseForgePackProvider(CurseForgeClient::fromConfig(), $this->modrinth(), Caps::fromConfig()),
+            CurseForgePackProvider::ID => new CurseForgePackProvider(CurseForgeClient::fromConfig(), $this->modrinth(), new ModrinthMatcher(app(ModrinthClient::class)), Caps::fromConfig()),
             default => throw new PackUnavailableException('not_found', $id),
         };
     }

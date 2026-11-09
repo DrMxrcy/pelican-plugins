@@ -104,6 +104,7 @@ return [
             'datapack' => 'a data pack: put it into the world\'s datapacks folder',
             'unsupported_type' => 'a kind of file the installer doesn\'t place',
         ],
+        'sources' => 'Files from Modrinth: :modrinth, from CurseForge: :curseforge, to download manually: :manual.',
     ],
     'reasons' => [
         'unsafe_level_name' => 'The world folder (level-name in server.properties) is not a folder inside the server: :detail',

@@ -120,6 +120,13 @@ final class InstallProgress
             $lines[] = trans('modpacks-plus::strings.summary.skipped_client_overrides', ['paths' => implode(', ', array_map('strval', (array) $summary['skipped_client_overrides']))]);
         }
 
+        if (is_array($summary['sources'] ?? null)) {
+            $lines[] = trans('modpacks-plus::strings.summary.sources', [
+                'modrinth' => (int) ($summary['sources']['modrinth'] ?? 0),
+                'curseforge' => (int) ($summary['sources']['curseforge'] ?? 0),
+                'manual' => (int) ($summary['sources']['manual'] ?? 0),
+            ]);
+        }
         if (!empty($summary['server_pack'])) {
             $lines[] = trans('modpacks-plus::strings.summary.server_pack');
         } elseif (is_array($summary['server_pack_fallback'] ?? null) && is_string($summary['server_pack_fallback']['reason'] ?? null)) {

@@ -104,6 +104,7 @@ return [
             'datapack' => 'ein Datenpaket: in den datapacks-Ordner der Welt legen',
             'unsupported_type' => 'eine Dateiart, die der Installer nicht ablegt',
         ],
+        'sources' => 'Dateien von Modrinth: :modrinth, von CurseForge: :curseforge, manuell herunterzuladen: :manual.',
     ],
     'reasons' => [
         'unsafe_level_name' => 'Der Weltordner (level-name in server.properties) ist kein Ordner im Server: :detail',

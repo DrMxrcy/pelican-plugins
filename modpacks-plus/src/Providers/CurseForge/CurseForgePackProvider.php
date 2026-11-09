@@ -10,6 +10,7 @@ use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
+use DrMxrcy\ModpacksPlus\Services\ModrinthMatcher;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PackArchiveReader;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
@@ -91,6 +92,7 @@ class CurseForgePackProvider implements PackProvider
     public function __construct(
         private readonly CurseForgeClient $client,
         private readonly ModrinthPackProvider $modrinth,
+        private readonly ModrinthMatcher $matcher,
         private readonly Caps $caps,
     ) {}
 
@@ -498,8 +500,22 @@ class CurseForgePackProvider implements PackProvider
             ];
         }
 
+        // Modrinth-first: a file Modrinth has (same sha1, same size) is downloaded from
+        // cdn.modrinth.com and checked against Modrinth's sha512, which also installs files
+        // CurseForge may not hand out; its server_side drops client-only mods. Unknown stays in.
+        $matches = $this->matcher->match(array_values(array_filter(array_map(fn (array $candidate) => $candidate['hashes']['sha1'] ?? null, $candidates))));
+
         $planFiles = [];
         foreach ($candidates as $candidate) {
+            $match = $matches[$candidate['hashes']['sha1'] ?? ''] ?? null;
+            if ($match !== null && $match['size'] === $candidate['size']) {
+                $candidate['urls'] = array_merge([$match['url']], $candidate['urls']);
+                $candidate['hashes'] = ['sha512' => $match['sha512']] + $candidate['hashes'];
+                if ($candidate['side'] !== 'unsupported') {
+                    $candidate['side'] = $match['server_side'];
+                }
+            }
+
             if ($candidate['urls'] === [] && $candidate['side'] !== 'unsupported') {
                 $manual[] = $candidate['manual'];
 

@@ -7,6 +7,7 @@ use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgePackProvider;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthClient;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
+use DrMxrcy\ModpacksPlus\Services\ModrinthMatcher;
 use DrMxrcy\ModpacksPlus\Services\PackProviders;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Tests\Support\CurseForge;
@@ -31,7 +32,7 @@ class CurseForgePackProviderTest extends TestCase
 
     private function provider(): CurseForgePackProvider
     {
-        return new CurseForgePackProvider(new CurseForgeClient(CurseForge::KEY), new ModrinthPackProvider(new ModrinthClient(), new Caps()), new Caps());
+        return new CurseForgePackProvider(new CurseForgeClient(CurseForge::KEY), new ModrinthPackProvider(new ModrinthClient(), new Caps()), new ModrinthMatcher(new ModrinthClient()), new Caps());
     }
 
     private function catchUnavailable(callable $callback): PackUnavailableException
