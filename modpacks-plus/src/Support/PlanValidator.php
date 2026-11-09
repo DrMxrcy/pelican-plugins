@@ -95,34 +95,38 @@ final class PlanValidator
      */
     public function normalisePath(string $path): string
     {
-        $unsafe = fn () => new UnsafePlanException('unsafe_path', $path);
+        if (!self::isSafeRelativePath($path)) {
+            throw new UnsafePlanException('unsafe_path', $path);
+        }
 
+        return $path;
+    }
+
+    /** The path rules of normalisePath() as a static check (used again right before each daemon call). */
+    public static function isSafeRelativePath(string $path): bool
+    {
         if ($path === '' || strlen($path) > self::MAX_PATH_LENGTH || !mb_check_encoding($path, 'UTF-8')) {
-            throw $unsafe();
+            return false;
         }
 
         // Control characters (incl. NUL), backslashes and percent-encoding.
         if (preg_match('/[\x00-\x1F\x7F\\\\]/', $path) || preg_match('/%[0-9A-Fa-f]{2}/', $path)) {
-            throw $unsafe();
+            return false;
         }
 
         // Absolute paths and drive letters (C:, c:foo).
         if (str_starts_with($path, '/') || preg_match('/^[A-Za-z]:/', $path)) {
-            throw $unsafe();
+            return false;
         }
 
         foreach (explode('/', $path) as $segment) {
             if ($segment === '' || $segment === '.' || $segment === '..') {
-                throw $unsafe();
+                return false;
             }
         }
 
         // Belt and braces: the logical resolution must stay under the root.
-        if (!self::resolvesUnderRoot($path)) {
-            throw $unsafe();
-        }
-
-        return $path;
+        return self::resolvesUnderRoot($path);
     }
 
     /** Resolves `.` and `..` logically against a root and reports whether the result stays strictly inside it. */

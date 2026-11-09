@@ -5,6 +5,9 @@ return [
     // limit reached, throttled). Off by default: the install stops before any change instead.
     'allow_skip_backup' => (bool) env('MODPACKS_PLUS_ALLOW_SKIP_BACKUP', false),
 
+    // Files pulled per download job; cancel takes effect between batches.
+    'download_batch' => (int) env('MODPACKS_PLUS_DOWNLOAD_BATCH', 10),
+
     // Hard limits checked before anything is written to the server.
     'caps' => [
         // Files listed in the pack index (after dropping client-only ones).

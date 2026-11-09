@@ -69,11 +69,12 @@ final class PlanFile
         return self::fromArray(array_merge($this->toArray(), $changes));
     }
 
+    /** Parent directory relative to the server root ('' for the root itself). */
     public function directory(): string
     {
         $directory = dirname($this->path);
 
-        return $directory === '.' ? '/' : $directory;
+        return $directory === '.' ? '' : $directory;
     }
 
     public function filename(): string
