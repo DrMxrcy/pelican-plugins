@@ -1,0 +1,45 @@
+modpacks-plus/src/Support/JsonApiClient.php
+  s_1d8485e49bfacb::t_2bb9b57e4a52e6 1-121
+modpacks-plus/src/Providers/Ftb/FtbPackProvider.php
+  s_1d8485e49bfacb::t_e7895d776b8b4b 1-553
+modpacks-plus/src/Providers/CurseForge/CurseForgePackProvider.php
+  s_1d8485e49bfacb::t_c550e4d8afba59 573-615
+  s_1d8485e49bfacb::t_e8f3b01de846b4 572
+modpacks-plus/tests/Feature/FtbPackProviderTest.php
+  s_1d8485e49bfacb::t_17d5ecf0203f2a 1-72,74-487
+  s_1d8485e49bfacb::t_ec44397aab63a1 73
+  s_1d8485e49bfacb::t_6959fcda04bdb6 488-495
+modpacks-plus/tests/Support/Ftb.php
+  s_1d8485e49bfacb::t_3569b115a27c16 1-145
+modpacks-plus/tests/Feature/FtbInstallTest.php
+  s_1d8485e49bfacb::t_6cff649c586491 1-148
+modpacks-plus/src/Services/PackFileResolver.php
+  s_1d8485e49bfacb::t_b3875f38497107 1-88,90-198
+  s_1d8485e49bfacb::t_f4d117d3eabc2a 89
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_b9ec200a34a664 119-121,189-190
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_98ba7ce0e3fda4 119-121,189-190
+modpacks-plus/src/Services/PackProviders.php
+  s_1d8485e49bfacb::t_992afd510c1cfb 9,27-29,34-48
+modpacks-plus/src/Support/PlanValidator.php
+  s_1d8485e49bfacb::t_7b775db1976d9f 47-59,61,149
+modpacks-plus/tests/Unit/CurseForgePlanValidatorTest.php
+  s_1d8485e49bfacb::t_cc4bf7daede533 57-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ceaee2644959009a050b649c90fb006e81a74cb1",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
