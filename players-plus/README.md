@@ -136,7 +136,9 @@ total-online card and a combined 24-hour chart. Each row opens that server's Pla
 It reads stored data only, with one query per metric for the whole table page.
 
 Access: root admins, and roles with **Players Plus → View** (`view players-plus`) in
-Admin → Roles. The page does not exist in the server panel.
+Admin → Roles. The page does not exist in the server panel. The permission shows server names
+and player counts for every Minecraft server on the admin's accessible nodes, even if their
+role has no right to view servers.
 
 ## Privacy
 

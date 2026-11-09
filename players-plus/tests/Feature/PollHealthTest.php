@@ -2,6 +2,7 @@
 
 namespace DrMxrcy\PlayersPlus\Tests\Feature;
 
+use App\Models\Node;
 use App\Models\Role;
 use App\Models\Server;
 use App\Models\User;
@@ -17,6 +18,8 @@ use Filament\Facades\Filament;
 use Filament\Schemas\Components\Callout;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\PermissionRegistrar;
 
 /**
  * Plan 34 step 3: when no poll has run for three intervals (the queue worker or the scheduler is
@@ -88,7 +91,7 @@ class PollHealthTest extends TestCase
 
     private function assertWarned(string $body): void
     {
-        $this->assertSame($body, PollHealth::warning());
+        $this->assertSame($body, PollHealth::warning(PlayersOverviewPage::serversQuery()));
 
         Livewire::test(PlayersOverviewPage::class)
             ->assertOk()
@@ -103,7 +106,7 @@ class PollHealthTest extends TestCase
 
     private function assertNotWarned(): void
     {
-        $this->assertNull(PollHealth::warning());
+        $this->assertNull(PollHealth::warning(PlayersOverviewPage::serversQuery()));
 
         Livewire::test(PlayersOverviewPage::class)
             ->assertOk()
@@ -161,12 +164,59 @@ class PollHealthTest extends TestCase
         $this->assertNotNull(PollHealth::warning());
     }
 
-    public function test_never_polled_minecraft_server_warns(): void
+    public function test_never_polled_minecraft_server_warns_after_three_intervals(): void
     {
         $this->server();
+        $this->travel(8)->minutes();
 
         $this->assertNull(PollHealth::lastPoll());
         $this->assertWarned(trans('players-plus::strings.poll_health.never_body', ['minutes' => 2]));
+    }
+
+    /** Fresh install or a brand-new server: the first poll hasn't had time to run yet. */
+    public function test_fresh_never_polled_server_does_not_warn_yet(): void
+    {
+        $this->server();
+        $this->assertNotWarned();
+
+        // 3 x 2 minutes + 1: still within the first polls' window.
+        $this->travel(7)->minutes();
+        $this->assertNull(PollHealth::warning(PlayersOverviewPage::serversQuery()));
+
+        $this->travel(1)->minutes();
+        $this->assertNotNull(PollHealth::warning(PlayersOverviewPage::serversQuery()));
+    }
+
+    /** The oldest server in scope decides; a brand-new one doesn't hide an old one's missing polls. */
+    public function test_never_polled_uses_the_oldest_server(): void
+    {
+        $this->server();
+        $this->travel(30)->minutes();
+        $this->server();
+
+        $this->assertNotNull(PollHealth::warning(PlayersOverviewPage::serversQuery()));
+    }
+
+    /** A node-limited admin with no servers learns nothing about other nodes' never-polled servers. */
+    public function test_never_polled_check_is_scoped_to_the_admins_nodes(): void
+    {
+        $this->server();
+        $this->travel(30)->minutes();
+        $this->assertNotNull(PollHealth::warning(PlayersOverviewPage::serversQuery()), 'root sees it');
+
+        /** @var Node $emptyNode */
+        $emptyNode = Node::factory()->create();
+        /** @var Role $role */
+        $role = Role::query()->create(['name' => 'Limited', 'guard_name' => Role::DEFAULT_GUARD_NAME]);
+        $role->givePermissionTo(Permission::findOrCreate(PlayersOverviewPage::PERMISSION, Role::DEFAULT_GUARD_NAME));
+        $role->nodes()->sync([$emptyNode->id]);
+        /** @var User $limited */
+        $limited = User::factory()->create();
+        $limited->syncRoles($role);
+        $this->app->make(PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->actingAs($limited->refresh());
+
+        $this->assertNotWarned();
     }
 
     public function test_no_minecraft_servers_no_warning(): void

@@ -2,9 +2,11 @@
 
 namespace DrMxrcy\PlayersPlus\Support;
 
+use App\Models\Server;
 use Carbon\CarbonImmutable;
 use DrMxrcy\PlayersPlus\Models\Sample;
 use Filament\Schemas\Components\Callout;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Whether polling is keeping up. A sample is fresh while it is no older than three poll
@@ -34,10 +36,16 @@ final class PollHealth
     }
 
     /**
-     * Why polling looks stopped, or null when it is fine: polling is enabled, there is a
-     * Minecraft server, and no poll has run for three intervals (or none ever has).
+     * Why polling looks stopped, or null when it is fine: polling is enabled and no poll has run
+     * for three intervals. When none has ever run, it only warns once the oldest Minecraft server
+     * in $servers is older than that, so a fresh install or a new server gets time for its first
+     * poll; $servers is the viewer's scope (default: every Minecraft server), so a node-limited
+     * admin learns nothing about other nodes. The last-poll check itself is panel-wide: it is
+     * about the queue worker and the scheduler, not about any one server.
+     *
+     * @param  Builder<Server>|null  $servers
      */
-    public static function warning(): ?string
+    public static function warning(?Builder $servers = null): ?string
     {
         if (!Settings::enabled()) {
             return null;
@@ -45,7 +53,9 @@ final class PollHealth
 
         $last = self::lastPoll();
         if ($last === null) {
-            return Minecraft::serversQuery()->exists()
+            $oldest = ($servers ?? Minecraft::serversQuery())->min('servers.created_at');
+
+            return $oldest !== null && CarbonImmutable::parse((string) $oldest, 'UTC')->lt(self::freshFrom())
                 ? trans('players-plus::strings.poll_health.never_body', ['minutes' => Settings::pollInterval()])
                 : null;
         }
@@ -55,10 +65,14 @@ final class PollHealth
             : null;
     }
 
-    /** The warning as a callout for the admin overview and the plugin settings, or null. */
-    public static function callout(): ?Callout
+    /**
+     * The warning as a callout for the admin overview and the plugin settings, or null.
+     *
+     * @param  Builder<Server>|null  $servers  see warning()
+     */
+    public static function callout(?Builder $servers = null): ?Callout
     {
-        $warning = self::warning();
+        $warning = self::warning($servers);
 
         return $warning === null ? null : Callout::make(trans('players-plus::strings.poll_health.stale_title'))
             ->description($warning)

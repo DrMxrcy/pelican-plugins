@@ -6,6 +6,7 @@ use App\Contracts\Plugins\HasPluginSettings;
 use App\Enums\ConsoleWidgetPosition;
 use App\Filament\Server\Pages\Console;
 use App\Traits\EnvironmentWriterTrait;
+use DrMxrcy\PlayersPlus\Filament\Admin\Pages\PlayersOverviewPage;
 use DrMxrcy\PlayersPlus\Filament\Server\Widgets\OnlinePlayersWidget;
 use DrMxrcy\PlayersPlus\Support\PollHealth;
 use DrMxrcy\PlayersPlus\Support\Settings;
@@ -57,7 +58,7 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
     {
         return [
             // Plan 34: polls stopped (queue worker or scheduler not running). Shown only then.
-            ...array_filter([PollHealth::callout()]),
+            ...array_filter([PollHealth::callout(PlayersOverviewPage::serversQuery())]),
             Toggle::make('enabled')
                 ->label(trans('players-plus::strings.settings.enabled'))
                 ->helperText(trans('players-plus::strings.settings.enabled_help')),

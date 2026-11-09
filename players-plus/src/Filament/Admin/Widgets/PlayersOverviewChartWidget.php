@@ -28,6 +28,19 @@ class PlayersOverviewChartWidget extends ChartWidget
         return PlayersOverviewPage::canAccess();
     }
 
+    public function mount(): void
+    {
+        abort_unless(static::canView(), 403);
+
+        parent::mount();
+    }
+
+    /** Its own Livewire requests are gated too, not only the page that embeds it. */
+    public function hydrate(): void
+    {
+        abort_unless(static::canView(), 403);
+    }
+
     public function getHeading(): string
     {
         return trans('players-plus::strings.overview.chart_heading');

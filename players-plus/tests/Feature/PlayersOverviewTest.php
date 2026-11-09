@@ -292,6 +292,63 @@ class PlayersOverviewTest extends TestCase
         $this->assertCount(7, array_filter($three, fn (string $query) => str_contains($query, '"pp_')), implode("\n", $three));
     }
 
+    /** Widgets are Livewire components of their own: mounted directly they still check access. */
+    public function test_widgets_refuse_admins_without_the_permission(): void
+    {
+        $this->seedServers();
+        $this->actingAs($this->admin(['view health']));
+
+        foreach ([PlayersOverviewStatsWidget::class, PlayersOverviewChartWidget::class] as $widget) {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            Livewire::test($widget)->assertForbidden()->assertDontSee('Players online');
+            $queries = array_column(DB::getQueryLog(), 'query');
+            DB::disableQueryLog();
+
+            $this->assertSame([], array_values(array_filter($queries, fn (string $query) => str_contains($query, '"pp_'))), "$widget read player data");
+        }
+    }
+
+    /** Page 2, a search and a node-limited admin run the same queries as page 1 with 3 servers. */
+    public function test_query_count_is_the_same_for_page_two_search_and_node_limited_admins(): void
+    {
+        $root = $this->admin();
+        $this->actingAs($root);
+        $this->seedMany(3);
+        $this->renderQueries();
+        $full = count($this->renderQueries());
+        $update = count($this->updateQueries(fn ($page) => $page->call('gotoPage', 1)));
+
+        $this->seedMany(27);
+        $this->assertSame($update, count($this->updateQueries(fn ($page) => $page->call('gotoPage', 2))), 'page 2');
+        $name = (string) Server::query()->orderByDesc('id')->value('name');
+        $this->assertSame($update, count($this->updateQueries(fn ($page) => $page->searchTable($name)->assertCountTableRecords(1))), 'search');
+
+        /** @var Node $node */
+        $node = $this->node;
+        $this->actingAs($this->admin([PlayersOverviewPage::PERMISSION], [$node]));
+        $this->renderQueries();
+        $this->assertSame($full, count($this->renderQueries()), 'node-limited admin');
+    }
+
+    /**
+     * Queries of one Livewire update (not the first render) on an already rendered page.
+     *
+     * @param  callable(mixed): mixed  $action
+     * @return list<string>
+     */
+    private function updateQueries(callable $action): array
+    {
+        $page = Livewire::test(PlayersOverviewPage::class)->assertOk();
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $action($page);
+        $queries = array_column(DB::getQueryLog(), 'query');
+        DB::disableQueryLog();
+
+        return $queries;
+    }
+
     private function seedMany(int $count): void
     {
         for ($i = 0; $i < $count; $i++) {

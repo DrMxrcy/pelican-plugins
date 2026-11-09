@@ -22,6 +22,17 @@ class PlayersOverviewStatsWidget extends StatsOverviewWidget
         return PlayersOverviewPage::canAccess();
     }
 
+    public function mount(): void
+    {
+        abort_unless(static::canView(), 403);
+    }
+
+    /** Its own Livewire requests are gated too, not only the page that embeds it. */
+    public function hydrate(): void
+    {
+        abort_unless(static::canView(), 403);
+    }
+
     protected function getColumns(): int
     {
         return 2;

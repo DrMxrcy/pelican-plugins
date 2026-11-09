@@ -199,7 +199,7 @@ class PlayersOverviewPage extends Page implements HasTable
     {
         return $schema->components(array_values(array_filter([
             // Queue worker or scheduler not running: every number here is out of date.
-            PollHealth::callout(),
+            PollHealth::callout(self::serversQuery()),
             EmbeddedTable::make(),
         ])));
     }
