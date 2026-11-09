@@ -3,7 +3,10 @@
 namespace DrMxrcy\PlayersPlus;
 
 use App\Contracts\Plugins\HasPluginSettings;
+use App\Enums\ConsoleWidgetPosition;
+use App\Filament\Server\Pages\Console;
 use App\Traits\EnvironmentWriterTrait;
+use DrMxrcy\PlayersPlus\Filament\Server\Widgets\OnlinePlayersWidget;
 use DrMxrcy\PlayersPlus\Support\Settings;
 use Filament\Contracts\Plugin;
 use Filament\Forms\Components\TextInput;
@@ -27,6 +30,10 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
         $pages = plugin_path($this->getId(), "src/Filament/$id/Pages");
         if (is_dir($pages)) {
             $panel->discoverPages($pages, "DrMxrcy\\PlayersPlus\\Filament\\$id\\Pages");
+        }
+
+        if ($panel->getId() === 'server') {
+            Console::registerCustomWidgets(ConsoleWidgetPosition::AboveConsole, [OnlinePlayersWidget::class]);
         }
     }
 
