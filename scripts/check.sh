@@ -53,6 +53,13 @@ ensure_panel() {
     [[ -f pelican/.env ]] || cp pelican/.env.example pelican/.env
     # Stage plugins exactly like CI: one folder per plugin under pelican/plugins/.
     mkdir -p pelican/plugins
+    # Drop staged copies of plugins that no longer exist here, so a removed or renamed
+    # plugin can't keep running in phpstan/tests.
+    for staged in pelican/plugins/*/; do
+        [[ -d "$staged" ]] || continue
+        d="$(basename "$staged")"
+        [[ -f "$d/plugin.json" ]] || rm -rf "$staged"
+    done
     for manifest in */plugin.json; do
         d="$(dirname "$manifest")"
         [[ "$d" == pelican ]] && continue

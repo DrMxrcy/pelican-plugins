@@ -1,0 +1,19 @@
+{
+    "id": "players-plus",
+    "name": "Players Plus",
+    "author": "DrMxrcy",
+    "version": "0.5.0",
+    "description": "See who is online on your Minecraft server: live player list and console widget",
+    "category": "plugin",
+    "url": "https://github.com/DrMxrcy/pelican-plugins/tree/main/players-plus",
+    "update_url": "https://github.com/DrMxrcy/pelican-plugins/releases/download/players-plus-latest/update.json",
+    "namespace": "DrMxrcy\\PlayersPlus",
+    "class": "PlayersPlusPlugin",
+    "panels": [
+        "server",
+        "admin"
+    ],
+    "panel_version": null,
+    "api_version": 1,
+    "composer_packages": null
+}

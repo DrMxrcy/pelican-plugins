@@ -5,6 +5,7 @@ Plugins for [Pelican Panel](https://pelican.dev). One folder per plugin; folder 
 | Plugin | What |
 |---|---|
 | [`modrinth-plus`](modrinth-plus) | Fork of the official Modrinth plugin that only shows server-compatible mods/plugins |
+| [`players-plus`](players-plus) | Who is online on your Minecraft servers: live player list and console widget |
 
 ## Layout
 
