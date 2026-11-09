@@ -4,10 +4,12 @@ namespace DrMxrcy\ModpacksPlus;
 
 use App\Contracts\Plugins\HasPluginSettings;
 use App\Traits\EnvironmentWriterTrait;
+use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
 use DrMxrcy\ModpacksPlus\Services\LoaderEggResolver;
 use DrMxrcy\ModpacksPlus\Support\EggVariableMap;
 use Filament\Contracts\Plugin;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Panel;
@@ -43,6 +45,9 @@ class ModpacksPlusPlugin implements HasPluginSettings, Plugin
         $data = [
             'allow_skip_backup' => (bool) config('modpacks-plus.allow_skip_backup', false),
             'allow_user_loader_switch' => (bool) config('modpacks-plus.allow_user_loader_switch', false),
+            // Never the saved key: the field stays empty and only says that one is saved.
+            'curseforge_api_key' => null,
+            'curseforge_api_key_remove' => false,
         ];
 
         foreach (EggVariableMap::loaders() as $loader) {
@@ -74,10 +79,34 @@ class ModpacksPlusPlugin implements HasPluginSettings, Plugin
             Section::make(trans('modpacks-plus::strings.settings.default_eggs'))
                 ->description(trans('modpacks-plus::strings.settings.default_eggs_help'))
                 ->schema($eggs),
+            Section::make(trans('modpacks-plus::strings.settings.curseforge'))
+                ->description(trans('modpacks-plus::strings.settings.curseforge_help'))
+                ->schema([
+                    TextInput::make('curseforge_api_key')
+                        ->label(trans('modpacks-plus::strings.settings.curseforge_api_key'))
+                        ->helperText(trans('modpacks-plus::strings.settings.curseforge_api_key_help'))
+                        ->password()
+                        ->revealable(false)
+                        ->autocomplete('new-password')
+                        ->maxLength(128)
+                        ->regex(CurseForgeClient::KEY_PATTERN)
+                        ->placeholder(fn () => self::curseForgeKeySaved() ? trans('modpacks-plus::strings.settings.curseforge_api_key_placeholder') : null)
+                        // Whatever the form is filled with, the saved key is never sent to the browser.
+                        ->afterStateHydrated(fn (TextInput $component) => $component->state(null)),
+                    Toggle::make('curseforge_api_key_remove')
+                        ->label(trans('modpacks-plus::strings.settings.curseforge_api_key_remove'))
+                        ->visible(fn () => self::curseForgeKeySaved()),
+                ]),
         ];
     }
 
-    public function saveSettings(array $data): void
+    /** Whether a CurseForge API key is saved (its value is never read out for the form). */
+    public static function curseForgeKeySaved(): bool
+    {
+        return CurseForgeClient::fromConfig()->mode() === CurseForgeClient::MODE_KEY;
+    }
+
+    public function saveSettings(#[\SensitiveParameter] array $data): void
     {
         $values = [
             'MODPACKS_PLUS_ALLOW_SKIP_BACKUP' => !empty($data['allow_skip_backup']) ? 'true' : 'false',
@@ -90,6 +119,20 @@ class ModpacksPlusPlugin implements HasPluginSettings, Plugin
             // Only an egg the resolver would accept for this loader can be stored.
             $values[self::eggEnvKey($loader)] = is_numeric($egg) && isset($resolver->choices($loader)[(int) $egg]) ? (string) (int) $egg : '';
         }
+
+        // Blank keeps the saved key; only a well-formed key is written (it is never echoed back).
+        $key = is_string($data['curseforge_api_key'] ?? null) ? trim($data['curseforge_api_key']) : '';
+        if (!empty($data['curseforge_api_key_remove'])) {
+            $values[CurseForgeClient::KEY_ENV] = '';
+        } elseif ($key !== '' && CurseForgeClient::isValidKey($key)) {
+            $values[CurseForgeClient::KEY_ENV] = $key;
+        } elseif ($key !== '') {
+            Notification::make()
+                ->title(trans('modpacks-plus::strings.settings.curseforge_api_key_invalid'))
+                ->danger()
+                ->send();
+        }
+        unset($key);
 
         $this->writeToEnvironment($values);
 

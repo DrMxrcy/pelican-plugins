@@ -19,6 +19,12 @@ return [
         'quilt' => is_numeric(env('MODPACKS_PLUS_EGG_QUILT')) ? (int) env('MODPACKS_PLUS_EGG_QUILT') : null,
     ],
 
+    // CurseForge packs (plan 31). The API key comes from console.curseforge.com and is only ever
+    // sent to api.curseforge.com; it is never shown again, logged or stored with an install.
+    'curseforge' => [
+        'api_key' => is_string(env('MODPACKS_PLUS_CURSEFORGE_API_KEY')) && env('MODPACKS_PLUS_CURSEFORGE_API_KEY') !== '' ? (string) env('MODPACKS_PLUS_CURSEFORGE_API_KEY') : null,
+    ],
+
     // Files pulled per download job; cancel takes effect between batches.
     'download_batch' => (int) env('MODPACKS_PLUS_DOWNLOAD_BATCH', 10),
 

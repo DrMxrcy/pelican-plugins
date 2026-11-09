@@ -152,6 +152,10 @@ return [
         'server_suspended' => 'Der Server wurde während des Wechsels gesperrt.',
         'restore_running' => 'Auf diesem Server werden gerade vorherige Dateien wiederhergestellt. Versuche es erneut, wenn das abgeschlossen ist.',
         'preserved_pending' => 'Welten oder Spielerdateien eines früheren Loader-Wechsels liegen noch in :detail. Nutze zuerst "Vorherige Dateien wiederherstellen".',
+        'curseforge_not_configured' => 'CurseForge ist nicht eingerichtet: Ein Admin hinterlegt einen CurseForge-API-Schlüssel in den Modpacks-Plus-Einstellungen.',
+        'curseforge_unavailable' => 'CurseForge ist nicht erreichbar. Versuche es später erneut. (:detail)',
+        'curseforge_not_found' => 'Auf CurseForge nicht gefunden: :detail',
+        'curseforge_key_rejected' => 'CurseForge hat den API-Schlüssel abgelehnt. Ein Admin prüft ihn in den Modpacks-Plus-Einstellungen. (:detail)',
     ],
     'steps' => [
         'prepare' => 'Pack prüfen',
@@ -243,5 +247,12 @@ return [
         'default_egg' => 'Standard-Egg für :loader',
         'default_egg_auto' => 'Automatisch',
         'saved' => 'Modpacks-Plus-Einstellungen gespeichert',
+        'curseforge' => 'CurseForge',
+        'curseforge_help' => 'CurseForge-Packs brauchen einen API-Schlüssel (console.curseforge.com). Der Schlüssel wird in der .env-Datei des Panels gespeichert, nur an api.curseforge.com gesendet und nie wieder angezeigt.',
+        'curseforge_api_key' => 'CurseForge-API-Schlüssel',
+        'curseforge_api_key_help' => 'Leer lassen, um den gespeicherten Schlüssel zu behalten.',
+        'curseforge_api_key_placeholder' => 'Gespeichert (verborgen). Neuen Schlüssel eingeben, um ihn zu ersetzen.',
+        'curseforge_api_key_remove' => 'Gespeicherten Schlüssel entfernen',
+        'curseforge_api_key_invalid' => 'Der CurseForge-API-Schlüssel wurde nicht gespeichert: erlaubt sind 16 bis 128 Buchstaben, Ziffern oder $ . / _ + = -.',
     ],
 ];

@@ -152,6 +152,10 @@ return [
         'server_suspended' => 'The server was suspended during the switch.',
         'restore_running' => 'Previous files are being restored on this server. Try again when that has finished.',
         'preserved_pending' => 'Worlds or player files of an earlier loader switch are still set aside in :detail. Use "Restore previous files" first.',
+        'curseforge_not_configured' => 'CurseForge is not set up: an admin adds a CurseForge API key in the Modpacks Plus settings.',
+        'curseforge_unavailable' => 'CurseForge could not be reached. Try again later. (:detail)',
+        'curseforge_not_found' => 'Not found on CurseForge: :detail',
+        'curseforge_key_rejected' => 'CurseForge rejected the API key. An admin checks it in the Modpacks Plus settings. (:detail)',
     ],
     'steps' => [
         'prepare' => 'Check the pack',
@@ -243,5 +247,12 @@ return [
         'default_egg' => 'Default :loader egg',
         'default_egg_auto' => 'Automatic',
         'saved' => 'Modpacks Plus settings saved',
+        'curseforge' => 'CurseForge',
+        'curseforge_help' => 'CurseForge packs need an API key (console.curseforge.com). The key is stored in the panel\'s .env file, sent only to api.curseforge.com and never shown again.',
+        'curseforge_api_key' => 'CurseForge API key',
+        'curseforge_api_key_help' => 'Leave empty to keep the saved key.',
+        'curseforge_api_key_placeholder' => 'Saved (hidden). Type a new key to replace it.',
+        'curseforge_api_key_remove' => 'Remove the saved key',
+        'curseforge_api_key_invalid' => 'The CurseForge API key was not saved: use 16 to 128 letters, digits or $ . / _ + = -.',
     ],
 ];
