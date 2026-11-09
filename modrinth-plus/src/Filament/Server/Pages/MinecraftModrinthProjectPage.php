@@ -20,6 +20,7 @@ use DrMxrcy\ModrinthPlus\Support\UnmatchedJars;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -39,6 +40,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Enums\FiltersLayout;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -87,9 +89,6 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
 
     /** Whether this request already asked the browser to reload the banner (once is enough). */
     protected bool $compatibilityBannerQueued = false;
-
-    /** Per-visit override of the hide_client_only config; Livewire state only, never persisted. */
-    public bool $showClientOnly = false;
 
     protected static string|\BackedEnum|null $navigationIcon = 'tabler-packages';
 
@@ -187,10 +186,25 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
         return true;
     }
 
+    /**
+     * Whether "Include client-only mods" is on: a per-visit override of the hide_client_only
+     * config, kept in the table filter state (Livewire only, never persisted). Ignored where the
+     * control is not offered (datapacks, or a config that never hides client-only projects).
+     *
+     * @param  array<string, mixed>|null  $filters  Filament table filter state
+     */
+    protected function includeClientOnly(?array $filters): bool
+    {
+        return static::usesClientOnlyFilter()
+            && (bool) config('modrinth-plus.hide_client_only', true)
+            && is_array($filters['client_only'] ?? null)
+            && ($filters['client_only']['isActive'] ?? false) === true;
+    }
+
     /** Whether the All tab currently lists client-only projects (toggle on, or the config never hides them). */
     protected function clientOnlyShown(): bool
     {
-        return $this->showClientOnly || !config('modrinth-plus.hide_client_only', true);
+        return $this->includeClientOnly($this->tableFilters) || !config('modrinth-plus.hide_client_only', true);
     }
 
     /** Heading of the update/uninstall confirmation (`modals.update_heading`, `modals.uninstall_heading`). */
@@ -1343,7 +1357,7 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         static::$modrinthProjectType,
                         $page,
                         $search,
-                        $this->showClientOnly,
+                        $this->includeClientOnly($filters),
                         index: $this->selectedSearchIndex($filters),
                         categories: $this->selectedCategories($filters),
                     );
@@ -1372,22 +1386,16 @@ abstract class MinecraftModrinthProjectPage extends Page implements HasTable
                         ->mapWithKeys(fn (string $category) => [$category => Str::headline($category)])
                         ->all())
                     ->visible(fn () => $this->activeTab !== 'installed'),
+                // Plan 37: a labelled toggle with the other filters, not a bare icon in the header.
+                Filter::make('client_only')
+                    ->label(trans('modrinth-plus::strings.client_only.include'))
+                    ->toggle()
+                    ->modifyFormFieldUsing(fn (Toggle $field) => $field->hintIcon('tabler-info-circle', trans('modrinth-plus::strings.client_only.tooltip')))
+                    // Only meaningful on the "All" tab and while the config hides client-only projects.
+                    ->visible(fn () => static::usesClientOnlyFilter() && $this->activeTab !== 'installed' && (bool) config('modrinth-plus.hide_client_only', true)),
             ], layout: FiltersLayout::AboveContent)
             ->deferFilters(false)
             ->headerActions([
-                Action::make('toggle_client_only')
-                    ->label(fn () => trans($this->showClientOnly ? 'modrinth-plus::strings.client_only.hide' : 'modrinth-plus::strings.client_only.show'))
-                    ->tooltip(trans('modrinth-plus::strings.client_only.tooltip'))
-                    ->icon(fn () => $this->showClientOnly ? 'tabler-eye-off' : 'tabler-eye')
-                    ->color(fn () => $this->showClientOnly ? 'warning' : 'gray')
-                    // Only meaningful on the "All" tab and while the config hides client-only projects.
-                    ->visible(fn () => static::usesClientOnlyFilter() && $this->activeTab !== 'installed' && (bool) config('modrinth-plus.hide_client_only', true))
-                    ->action(function () {
-                        $this->showClientOnly = !$this->showClientOnly;
-
-                        $this->resetPage();
-                        $this->flushCachedTableRecords();
-                    }),
                 $this->makeUpdateAllAction(),
             ])
             ->columns([

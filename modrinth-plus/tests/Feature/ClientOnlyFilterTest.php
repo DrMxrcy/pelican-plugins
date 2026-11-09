@@ -11,6 +11,7 @@ use DrMxrcy\ModrinthPlus\Services\MinecraftModrinthService;
 use DrMxrcy\ModrinthPlus\Tests\TestCase;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Toggle;
 use Filament\Tables\Columns\TextColumn;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -88,7 +89,7 @@ class ClientOnlyFilterTest extends TestCase
     public function test_toggle_strings_exist_in_every_locale(): void
     {
         foreach (['en', 'de'] as $locale) {
-            foreach (['show', 'hide', 'tooltip'] as $key) {
+            foreach (['include', 'tooltip'] as $key) {
                 $line = "modrinth-plus::strings.client_only.$key";
                 $this->assertNotSame($line, trans($line, locale: $locale), "$locale: $key missing");
             }
@@ -231,6 +232,7 @@ class ClientOnlyFilterTest extends TestCase
         MinecraftModrinth::shouldReceive('getProjectVersions')->andReturn([]);
         MinecraftModrinth::shouldReceive('getProjectVersionsBulk')->andReturn([]);
         MinecraftModrinth::shouldReceive('getInstalledModsMetadata')->andReturn([]);
+        MinecraftModrinth::shouldReceive('getInstalledModsFromModrinth')->andReturn([]);
         MinecraftModrinth::shouldReceive('getCategories')->andReturn([]);
         MinecraftModrinth::shouldReceive('getProjects')->andReturnUsing(function (Server $server, ModrinthProjectType $type, int $page = 1, ?string $search = null, bool $includeClientOnly = false) {
             $this->includeClientOnlyCalls[] = $includeClientOnly;
@@ -266,7 +268,15 @@ class ClientOnlyFilterTest extends TestCase
     /** Turns "Include client-only mods" on, the way the user does. */
     private function includeClientOnly(Testable $page): Testable
     {
-        return $page->callAction(TestAction::make('toggle_client_only')->table());
+        return $page->filterTable('client_only', true);
+    }
+
+    private function pageOf(Testable $testable): MinecraftModrinthModPage
+    {
+        $instance = $testable->instance();
+        $this->assertInstanceOf(MinecraftModrinthModPage::class, $instance);
+
+        return $instance;
     }
 
     private function description(Testable $page, string $rowKey): string|Htmlable|null
@@ -320,5 +330,69 @@ class ClientOnlyFilterTest extends TestCase
 
         $this->assertNotEmpty($this->includeClientOnlyCalls);
         $this->assertNotContains(true, $this->includeClientOnlyCalls);
+    }
+
+    /** Plan 37: the control is a labelled toggle with the other filters, not a bare eye icon in the header. */
+    public function test_control_is_a_labelled_toggle_in_the_filters_section(): void
+    {
+        $page = $this->modsPage()
+            ->assertTableFilterVisible('client_only')
+            ->assertActionDoesNotExist(TestAction::make('toggle_client_only')->table())
+            ->assertSeeHtml('tableFilters.client_only.isActive')
+            ->assertSee('Include client-only mods');
+
+        $filter = $this->pageOf($page)->getTable()->getFilter('client_only');
+        $this->assertNotNull($filter);
+        $this->assertSame('Include client-only mods', $filter->getLabel());
+        $this->assertInstanceOf(Toggle::class, $filter->getFormField());
+    }
+
+    /** Fails if: the hide_client_only config stops hiding the control. */
+    public function test_control_is_hidden_when_the_config_never_hides_client_only(): void
+    {
+        config()->set('modrinth-plus.hide_client_only', false);
+
+        $this->modsPage()
+            ->assertTableFilterHidden('client_only')
+            ->assertDontSeeHtml('tableFilters.client_only.isActive');
+    }
+
+    public function test_control_is_hidden_on_the_installed_tab(): void
+    {
+        $this->modsPage()->set('activeTab', 'installed')->assertTableFilterHidden('client_only');
+    }
+
+    public function test_toggle_state_survives_tab_switches(): void
+    {
+        $page = $this->includeClientOnly($this->modsPage())
+            ->set('activeTab', 'installed')
+            ->set('activeTab', 'all')
+            ->assertSeeHtml('tableFilters.client_only.isActive');
+
+        $this->assertSame(true, end($this->includeClientOnlyCalls));
+        $this->assertInstanceOf(Htmlable::class, $this->description($page, '0'));
+    }
+
+    public function test_toggling_goes_back_to_page_one(): void
+    {
+        $page = $this->modsPage();
+        $page->call('gotoPage', 3, $this->pageOf($page)->getTablePaginationPageName());
+        $this->assertSame(3, $this->pageOf($page)->getTablePage());
+
+        $this->includeClientOnly($page);
+
+        $this->assertSame(1, $this->pageOf($page)->getTablePage());
+    }
+
+    /** A forged filter state cannot show client-only mods where the control is not offered. */
+    public function test_forged_toggle_state_is_ignored_when_the_control_is_hidden(): void
+    {
+        $page = $this->modsPage()
+            ->set('activeTab', 'installed')
+            ->set('tableFilters.client_only', ['isActive' => 'yes'])
+            ->set('activeTab', 'all');
+
+        $this->assertNotContains(true, $this->includeClientOnlyCalls);
+        $this->assertSame('The sodium mod', $this->description($page, '0'));
     }
 }

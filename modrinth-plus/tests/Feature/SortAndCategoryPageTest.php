@@ -145,7 +145,8 @@ class SortAndCategoryPageTest extends TestCase
 
         $page->assertSeeHtml('tableFilters.sort.value');
         $page->assertSeeHtml('tableFilters.categories.values');
-        $this->assertCount(2, $this->pageOf($page)->getTableFiltersForm()->getComponents());
+        // Sort, categories and "Include client-only mods" (plan 37).
+        $this->assertCount(3, $this->pageOf($page)->getTableFiltersForm()->getComponents());
     }
 
     public function test_filters_leave_when_switching_to_the_installed_tab(): void

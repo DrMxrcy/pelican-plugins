@@ -23,9 +23,8 @@ return [
     ],
 
     'client_only' => [
-        'show' => 'Show client-only',
-        'hide' => 'Hide client-only',
-        'tooltip' => 'Client-only mods and plugins (like Sodium or Iris) do nothing on a server.',
+        'include' => 'Include client-only mods',
+        'tooltip' => 'Turn on to also list mods that do nothing on a server (like Sodium or Iris). They carry a red Client-only badge; players add them to their own game.',
         'badge' => 'Client-only — does nothing on a server, safe to remove',
         'badge_tooltip' => 'Client-only: does nothing on a server; players add it to their own game if they want it',
         'search_badge' => 'Client-only',

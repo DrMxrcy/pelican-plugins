@@ -208,7 +208,7 @@ class DatapackPageTest extends TestCase
         $page = Livewire::test(MinecraftModrinthModPage::class)->set('activeTab', 'all')->loadTable()
             // Client-only rules still apply on the Mods page.
             ->assertActionHidden(TestAction::make('update')->table(self::INSTALLED_ROW))
-            ->assertActionVisible(TestAction::make('toggle_client_only')->table());
+            ->assertTableFilterVisible('client_only');
 
         $this->tableAction($page, 'install_latest')->record($this->hit('terralith'))->call();
 
@@ -307,7 +307,7 @@ class DatapackPageTest extends TestCase
         $this->account(['modrinth_datapacks']);
         $this->fakeModrinth();
 
-        $page = $this->page()->assertActionHidden(TestAction::make('toggle_client_only')->table());
+        $page = $this->page()->assertTableFilterHidden('client_only');
 
         /** @var MinecraftModrinthDatapackPage $instance */
         $instance = $page->instance();
