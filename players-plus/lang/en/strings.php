@@ -14,6 +14,8 @@ return [
         'rollup_retention_days_help' => 'Hourly averages and peaks behind the 7 and 30 day charts and the heatmap. Older hours are deleted once a day.',
         'minutes' => 'minutes',
         'days' => 'days',
+        'moderation' => 'Moderation actions',
+        'moderation_help' => 'Kick, ban, whitelist and op from the Players pages, for users who may use the console. Off hides them everywhere.',
         'saved' => 'Settings saved',
     ],
 
@@ -145,6 +147,35 @@ return [
         'none' => 'No stats yet. The server writes them when the player leaves or the world is saved.',
         'unavailable' => 'The stats file could not be read right now. Try again in a minute.',
         'no_permission' => 'Statistics are shown to users who can read the server\'s files.',
+    ],
+
+    'moderation' => [
+        'group' => 'Moderate',
+        'actions' => [
+            'kick' => 'Kick',
+            'ban' => 'Ban',
+            'pardon' => 'Unban',
+            'whitelist_add' => 'Add to whitelist',
+            'whitelist_remove' => 'Remove from whitelist',
+            'op' => 'Make operator',
+            'deop' => 'Remove operator',
+        ],
+        'confirm_heading' => ':action :name?',
+        'confirm_body' => 'Sends ":command" to the server console.',
+        'reason' => 'Reason',
+        'reason_help' => 'Optional. One line, at most :max characters; colour codes and line breaks are removed.',
+        'add_by_name' => 'Add to whitelist',
+        'name_help' => 'Java Edition name: 3 to 16 letters, digits or underscores.',
+        'offline_tooltip' => 'Start the server to use this action.',
+        'sent_title' => 'Command sent',
+        'sent_body' => 'Sent ":command" to the console. The lists update in a moment.',
+        'failed_title' => 'Command not sent',
+        'errors' => [
+            'invalid_name' => 'That is not a valid Java Edition player name.',
+            'disabled' => 'Moderation actions are turned off.',
+            'offline' => 'The server is not running. Start it and try again.',
+            'failed' => 'The panel could not reach the server. Try again in a moment.',
+        ],
     ],
 
     'widget' => [

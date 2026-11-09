@@ -4,13 +4,17 @@ namespace DrMxrcy\PlayersPlus\Filament\Server\Pages;
 
 use App\Enums\SubuserPermission;
 use App\Models\Server;
+use DrMxrcy\PlayersPlus\Enums\ModerationAction;
 use DrMxrcy\PlayersPlus\Enums\SampleStatus;
+use DrMxrcy\PlayersPlus\Filament\Server\Concerns\ModeratesPlayers;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\Support\Minecraft;
 use DrMxrcy\PlayersPlus\Support\ModerationLists;
 use DrMxrcy\PlayersPlus\Support\PlayerList;
 use DrMxrcy\PlayersPlus\Support\Settings;
+use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Callout;
@@ -36,6 +40,7 @@ use Livewire\Attributes\Url;
 class PlayersPage extends Page implements HasTable
 {
     use InteractsWithTable;
+    use ModeratesPlayers;
 
     public const TAB_ONLINE = 'online';
 
@@ -89,6 +94,32 @@ class PlayersPage extends Page implements HasTable
     public function mount(): void
     {
         $this->normalizeTab();
+    }
+
+    /** @return array<Action> */
+    protected function getHeaderActions(): array
+    {
+        return [$this->whitelistByNameAction()];
+    }
+
+    /** The player name of a row: an online entry, a stored Player or a list entry. */
+    private static function recordName(mixed $record): mixed
+    {
+        return $record instanceof Player ? $record->name : (is_array($record) ? ($record['name'] ?? null) : null);
+    }
+
+    /**
+     * Row moderation actions, in a menu.
+     *
+     * @param  list<ModerationAction>  $actions
+     */
+    private function moderationGroup(array $actions): ActionGroup
+    {
+        return ActionGroup::make(array_map(fn (ModerationAction $action) => $this->moderationAction($action, self::recordName(...)), $actions))
+            ->label(trans('players-plus::strings.moderation.group'))
+            ->icon('tabler-gavel')
+            ->color('gray')
+            ->visible(fn () => static::canModerate());
     }
 
     public function updatedTab(): void
@@ -209,7 +240,14 @@ class PlayersPage extends Page implements HasTable
                 ->color('gray');
         }
 
+        $remove = match ($list) {
+            ModerationLists::BANNED => ModerationAction::Pardon,
+            ModerationLists::OPS => ModerationAction::Deop,
+            ModerationLists::WHITELIST => ModerationAction::WhitelistRemove,
+        };
+
         return $table
+            ->recordActions([$this->moderationAction($remove, self::recordName(...))])
             ->records(function () use ($list) {
                 $rows = [];
                 foreach ($this->listState($list)['entries'] as $entry) {
@@ -245,6 +283,10 @@ class PlayersPage extends Page implements HasTable
                     ->description(fn (array $record) => $record['uuid'])
                     ->searchable(false),
             ])
+            ->recordActions([$this->moderationGroup([
+                ModerationAction::Kick, ModerationAction::Ban, ModerationAction::Op, ModerationAction::Deop,
+                ModerationAction::WhitelistAdd, ModerationAction::WhitelistRemove,
+            ])])
             ->emptyStateIcon('tabler-user-off')
             ->emptyStateHeading(trans('players-plus::strings.page.empty'))
             ->emptyStateDescription(null);
@@ -304,6 +346,7 @@ class PlayersPage extends Page implements HasTable
                     ->dateTimeTooltip()
                     ->sortable(),
             ])
+            ->recordActions([$this->moderationGroup(ModerationAction::cases())])
             ->emptyStateIcon('tabler-users')
             ->emptyStateHeading(trans('players-plus::strings.all.empty'))
             ->emptyStateDescription(null);

@@ -31,6 +31,9 @@ final class ModerationLists
 
     public const CACHE_SECONDS = 30;
 
+    /** After an action, reads skip the cache this long, so the server's rewrite shows up. */
+    public const CHANGED_SECONDS = 10;
+
     /** The file was read and parsed. */
     public const STATE_OK = 'ok';
 
@@ -53,8 +56,7 @@ final class ModerationLists
      */
     public static function read(Server $server, string $list): array
     {
-        /** @var mixed $cached */
-        $cached = Cache::remember(self::cacheKey($server, $list), self::CACHE_SECONDS, function () use ($server, $list) {
+        $load = function () use ($server, $list) {
             try {
                 $content = DaemonFiles::read($server, self::FILES[$list], self::MAX_BYTES);
             } catch (FileNotFoundException) {
@@ -68,7 +70,13 @@ final class ModerationLists
             return $entries === null
                 ? ['state' => self::STATE_ERROR, 'entries' => []]
                 : ['state' => self::STATE_OK, 'entries' => $entries];
-        });
+        };
+
+        // Right after an action the file is about to change: a read now would cache the old list.
+        /** @var mixed $cached */
+        $cached = Cache::has(self::changedKey($server))
+            ? $load()
+            : Cache::remember(self::cacheKey($server, $list), self::CACHE_SECONDS, $load);
 
         if (!is_array($cached) || !is_string($cached['state'] ?? null) || !is_array($cached['entries'] ?? null)) {
             return ['state' => self::STATE_ERROR, 'entries' => []];
@@ -134,21 +142,24 @@ final class ModerationLists
         return $entries;
     }
 
-    /** Whether $name is on $list (case-insensitive, like the server). */
-    public static function contains(Server $server, string $list, string $name): bool
+    /**
+     * Called after a command was sent: forgets the cached lists and reads the files uncached
+     * for a few seconds, while the server writes its change.
+     */
+    public static function markChanged(Server $server): void
     {
-        foreach (self::read($server, $list)['entries'] as $entry) {
-            if (strcasecmp($entry['name'], $name) === 0) {
-                return true;
-            }
-        }
-
-        return false;
+        self::forget($server);
+        Cache::put(self::changedKey($server), true, self::CHANGED_SECONDS);
     }
 
     private static function cacheKey(Server $server, string $list): string
     {
         return "players-plus.lists.$server->id.$list";
+    }
+
+    private static function changedKey(Server $server): string
+    {
+        return "players-plus.lists.$server->id.changed";
     }
 
     /** One line of printable text, capped; null when missing or empty. */

@@ -47,6 +47,7 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
             'poll_interval' => Settings::pollInterval(),
             'retention_days' => Settings::retentionDays(),
             'rollup_retention_days' => Settings::rollupRetentionDays(),
+            'moderation' => Settings::moderationEnabled(),
         ];
     }
 
@@ -80,6 +81,9 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
                 ->minValue(1)
                 ->maxValue(Settings::MAX_RETENTION_DAYS)
                 ->suffix(trans('players-plus::strings.settings.days')),
+            Toggle::make('moderation')
+                ->label(trans('players-plus::strings.settings.moderation'))
+                ->helperText(trans('players-plus::strings.settings.moderation_help')),
         ];
     }
 
@@ -91,6 +95,7 @@ class PlayersPlusPlugin implements HasPluginSettings, Plugin
             'PLAYERS_PLUS_POLL_INTERVAL' => Settings::clampInt($data['poll_interval'] ?? null, Settings::MIN_INTERVAL, Settings::MAX_INTERVAL, 2),
             'PLAYERS_PLUS_RETENTION_DAYS' => Settings::clampInt($data['retention_days'] ?? null, 1, Settings::MAX_RETENTION_DAYS, 30),
             'PLAYERS_PLUS_ROLLUP_RETENTION_DAYS' => Settings::clampInt($data['rollup_retention_days'] ?? null, 1, Settings::MAX_RETENTION_DAYS, 365),
+            'PLAYERS_PLUS_MODERATION' => filter_var($data['moderation'] ?? true, FILTER_VALIDATE_BOOLEAN) ? 'true' : 'false',
         ]);
 
         Notification::make()

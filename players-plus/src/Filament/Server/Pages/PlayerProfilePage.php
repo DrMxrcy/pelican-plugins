@@ -4,11 +4,15 @@ namespace DrMxrcy\PlayersPlus\Filament\Server\Pages;
 
 use App\Enums\SubuserPermission;
 use App\Models\Server;
+use DrMxrcy\PlayersPlus\Enums\ModerationAction;
+use DrMxrcy\PlayersPlus\Filament\Server\Concerns\ModeratesPlayers;
 use DrMxrcy\PlayersPlus\Models\Player;
 use DrMxrcy\PlayersPlus\Models\PlayerSession;
 use DrMxrcy\PlayersPlus\Models\Sample;
 use DrMxrcy\PlayersPlus\Services\PlayerStats;
 use DrMxrcy\PlayersPlus\Support\PlayerList;
+use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Facades\Filament;
 use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\TextEntry;
@@ -34,6 +38,7 @@ use Livewire\Attributes\Url;
 class PlayerProfilePage extends Page implements HasTable
 {
     use InteractsWithTable;
+    use ModeratesPlayers;
 
     protected static ?string $slug = 'players-plus/player';
 
@@ -82,6 +87,22 @@ class PlayerProfilePage extends Page implements HasTable
     public function getTitle(): string
     {
         return $this->playerRecord()->name;
+    }
+
+    /** @return array<Action|ActionGroup> */
+    protected function getHeaderActions(): array
+    {
+        return [
+            ActionGroup::make(array_map(
+                fn (ModerationAction $action) => $this->moderationAction($action, fn () => $this->playerRecord()->name),
+                ModerationAction::cases(),
+            ))
+                ->label(trans('players-plus::strings.moderation.group'))
+                ->icon('tabler-gavel')
+                ->color('gray')
+                ->button()
+                ->visible(fn () => static::canModerate()),
+        ];
     }
 
     /** @return array<string, string> */

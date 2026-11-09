@@ -85,8 +85,8 @@ class ModerationService
             throw new ModerationException(ModerationException::FAILED);
         }
 
-        // The server rewrites the list files right after; the next read must not be the cached one.
-        ModerationLists::forget($server);
+        // The server rewrites its list file right after; reads must not serve the cached copy.
+        ModerationLists::markChanged($server);
 
         // The panel's own event for console commands, so it reads like one typed in the console.
         Activity::event('server:console.command')

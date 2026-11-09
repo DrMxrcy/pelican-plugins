@@ -52,8 +52,8 @@ class SettingsTest extends TestCase
 
         $data = (new PlayersPlusPlugin())->getSettingsFormData();
 
-        $this->assertSame(['enabled' => true, 'poll_interval' => 4, 'retention_days' => 30, 'rollup_retention_days' => 365], $data);
-        $this->assertCount(4, (new PlayersPlusPlugin())->getSettingsForm());
+        $this->assertSame(['enabled' => true, 'poll_interval' => 4, 'retention_days' => 30, 'rollup_retention_days' => 365, 'moderation' => true], $data);
+        $this->assertCount(5, (new PlayersPlusPlugin())->getSettingsForm());
     }
 
     public function test_save_writes_prefixed_clamped_environment_values(): void
@@ -69,13 +69,31 @@ class SettingsTest extends TestCase
             }
         };
 
-        $plugin->saveSettings(['enabled' => false, 'poll_interval' => 12, 'retention_days' => '7', 'rollup_retention_days' => 99999]);
+        $plugin->saveSettings(['enabled' => false, 'poll_interval' => 12, 'retention_days' => '7', 'rollup_retention_days' => 99999, 'moderation' => false]);
 
         $this->assertSame([
             'PLAYERS_PLUS_ENABLED' => 'false',
             'PLAYERS_PLUS_POLL_INTERVAL' => 5,
             'PLAYERS_PLUS_RETENTION_DAYS' => 7,
             'PLAYERS_PLUS_ROLLUP_RETENTION_DAYS' => Settings::MAX_RETENTION_DAYS,
+            'PLAYERS_PLUS_MODERATION' => 'false',
         ], $plugin->written);
+
+        $plugin->saveSettings([]);
+        $this->assertSame('true', $plugin->written['PLAYERS_PLUS_MODERATION']);
+    }
+
+    public function test_moderation_is_on_by_default_and_fails_closed(): void
+    {
+        $this->assertTrue(Settings::moderationEnabled());
+
+        foreach (['true', '1', 'on', true] as $on) {
+            config()->set('players-plus.moderation', $on);
+            $this->assertTrue(Settings::moderationEnabled());
+        }
+        foreach (['false', '0', 'off', false, '', null, 'garbage', ['x']] as $off) {
+            config()->set('players-plus.moderation', $off);
+            $this->assertFalse(Settings::moderationEnabled());
+        }
     }
 }

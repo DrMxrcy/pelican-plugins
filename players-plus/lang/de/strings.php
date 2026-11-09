@@ -14,6 +14,8 @@ return [
         'rollup_retention_days_help' => 'Stündliche Durchschnitte und Spitzen für die 7- und 30-Tage-Diagramme und die Heatmap. Ältere Stunden werden einmal täglich gelöscht.',
         'minutes' => 'Minuten',
         'days' => 'Tage',
+        'moderation' => 'Moderationsaktionen',
+        'moderation_help' => 'Kicken, bannen, Whitelist und OP auf den Spielerseiten, für Benutzer mit Konsolenzugriff. Aus blendet sie überall aus.',
         'saved' => 'Einstellungen gespeichert',
     ],
 
@@ -145,6 +147,35 @@ return [
         'none' => 'Noch keine Statistiken. Der Server schreibt sie, wenn der Spieler geht oder die Welt gespeichert wird.',
         'unavailable' => 'Die Statistikdatei konnte gerade nicht gelesen werden. Versuche es in einer Minute erneut.',
         'no_permission' => 'Statistiken sehen nur Benutzer, die die Dateien des Servers lesen dürfen.',
+    ],
+
+    'moderation' => [
+        'group' => 'Moderieren',
+        'actions' => [
+            'kick' => 'Kicken',
+            'ban' => 'Bannen',
+            'pardon' => 'Entbannen',
+            'whitelist_add' => 'Zur Whitelist hinzufügen',
+            'whitelist_remove' => 'Von der Whitelist entfernen',
+            'op' => 'Zum Operator machen',
+            'deop' => 'Operator entfernen',
+        ],
+        'confirm_heading' => ':name: :action?',
+        'confirm_body' => 'Sendet „:command“ an die Serverkonsole.',
+        'reason' => 'Grund',
+        'reason_help' => 'Optional. Eine Zeile, höchstens :max Zeichen; Farbcodes und Zeilenumbrüche werden entfernt.',
+        'add_by_name' => 'Zur Whitelist hinzufügen',
+        'name_help' => 'Java-Edition-Name: 3 bis 16 Buchstaben, Ziffern oder Unterstriche.',
+        'offline_tooltip' => 'Starte den Server, um diese Aktion zu nutzen.',
+        'sent_title' => 'Befehl gesendet',
+        'sent_body' => '„:command“ wurde an die Konsole gesendet. Die Listen werden gleich aktualisiert.',
+        'failed_title' => 'Befehl nicht gesendet',
+        'errors' => [
+            'invalid_name' => 'Das ist kein gültiger Java-Edition-Spielername.',
+            'disabled' => 'Moderationsaktionen sind ausgeschaltet.',
+            'offline' => 'Der Server läuft nicht. Starte ihn und versuche es erneut.',
+            'failed' => 'Das Panel konnte den Server nicht erreichen. Versuche es gleich noch einmal.',
+        ],
     ],
 
     'widget' => [
