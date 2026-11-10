@@ -150,6 +150,16 @@ Checked before anything is written to the server; archive entries are checked ag
   files CurseForge blocks are fetched.** Downloads only ever come from the official CurseForge CDN or
   Modrinth and are hash-checked, and server packs are never used through the mirror (packs are always
   built from their manifest). Mods are code you are choosing to trust.
+- **Open by link or Project ID.** On the CurseForge tab, *Open link or ID* takes a modpack link
+  (`https://www.curseforge.com/minecraft/modpacks/<name>`, with or without `/files/<id>`), a project link
+  (`https://www.curseforge.com/projects/<id>`) or the numeric Project ID shown on the pack's page under
+  "About Project", and opens the same details view (versions, Install / Switch) as a search result, with the
+  same permission checks. The pasted text is only parsed, never fetched: an id or a lowercase slug is taken
+  from it and only `api.curseforge.com/v1` (or the mirror) is asked. Links to other sites, other games, mods,
+  resource packs and anything that isn't a Minecraft modpack are refused. Some API keys are refused CurseForge
+  search (`/v1/mods/search` answers 403 while the pack itself can still be read): the tab then says
+  "CurseForge search isn't available for this API key" instead of "rejected the API key", and a link by name
+  can't be looked up either, so it asks for the Project ID.
 - **Server pack first** (with an API key only). When the pack version has a server pack (`serverPackFileId`),
   its files are written like overrides; its start scripts, loader installers, `libraries/` and bundled Java
   are skipped, as are top-level dotfiles and scripts (`.py`, `.js`, `.pl`, `.rb`, `.php`, …); the summary

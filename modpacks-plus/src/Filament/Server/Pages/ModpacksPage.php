@@ -14,6 +14,7 @@ use DrMxrcy\ModpacksPlus\Jobs\RestorePreviousFilesJob;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\AtLauncher\AtLauncherPackProvider;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
+use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgePackLink;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgePackProvider;
 use DrMxrcy\ModpacksPlus\Providers\Ftb\FtbPackProvider;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
@@ -31,6 +32,7 @@ use DrMxrcy\ModpacksPlus\Support\ServerTarget;
 use DrMxrcy\ModpacksPlus\Support\VersionMatch;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
@@ -262,7 +264,7 @@ class ModpacksPage extends Page implements HasTable
     /** @return array<int, Action> */
     protected function getHeaderActions(): array
     {
-        return array_map(fn (string $source) => Action::make('source_'.$source)
+        return [...array_map(fn (string $source) => Action::make('source_'.$source)
             ->label(trans('modpacks-plus::strings.page.sources.'.$source))
             ->icon(match ($source) {
                 ModrinthPackProvider::ID => 'tabler-box',
@@ -271,7 +273,83 @@ class ModpacksPage extends Page implements HasTable
                 default => 'tabler-rocket',
             })
             ->color(fn () => $this->source() === $source ? 'primary' : 'gray')
-            ->action(fn () => $this->setSource($source)), PackProviders::IDS);
+            ->action(fn () => $this->setSource($source)), PackProviders::IDS), $this->openCurseForgeLinkAction()];
+    }
+
+    /**
+     * Plan 41: opens a CurseForge modpack from a pasted link or Project ID (for keys CurseForge refuses
+     * search for). The text is only parsed (CurseForgePackLink), never fetched; the pack opens in the
+     * same details view as a search result, whose Install / Switch buttons keep their own checks.
+     */
+    private function openCurseForgeLinkAction(): Action
+    {
+        return Action::make('open_curseforge_link')
+            ->label(trans('modpacks-plus::strings.page.curseforge_link'))
+            ->icon('tabler-link')
+            ->color('gray')
+            ->visible(fn () => $this->source() === CurseForgePackProvider::ID && $this->sourceReady())
+            ->modalHeading(trans('modpacks-plus::strings.page.curseforge_link_heading'))
+            ->modalSubmitActionLabel(trans('modpacks-plus::strings.page.curseforge_link_submit'))
+            ->schema([
+                TextInput::make('link')
+                    ->label(trans('modpacks-plus::strings.page.curseforge_link_field'))
+                    ->helperText(trans('modpacks-plus::strings.page.curseforge_link_help'))
+                    ->required()
+                    ->maxLength(CurseForgePackLink::MAX_LENGTH)
+                    ->autofocus(),
+            ])
+            ->action(function (array $data, Action $action) {
+                abort_unless(static::canAccess() && $this->sourceReady(CurseForgePackProvider::ID), 403);
+
+                $provider = $this->provider(CurseForgePackProvider::ID);
+                abort_unless($provider instanceof CurseForgePackProvider, 404);
+
+                try {
+                    $packId = $provider->packIdFromLink(is_string($data['link'] ?? null) ? $data['link'] : '');
+                } catch (PackUnavailableException $exception) {
+                    if (!in_array($exception->reason, ['curseforge_link_invalid', 'curseforge_link_needs_id', 'curseforge_not_found', 'not_a_modpack'], true)) {
+                        report($exception);
+                    }
+                    Notification::make()->title(InstallProgress::reason($exception->reason, $exception->detail))->danger()->send();
+                    $action->halt();
+
+                    return;
+                }
+
+                $this->replaceMountedAction('curseforgePack', ['packId' => $packId]);
+            });
+    }
+
+    /** The details view of a CurseForge pack opened by link or ID (packId is re-checked: the browser can mount this with anything). */
+    public function curseforgePackAction(): Action
+    {
+        return Action::make('curseforgePack')
+            ->visible(fn () => static::canAccess() && $this->sourceReady(CurseForgePackProvider::ID))
+            ->slideOver()
+            ->modalHeading(function (array $arguments) {
+                $packId = self::linkedPackId($arguments);
+                try {
+                    return $packId !== null ? (string) $this->provider(CurseForgePackProvider::ID)->project($packId)['title'] : '';
+                } catch (PackUnavailableException) {
+                    return '';
+                }
+            })
+            ->modalSubmitAction(false)
+            ->schema(function (array $arguments) {
+                $packId = self::linkedPackId($arguments);
+
+                return $packId !== null
+                    ? $this->detailSchema($packId, CurseForgePackProvider::ID)
+                    : [Html::make(new HtmlString('<p>'.e(InstallProgress::reason('curseforge_link_invalid', '')).'</p>'))];
+            });
+    }
+
+    /** @param  array<string, mixed>  $arguments */
+    private static function linkedPackId(array $arguments): ?string
+    {
+        $packId = $arguments['packId'] ?? null;
+
+        return is_string($packId) && CurseForgePackProvider::isValidId($packId) ? $packId : null;
     }
 
     private function latestInstall(): ?PackInstall
@@ -778,7 +856,8 @@ class ModpacksPage extends Page implements HasTable
                 } catch (PackUnavailableException $exception) {
                     report($exception);
                     $this->sourceError = InstallProgress::reason($exception->reason, $exception->detail);
-                    Notification::make()->title($this->sourceError)->danger()->send();
+                    // Plan 41: a key refused search still opens packs by link or ID, so that is no hard error.
+                    Notification::make()->title($this->sourceError)->status($exception->reason === 'curseforge_search_refused' ? 'warning' : 'danger')->send();
 
                     return new LengthAwarePaginator([], 0, self::PER_PAGE, $page);
                 }
@@ -829,9 +908,9 @@ class ModpacksPage extends Page implements HasTable
     }
 
     /** @return array<int, Component> */
-    private function detailSchema(string $packId): array
+    private function detailSchema(string $packId, ?string $source = null): array
     {
-        $source = $this->source();
+        $source ??= $this->source();
 
         try {
             $provider = $this->provider($source);

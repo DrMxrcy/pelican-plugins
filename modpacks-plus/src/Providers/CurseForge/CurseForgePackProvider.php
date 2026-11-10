@@ -170,7 +170,7 @@ class CurseForgePackProvider implements PackProvider
             $params['categoryIds'] = json_encode(array_slice(array_values(array_unique($ids)), 0, self::MAX_CATEGORY_FILTERS));
         }
 
-        $response = $this->client->get('mods/search', $params);
+        $response = $this->searchMods($params);
 
         $hits = [];
         foreach (self::items($response['data'] ?? null, $perPage) as $mod) {
@@ -183,6 +183,70 @@ class CurseForgePackProvider implements PackProvider
         $total = is_numeric($pagination['totalCount'] ?? null) ? (int) $pagination['totalCount'] : count($hits);
 
         return ['hits' => $hits, 'total' => max(0, min(self::MAX_RESULTS, $total))];
+    }
+
+    /**
+     * The project id of a pasted CurseForge modpack link or Project ID (see CurseForgePackLink), checked to
+     * be a Minecraft modpack. A slug-only link is looked up with the API's slug search; when CurseForge
+     * refuses search for this key, the user is asked for the Project ID instead.
+     *
+     * @throws PackUnavailableException curseforge_link_invalid, curseforge_link_needs_id, curseforge_not_found, not_a_modpack, …
+     */
+    public function packIdFromLink(string $input): string
+    {
+        $link = CurseForgePackLink::parse($input);
+        if ($link === null) {
+            throw new PackUnavailableException('curseforge_link_invalid');
+        }
+
+        if (isset($link['slug'])) {
+            try {
+                $response = $this->searchMods(['gameId' => self::GAME_MINECRAFT, 'classId' => self::CLASS_MODPACKS, 'slug' => $link['slug'], 'pageSize' => 5]);
+            } catch (PackUnavailableException $exception) {
+                throw $exception->reason === 'curseforge_search_refused' ? new PackUnavailableException('curseforge_link_needs_id', $link['slug']) : $exception;
+            }
+
+            $id = null;
+            foreach (self::items($response['data'] ?? null, 5) as $mod) {
+                if (is_array($mod) && ($mod['slug'] ?? null) === $link['slug'] && (int) ($mod['classId'] ?? 0) === self::CLASS_MODPACKS
+                    && (int) ($mod['gameId'] ?? 0) === self::GAME_MINECRAFT && self::intId($mod['id'] ?? null) !== null) {
+                    $id = (string) self::intId($mod['id']);
+                    break;
+                }
+            }
+            if ($id === null) {
+                throw new PackUnavailableException('curseforge_not_found', $link['slug']);
+            }
+        } else {
+            $id = $link['id'];
+        }
+
+        // Read through the cached project: it fails with not_a_modpack for anything but a Minecraft modpack.
+        $this->project($id);
+
+        return $id;
+    }
+
+    /**
+     * GET mods/search. A key CurseForge answers 403 for here (live: search refused while mods/{id} works)
+     * is reported as curseforge_search_refused, not as a rejected key.
+     *
+     * @param  array<string, mixed>  $params
+     * @return array<mixed>
+     *
+     * @throws PackUnavailableException
+     */
+    private function searchMods(array $params): array
+    {
+        try {
+            return $this->client->get('mods/search', $params);
+        } catch (PackUnavailableException $exception) {
+            if ($exception->reason === 'curseforge_key_rejected' && str_ends_with($exception->detail, '(HTTP 403)')) {
+                throw new PackUnavailableException('curseforge_search_refused', 'mods/search (HTTP 403)');
+            }
+
+            throw $exception;
+        }
     }
 
     public function categories(): array
