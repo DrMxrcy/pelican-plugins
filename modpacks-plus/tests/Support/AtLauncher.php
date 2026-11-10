@@ -16,6 +16,8 @@ final class AtLauncher
 
     public const VERSION = 'v1.0.0';
 
+    public const PIXELMON = 'https://download.nodecdn.net/containers/reforged/server/release/9.4.2/Pixelmon-1.21.1-9.4.2-server.jar';
+
     /**
      * @param  array<string, mixed>  $overrides
      * @return array<string, mixed>
@@ -112,6 +114,38 @@ final class AtLauncher
             'description' => 'A mod',
             'website' => $curseId !== null ? 'https://www.curseforge.com/minecraft/mc-mods/'.strtolower(pathinfo($file, PATHINFO_FILENAME)) : 'https://example.com/',
             'authors' => ['someone'],
+        ], $overrides);
+    }
+
+    /**
+     * The "Pixelmon Server" entry of ATLauncher's Pixelmon Mod 9.4.2 Configs.json (2026-11-10):
+     * `download: direct` into the reforged container, md5 only, no filesize, no CurseForge ids.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    public static function pixelmon(string $contents, array $overrides = []): array
+    {
+        return array_merge([
+            'name' => 'Pixelmon Server',
+            'version' => '9.4.2',
+            'url' => self::PIXELMON,
+            'file' => 'Pixelmon-1.21.1-9.4.2-server.jar',
+            'download' => 'direct',
+            'md5' => md5($contents),
+            'force' => false,
+            'colour' => 'Green',
+            'type' => 'mods',
+            'client' => false,
+            'optional' => false,
+            'server' => true,
+            'selected' => false,
+            'recommended' => true,
+            'hidden' => false,
+            'library' => false,
+            'description' => 'Pokemon in Minecraft.',
+            'website' => 'https://www.pixelmonmod.com/',
+            'authors' => ['PixelmonMod'],
         ], $overrides);
     }
 }

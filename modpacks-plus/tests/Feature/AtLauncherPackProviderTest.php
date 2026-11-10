@@ -6,6 +6,7 @@ use DrMxrcy\ModpacksPlus\Data\InstallPlan;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
+use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
 use DrMxrcy\ModpacksPlus\Providers\AtLauncher\AtLauncherPackProvider;
 use DrMxrcy\ModpacksPlus\Services\PackProviders;
 use DrMxrcy\ModpacksPlus\Support\Caps;
@@ -246,8 +247,9 @@ class AtLauncherPackProviderTest extends TestCase
             AtLauncher::mod('atl-only.jar', 'atl-bytes'),
             // Older packs write files//: collapsed to one slash on ATLauncher's CDN only.
             AtLauncher::mod('legacy.jar', 'legacy-bytes', null, null, ['url' => 'packs/'.AtLauncher::PACK.'/files//legacy.jar']),
-            // md5 for anything that is not a `download: server` file on ATLauncher's CDN: never.
+            // Plan 32 step 6: a `download: direct` link into another container on ATLauncher's CDN too.
             AtLauncher::mod('reforged.jar', 'r-bytes', null, null, ['download' => 'direct', 'url' => 'https://download.nodecdn.net/containers/reforged/r.jar']),
+            // md5 for anything that is not on ATLauncher's CDN: never.
             AtLauncher::mod('github.jar', 'g-bytes', null, null, ['download' => 'direct', 'url' => 'https://github.com/o/r/releases/download/v1/g.jar']),
             AtLauncher::mod('forge.jar', 'f-bytes', null, null, ['download' => 'direct', 'url' => CurseForge::url(6000009, 'forge.jar')]),
             AtLauncher::mod('bad-md5.jar', 'b', null, null, ['md5' => '']),
@@ -259,14 +261,152 @@ class AtLauncherPackProviderTest extends TestCase
             'mods/cf-mod.jar' => AtLauncher::fileUrl('cf-mod.jar'),
             'mods/atl-only.jar' => AtLauncher::fileUrl('atl-only.jar'),
             'mods/legacy.jar' => AtLauncher::fileUrl('legacy.jar'),
+            'mods/reforged.jar' => 'https://download.nodecdn.net/containers/reforged/r.jar',
         ], self::urls($plan->files));
         foreach ($plan->files as $file) {
             $this->assertSame(PlanFile::VERIFY_ATLAUNCHER_MD5, $file->verify);
             $this->assertSame(['md5'], array_keys($file->hashes));
         }
         $this->assertSame(md5('cf-bytes'), $plan->files[0]->hashes['md5']);
-        $this->assertSame(['reforged' => 'no_usable_hash', 'github' => 'no_usable_hash', 'forge' => 'no_usable_hash', 'bad-md5' => 'no_usable_hash'], self::reasons($plan->manualFiles));
-        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/files/') || str_contains($request->url(), 'curseforge.com'));
+        $this->assertSame(['github' => 'no_usable_hash', 'forge' => 'no_usable_hash', 'bad-md5' => 'no_usable_hash'], self::reasons($plan->manualFiles));
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/files/') || str_contains($request->url(), 'curseforge.com') || $request->method() === 'HEAD');
+    }
+
+    /**
+     * A HEAD answer for $url (any other method fails the test's request).
+     *
+     * @param  array<string, string>  $headers
+     * @return array<string, mixed>
+     */
+    private static function headAnswer(string $url, ?int $length, int $status = 200, array $headers = []): array
+    {
+        return [$url => function (Request $request) use ($length, $status, $headers) {
+            if ($request->method() !== 'HEAD') {
+                return Http::response('unexpected '.$request->method(), 500);
+            }
+
+            return Http::response('', $status, ($length !== null ? ['Content-Length' => (string) $length] : []) + $headers);
+        }];
+    }
+
+    public function test_pixelmons_server_jar_in_atlaunchers_reforged_container_is_checked_by_md5(): void
+    {
+        // Live bug 2026-11-10: this entry was listed and Pixelmon installed without Pixelmon.
+        $this->fake([AtLauncher::pixelmon('pixelmon-bytes')], null, self::headAnswer(AtLauncher::PIXELMON, strlen('pixelmon-bytes')));
+
+        $plan = $this->resolve();
+
+        $this->assertSame(['mods/Pixelmon-1.21.1-9.4.2-server.jar' => AtLauncher::PIXELMON], self::urls($plan->files));
+        $this->assertSame(PlanFile::VERIFY_ATLAUNCHER_MD5, $plan->files[0]->verify);
+        $this->assertSame(['md5' => md5('pixelmon-bytes')], $plan->files[0]->hashes);
+        // No filesize in Configs.json: the size is the one ATLauncher's CDN reports, and the md5 still decides.
+        $this->assertSame(strlen('pixelmon-bytes'), $plan->files[0]->size);
+        $this->assertSame([], $plan->manualFiles);
+        // The bytes themselves are only fetched (and checked) by the panel at install time.
+        Http::assertNotSent(fn (Request $request) => $request->url() === AtLauncher::PIXELMON && $request->method() !== 'HEAD');
+    }
+
+    public function test_a_size_from_configs_json_is_used_without_asking_the_cdn(): void
+    {
+        $this->fake([AtLauncher::pixelmon('pixelmon-bytes', ['filesize' => 14])]);
+
+        $plan = $this->resolve();
+
+        $this->assertSame(14, $plan->files[0]->size);
+        Http::assertNotSent(fn (Request $request) => $request->method() === 'HEAD');
+    }
+
+    /** @return array<string, array{string}> */
+    public static function hostileMd5Urls(): array
+    {
+        return [
+            'other host' => ['https://cdn.example.com/containers/reforged/a.jar'],
+            'http' => ['http://download.nodecdn.net/containers/reforged/a.jar'],
+            'look-alike host' => ['https://download.nodecdn.net.evil.com/containers/reforged/a.jar'],
+            'userinfo' => ['https://download.nodecdn.net@evil.com/containers/reforged/a.jar'],
+            'port' => ['https://download.nodecdn.net:8443/containers/reforged/a.jar'],
+            'traversal' => ['https://download.nodecdn.net/containers/reforged/../../a.jar'],
+            'encoded traversal' => ['https://download.nodecdn.net/containers/reforged/%2e%2e/%2e%2e/a.jar'],
+            'query' => ['https://download.nodecdn.net/containers/reforged/a.jar?x=1'],
+            'not a container' => ['https://download.nodecdn.net/a.jar'],
+        ];
+    }
+
+    #[DataProvider('hostileMd5Urls')]
+    public function test_md5_is_never_used_for_a_direct_link_outside_atlaunchers_cdn_containers(string $url): void
+    {
+        $this->fake([
+            AtLauncher::mod('a.jar', 'a-bytes', null, null, ['download' => 'direct', 'url' => $url]),
+            AtLauncher::pixelmon('p', ['url' => $url]),
+        ]);
+
+        $plan = $this->resolve();
+
+        $this->assertSame([], $plan->files);
+        $this->assertSame(['a' => 'no_usable_hash', 'Pixelmon Server' => 'no_usable_size'], self::reasons($plan->manualFiles));
+        $this->assertSame([null, null], array_column($plan->manualFiles, 'url'));
+        Http::assertNotSent(fn (Request $request) => $request->method() === 'HEAD' || str_contains($request->url(), 'a.jar'));
+    }
+
+    /** @return array<string, array{array<string, mixed>, string}> */
+    public static function unusableSizes(): array
+    {
+        return [
+            'no Content-Length' => [self::headAnswer(AtLauncher::PIXELMON, null), 'no_usable_size'],
+            'redirect' => [self::headAnswer(AtLauncher::PIXELMON, 5, 302, ['Location' => 'https://download.nodecdn.net/containers/atl/x.jar']), 'no_usable_size'],
+            'not found' => [self::headAnswer(AtLauncher::PIXELMON, 5, 404), 'no_usable_size'],
+            'over the panel fetch cap' => [self::headAnswer(AtLauncher::PIXELMON, 43258781), 'too_large'],
+        ];
+    }
+
+    /** @param  array<string, mixed>  $stubs */
+    #[DataProvider('unusableSizes')]
+    public function test_without_a_usable_size_the_core_jar_is_listed_with_its_atlauncher_cdn_url(array $stubs, string $reason): void
+    {
+        $this->fake([AtLauncher::pixelmon('pixelmon-bytes')], null, $stubs);
+
+        $plan = $this->resolve();
+
+        $this->assertSame([], $plan->files);
+        $this->assertSame([['name' => 'Pixelmon Server', 'url' => AtLauncher::PIXELMON, 'reason' => $reason]], $plan->manualFiles);
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/containers/atl/x.jar') || ($request->url() === AtLauncher::PIXELMON && $request->method() !== 'HEAD'));
+        // The summary links the file on ATLauncher's CDN.
+        $this->assertStringContainsString('href="'.AtLauncher::PIXELMON.'"', InstallProgress::manualList($plan->manualFiles));
+    }
+
+    public function test_a_failing_size_lookup_is_retried_rather_than_dropping_the_jar(): void
+    {
+        $this->fake([AtLauncher::pixelmon('pixelmon-bytes')], null, self::headAnswer(AtLauncher::PIXELMON, null, 503));
+
+        $this->expectException(PackUnavailableException::class);
+        $this->resolve();
+    }
+
+    public function test_the_cdn_is_asked_for_a_bounded_number_of_sizes(): void
+    {
+        $mods = [];
+        for ($i = 0; $i <= AtLauncherPackProvider::MAX_SIZE_LOOKUPS; $i++) {
+            $mods[] = AtLauncher::pixelmon('p'.$i, ['name' => 'P'.$i, 'file' => 'p'.$i.'.jar', 'url' => 'https://download.nodecdn.net/containers/reforged/p'.$i.'.jar']);
+        }
+        $this->fake($mods, null, ['download.nodecdn.net/containers/reforged/*' => fn (Request $request) => Http::response('', 200, ['Content-Length' => '2'])]);
+
+        $plan = $this->resolve();
+
+        $this->assertCount(AtLauncherPackProvider::MAX_SIZE_LOOKUPS, $plan->files);
+        $this->assertSame(['P'.AtLauncherPackProvider::MAX_SIZE_LOOKUPS => 'no_usable_size'], self::reasons($plan->manualFiles));
+        $this->assertCount(AtLauncherPackProvider::MAX_SIZE_LOOKUPS, Http::recorded(fn (Request $request) => $request->method() === 'HEAD'));
+    }
+
+    public function test_a_manual_entry_links_only_curseforge_pages_and_atlauncher_cdn_files(): void
+    {
+        $entry = fn (string $url) => PlanValidator::manualFile(['name' => 'x', 'url' => $url, 'reason' => 'too_large'])['url'] ?? null;
+
+        $this->assertSame(AtLauncher::PIXELMON, $entry(AtLauncher::PIXELMON));
+        $this->assertSame('https://www.curseforge.com/minecraft/mc-mods/x', $entry('https://www.curseforge.com/minecraft/mc-mods/x'));
+        $this->assertNull($entry('https://download.nodecdn.net.evil.com/containers/reforged/a.jar'));
+        $this->assertNull($entry('https://download.nodecdn.net/containers/reforged/../a.jar'));
+        $this->assertNull($entry('javascript:alert(1)//download.nodecdn.net/containers/reforged/a.jar'));
+        $this->assertNull($entry('https://www.pixelmonmod.com/'));
     }
 
     public function test_a_malformed_atlauncher_md5_stops_the_install(): void

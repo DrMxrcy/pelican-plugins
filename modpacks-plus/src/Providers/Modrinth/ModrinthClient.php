@@ -230,6 +230,52 @@ class ModrinthClient
         }
     }
 
+    /**
+     * The size $url's host gives for it (one HEAD request, its Content-Length), for a file whose
+     * source names no size (plan 32 step 6: ATLauncher's md5-checked CDN files). Null when the
+     * answer is not a 200 with a plain, uncompressed length (a redirect is never followed); the
+     * file is then listed instead of installed. The size only caps and checks the later download:
+     * the source's hash still decides whether the bytes are used.
+     *
+     * @throws UnsafePlanException $url is off the allowlist (nothing is requested)
+     * @throws PackUnavailableException the host failed, timed out or is busy (worth another attempt)
+     */
+    public function contentLength(string $url, PlanValidator $validator, int $timeout = 20): ?int
+    {
+        if (!$validator->isAllowedUrl($url)) {
+            throw new UnsafePlanException('no_allowed_url', $url);
+        }
+
+        $timeout = JobClock::timeout($timeout);
+        try {
+            $request = Http::createPendingRequest();
+            if ($this->downloadHandler !== null) {
+                $request->setHandler($this->downloadHandler);
+            }
+
+            $response = $request
+                ->withUserAgent($this->userAgent())
+                ->withHeaders(['Accept-Encoding' => 'identity'])
+                ->timeout($timeout)
+                ->connectTimeout(min(5, $timeout))
+                ->withOptions(['allow_redirects' => false, 'decode_content' => false])
+                ->head($url);
+        } catch (Throwable $exception) {
+            throw new PackUnavailableException('download_failed', $url, $exception);
+        }
+
+        if ($response->status() === 429 || $response->status() >= 500) {
+            throw new PackUnavailableException('download_failed', $url.' (HTTP '.$response->status().')');
+        }
+
+        $length = $response->header('Content-Length');
+        if ($response->status() !== 200 || !self::isIdentityEncoding($response->header('Content-Encoding')) || !preg_match('/^\d{1,15}$/D', $length)) {
+            return null;
+        }
+
+        return (int) $length;
+    }
+
     private static function close(mixed $handle): void
     {
         if (is_resource($handle)) {

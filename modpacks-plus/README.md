@@ -210,12 +210,22 @@ Checked before anything is written to the server; archive entries are checked ag
   marked `server: false`, optional mods and resource/shader packs are left out; data packs, other kinds
   and "download in the browser" mods are listed. ATLauncher only gives an md5 for most mods. A mod is
   checked against a sha1 where one exists: ATLauncher's own, else CurseForge's for the CurseForge file it
-  names (with a key or the mirror; Modrinth-first then applies). **With no sha1 anywhere, a mod served from
-  ATLauncher's own CDN (`https://download.nodecdn.net/containers/atl/`, `download: server`) is checked
-  against ATLauncher's md5**: ATLauncher writes both the manifest and the file, so its md5 adds no trust
-  beyond ATLauncher itself. Such files are fetched with no redirects, recorded as `atlauncher-md5` and
-  counted in the summary. md5 is never accepted for any other host; such mods are listed (**no usable
-  hash**). Mods ATLauncher hosts are fetched from its CDN by the panel, even when CurseForge marks the mod
+  names (with a key or the mirror; Modrinth-first then applies). **With no sha1 anywhere, a mod in a
+  container on ATLauncher's own CDN is checked against ATLauncher's md5**: `download: server` files under
+  `https://download.nodecdn.net/containers/atl/`, and `download: direct` links into partner containers on
+  the same CDN, such as Pixelmon's server jar under `/containers/reforged/`. The `Configs.json` naming the
+  file and its md5 is ATLauncher's own (from `/containers/atl/`, over HTTPS), so the md5 adds no trust beyond
+  ATLauncher; md5 is weak against collisions, but a swap of the hosted file alone would need a second
+  preimage, which is infeasible. The URL must be exactly `https://download.nodecdn.net/containers/<name>/…`:
+  no other scheme, host, userinfo, port, query or fragment, and no empty, `.`, `..` or encoded `/` / `\`
+  segments. Such files are fetched by the panel only, with no redirects and within `max_panel_fetch_bytes`,
+  recorded as `atlauncher-md5` and counted in the summary. When `Configs.json` gives no size for one (as for
+  Pixelmon's server jar), the CDN is asked for it (one `HEAD` request, no redirects, at most 25 per install);
+  without a usable answer the file is listed (**no usable size**). A listed CDN file links to its download.
+  md5 is never accepted for any other host or path; such mods are listed (**no usable hash**). Pixelmon's
+  server jar is about 41 MB, more than the 32 MB `max_panel_fetch_bytes` default: until an admin raises it
+  (`MODPACKS_PLUS_MAX_PANEL_FETCH_BYTES`, e.g. to 64 MB) it is listed (**too big for the panel to fetch**)
+  with its link, and the server runs without Pixelmon until it is uploaded to `mods/`. Mods ATLauncher hosts are fetched from its CDN by the panel, even when CurseForge marks the mod
   as not distributable (ATLauncher distributes its own copy); links to the CurseForge CDN follow the
   *CurseForge* rules; other hosts are listed. Legacy `files//x.jar` paths are collapsed to one slash.
   `Configs.zip` (its sha1 is required) is applied from its zip root like a server pack: no top-level
@@ -406,7 +416,8 @@ again, so direct calls get 403.
   says what a version needs), the ATLauncher tab filters by Minecraft version only, and only the newest
   ten ATLauncher versions show their loader.
 - Without CurseForge set up, ATLauncher mods are only checked against ATLauncher's md5 (see *FTB and
-  ATLauncher*); md5 is a weak hash, so this trusts ATLauncher's CDN as much as its manifest.
+  ATLauncher*); md5 is a weak hash, so this trusts ATLauncher's CDN (its own and its partner containers)
+  as much as its manifest.
 - FTB searches fetch each listed pack's details one by one (cached for 10 minutes), so the first page of
   results can take a few seconds.
 - Before a version has been checked once, the confirm dialog only knows its download size (for Modrinth

@@ -9,6 +9,7 @@ use DrMxrcy\ModpacksPlus\Data\PackArchive;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgePackProvider;
+use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthClient;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Services\PackFileResolver;
 use DrMxrcy\ModpacksPlus\Support\Caps;
@@ -28,10 +29,14 @@ use Illuminate\Support\Facades\Cache;
  * - ATLauncher gives only an md5 for most mods. A mod is verified by a sha1 where one exists:
  *   ATLauncher's own, else CurseForge's for the CurseForge file the mod names (curse_id /
  *   curse_file_id, when a CurseForge key or the mirror is set up); Modrinth-first applies to
- *   those sha1s. With no sha1 anywhere, a mod ATLauncher serves from its own CDN
- *   (`download: server`) is checked against ATLauncher's md5 (PlanFile::VERIFY_ATLAUNCHER_MD5,
- *   parent ruling: ATLauncher writes both the manifest and the file, so its md5 adds no new
- *   trust). md5 is never accepted for any other host; such a mod is listed. See PackFileResolver.
+ *   those sha1s. With no sha1 anywhere, a mod in a container on ATLauncher's own CDN
+ *   (`download: server` in /containers/atl/, or since step 6 a `direct` link into a partner
+ *   container such as /containers/reforged/, Pixelmon's server jar) is checked against
+ *   ATLauncher's md5 (PlanFile::VERIFY_ATLAUNCHER_MD5, PlanValidator::isAtlauncherMd5Url: the
+ *   manifest naming file and md5 is ATLauncher's own, and a swap of the hosted file alone would
+ *   need an md5 second preimage). Without a filesize its size is asked of the CDN (HEAD, no
+ *   redirects, MAX_SIZE_LOOKUPS). md5 is never accepted for any other host or path; such a mod is
+ *   listed. See PackFileResolver.
  * - Mods ATLauncher hosts (`download: server`) come from its CDN; `direct` links on the
  *   CurseForge CDN go through plan 31's rules, other hosts are listed; `browser` downloads
  *   are listed.
@@ -68,6 +73,12 @@ class AtLauncherPackProvider implements PackProvider
     private const MAX_LOADER_LOOKUPS = 10;
 
     private const CACHE_MINUTES = 10;
+
+    /**
+     * md5-checked CDN files without a filesize in Configs.json whose size is asked of the CDN
+     * (one HEAD each) per plan; the rest are listed (`no_usable_size`).
+     */
+    public const MAX_SIZE_LOOKUPS = 25;
 
     private const MAX_DESCRIPTION_CHARS = 5000;
 
@@ -282,6 +293,7 @@ class AtLauncherPackProvider implements PackProvider
         $candidates = [];
         $manual = [];
         $skippedClient = [];
+        $sizeLookups = 0;
         foreach ($mods as $mod) {
             if (!is_array($mod)) {
                 throw new PackUnavailableException('bad_index', 'mods');
@@ -345,19 +357,33 @@ class AtLauncherPackProvider implements PackProvider
             $fileId = CurseForgePackProvider::intId($mod['curse_file_id'] ?? null);
             $reference = $project !== null && $fileId !== null ? ['project' => $project, 'file' => $fileId] : null;
 
+            // ATLauncher's own sha1 when it has one. Its md5 is only used for a file in a container on
+            // its own CDN (`download: server`, or `direct` into e.g. /containers/reforged/: plan 32
+            // step 6) when no sha1 exists anywhere (PackFileResolver, PlanValidator::isAtlauncherMd5Url).
+            $sha1 = $mod['sha1'] ?? null;
+            $md5 = $mod['md5'] ?? null;
+            $md5Url = $url !== null && PlanValidator::isAtlauncherMd5Url($url);
+            $size = is_int($mod['filesize'] ?? null) && $mod['filesize'] >= 0 ? $mod['filesize'] : -1;
+            // Configs.json often gives no size for such a file (Pixelmon's server jar): the CDN is asked,
+            // a bounded number of times, without redirects. The md5 still decides; the size only caps.
+            if ($size < 0 && $md5Url && $reference === null && ($sha1 === null || $sha1 === '') && is_string($md5) && $md5 !== ''
+                && $sizeLookups < self::MAX_SIZE_LOOKUPS) {
+                $sizeLookups++;
+                $size = app(ModrinthClient::class)->contentLength((string) $url, $validator) ?? -1;
+            }
+
             $candidates[] = [
                 'path' => $path,
                 'display' => $name,
                 'url' => $url,
-                'size' => is_int($mod['filesize'] ?? null) && $mod['filesize'] >= 0 ? $mod['filesize'] : -1,
-                // ATLauncher's own sha1 when it has one. Its md5 is only used for a file served from
-                // its own CDN (`download: server`) when no sha1 exists anywhere (PackFileResolver).
-                'sha1' => $mod['sha1'] ?? null,
-                'md5' => $download === 'server' ? ($mod['md5'] ?? null) : null,
+                'size' => $size,
+                'sha1' => $sha1,
+                'md5' => $md5Url ? $md5 : null,
                 'side' => 'required',
                 'curseforge' => $reference,
                 'cf_hosted' => $reference !== null && $url !== null && in_array(parse_url($url, PHP_URL_HOST), CurseForgePackProvider::DOWNLOAD_HOSTS, true),
-                'link' => $link,
+                // Listed (too large, no size): the CurseForge page, else the file on ATLauncher's CDN.
+                'link' => $link ?? ($md5Url ? $url : null),
             ];
         }
 

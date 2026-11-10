@@ -18,6 +18,7 @@ use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Plan 32: an ATLauncher pack installs through the item-30 engine: its mods (verified by
@@ -73,6 +74,27 @@ class AtLauncherInstallTest extends TestCase
             AtLauncher::CDN.'packs/'.AtLauncher::PACK.'/files/cf-mod.jar' => Http::response($bodies['cf-mod.jar'] ?? 'cf-bytes'),
             CurseForge::API.'mods/files' => Http::response(CurseForge::data([CurseForge::file(6000001, 301, 'cf-mod.jar', 'cf-bytes')])),
             CurseForge::API.'mods' => Http::response(CurseForge::data([CurseForge::modEntry(301, 'CF Mod')])),
+            'api.modrinth.com/v2/*' => Http::response('{}', 200, ['Content-Type' => 'application/json']),
+            '*' => Http::response('unexpected', 500),
+        ]);
+    }
+
+    /**
+     * Plan 32 step 6: a pack whose server jar is the Pixelmon entry (`download: direct` into
+     * ATLauncher's reforged container, md5 only, no filesize), served as $served.
+     */
+    private function fakePixelmon(string $served, int $status = 200): void
+    {
+        $mods = [AtLauncher::pixelmon('pixelmon-bytes')];
+
+        Http::swap(new HttpFactory());
+        Http::fake([
+            AtLauncher::API.'pack/'.AtLauncher::PACK => Http::response(AtLauncher::data(AtLauncher::pack())),
+            AtLauncher::API.'packs/full/public' => Http::response(AtLauncher::data([AtLauncher::pack()])),
+            AtLauncher::CDN.'packs/'.AtLauncher::PACK.'/versions/'.AtLauncher::VERSION.'/Configs.json' => Http::response(AtLauncher::configs($mods)),
+            AtLauncher::PIXELMON => fn (Request $request) => $request->method() === 'HEAD'
+                ? Http::response('', 200, ['Content-Length' => (string) strlen('pixelmon-bytes')])
+                : Http::response($served, $status, $status === 302 ? ['Location' => AtLauncher::fileUrl('evil.jar')] : []),
             'api.modrinth.com/v2/*' => Http::response('{}', 200, ['Content-Type' => 'application/json']),
             '*' => Http::response('unexpected', 500),
         ]);
@@ -147,5 +169,48 @@ class AtLauncherInstallTest extends TestCase
 
         $this->assertSame('hash_mismatch', $install->error);
         $this->assertArrayNotHasKey('mods/cf-mod.jar', $this->files->files);
+    }
+
+    public function test_pixelmons_server_jar_installs_from_atlaunchers_reforged_container_checked_by_md5(): void
+    {
+        config()->set('modpacks-plus.curseforge.api_key', null);
+        $server = $this->forgeServer();
+        $this->fakePixelmon('pixelmon-bytes');
+
+        $install = $this->install($server);
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame('pixelmon-bytes', $this->files->files['mods/Pixelmon-1.21.1-9.4.2-server.jar'] ?? null);
+        // Fetched and checked by the panel, never handed to the node.
+        $this->assertSame([], $this->files->callsOf('pull'));
+        $this->assertSame(1, $install->summary['md5_verified'] ?? null);
+        $this->assertSame([], $install->summary['manual_files'] ?? []);
+        $this->assertSame('md5:'.md5('pixelmon-bytes'), ($install->manifestEntries() ?? [])['mods/Pixelmon-1.21.1-9.4.2-server.jar']['hash'] ?? null);
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'evil.jar'));
+    }
+
+    /** @return array<string, array{string, int}> */
+    public static function badPixelmonBodies(): array
+    {
+        return [
+            // Same size, other bytes: the md5 catches the swap.
+            'md5 mismatch' => ['pixelmon-bytez', 200],
+            'longer than the size' => ['pixelmon-bytes-and-more', 200],
+            'redirect' => ['', 302],
+        ];
+    }
+
+    #[DataProvider('badPixelmonBodies')]
+    public function test_a_wrong_or_redirected_pixelmon_jar_is_never_written(string $served, int $status): void
+    {
+        config()->set('modpacks-plus.curseforge.api_key', null);
+        $server = $this->forgeServer();
+        $this->fakePixelmon($served, $status);
+
+        $install = $this->install($server);
+
+        $this->assertNotSame(PackInstall::STATUS_INSTALLED, $install->status);
+        $this->assertArrayNotHasKey('mods/Pixelmon-1.21.1-9.4.2-server.jar', $this->files->files);
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'evil.jar'));
     }
 }

@@ -46,13 +46,67 @@ class Plan32ValidatorHardeningTest extends TestCase
         $this->assertSame(['md5', md5('abc')], PlanValidator::fileHash($plan->files[0]));
     }
 
+    public function test_an_md5_file_in_an_atlauncher_partner_container_is_accepted(): void
+    {
+        // Plan 32 step 6: Pixelmon's server jar, linked `download: direct` from ATLauncher's CDN.
+        $url = 'https://download.nodecdn.net/containers/reforged/server/release/9.4.2/Pixelmon-1.21.1-9.4.2-server.jar';
+        $plan = self::validator('atlauncher')->validate(self::plan('atlauncher', new PlanFile('mods/p.jar', [$url], 3, ['md5' => md5('abc')], 'required', null, PlanFile::VERIFY_ATLAUNCHER_MD5)));
+
+        $this->assertSame(['md5', md5('abc')], PlanValidator::fileHash($plan->files[0]));
+    }
+
+    /** @return array<string, array{string, bool}> */
+    public static function md5Urls(): array
+    {
+        $base = 'https://download.nodecdn.net/containers/';
+
+        return [
+            'atl container' => [$base.'atl/packs/P/files/a.jar', true],
+            'partner container' => [$base.'reforged/server/release/9.4.2/Pixelmon-1.21.1-9.4.2-server.jar', true],
+            'percent-encoded name' => [$base.'atl/packs/A%20B/x%2By.jar', true],
+            'http' => ['http://download.nodecdn.net/containers/reforged/a.jar', false],
+            'other host' => ['https://cdn.example.com/containers/reforged/a.jar', false],
+            'look-alike host' => ['https://download.nodecdn.net.evil.com/containers/reforged/a.jar', false],
+            'sub-host' => ['https://evil.download.nodecdn.net/containers/reforged/a.jar', false],
+            'upper-case host' => ['https://DOWNLOAD.nodecdn.net/containers/reforged/a.jar', false],
+            'userinfo' => ['https://download.nodecdn.net@evil.com/containers/reforged/a.jar', false],
+            'userinfo on the host' => ['https://x@download.nodecdn.net/containers/reforged/a.jar', false],
+            'port' => ['https://download.nodecdn.net:443/containers/reforged/a.jar', false],
+            'query' => [$base.'reforged/a.jar?x=1', false],
+            'fragment' => [$base.'reforged/a.jar#x', false],
+            'not a container' => ['https://download.nodecdn.net/other/reforged/a.jar', false],
+            'no file in the container' => [$base.'reforged/', false],
+            'container only' => [$base.'reforged', false],
+            'empty container' => [$base.'/a.jar', false],
+            'dot container' => [$base.'../atl/a.jar', false],
+            'traversal' => [$base.'reforged/../atl/a.jar', false],
+            'dot segment' => [$base.'reforged/./a.jar', false],
+            'encoded traversal' => [$base.'reforged/%2e%2e/atl/a.jar', false],
+            'encoded slash' => [$base.'reforged/x%2F..%2Fa.jar', false],
+            'double encoding' => [$base.'reforged/%252e%252e/a.jar', false],
+            'encoded backslash' => [$base.'reforged/..%5Ca.jar', false],
+            'encoded NUL' => [$base.'reforged/a.jar%00.zip', false],
+            'double slash' => [$base.'reforged//a.jar', false],
+            'trailing newline' => [$base."reforged/a.jar\n", false],
+            'backslash' => [$base.'reforged\\a.jar', false],
+        ];
+    }
+
+    #[DataProvider('md5Urls')]
+    public function test_md5_is_only_accepted_for_a_plain_file_url_in_an_atlauncher_cdn_container(string $url, bool $accepted): void
+    {
+        $this->assertSame($accepted, PlanValidator::isAtlauncherMd5Url($url));
+    }
+
     /** @return array<string, array{string, string, array<string, string>, ?string}> */
     public static function refusedMd5(): array
     {
         $md5 = ['md5' => md5('abc')];
 
         return [
-            'other atlauncher container' => ['atlauncher', 'https://download.nodecdn.net/containers/reforged/a.jar', $md5, PlanFile::VERIFY_ATLAUNCHER_MD5],
+            'not a container' => ['atlauncher', 'https://download.nodecdn.net/other/a.jar', $md5, PlanFile::VERIFY_ATLAUNCHER_MD5],
+            'traversal out of a container' => ['atlauncher', 'https://download.nodecdn.net/containers/reforged/../../a.jar', $md5, PlanFile::VERIFY_ATLAUNCHER_MD5],
+            'query on the cdn' => ['atlauncher', 'https://download.nodecdn.net/containers/reforged/a.jar?x=1', $md5, PlanFile::VERIFY_ATLAUNCHER_MD5],
             'curseforge cdn' => ['atlauncher', 'https://edge.forgecdn.net/files/1/2/a.jar', $md5, PlanFile::VERIFY_ATLAUNCHER_MD5],
             'modrinth cdn' => ['atlauncher', 'https://cdn.modrinth.com/data/a/versions/b/a.jar', $md5, PlanFile::VERIFY_ATLAUNCHER_MD5],
             'ftb host' => ['ftb', 'https://dist.modpacks.ch/modpacks/1/a.jar', $md5, PlanFile::VERIFY_ATLAUNCHER_MD5],

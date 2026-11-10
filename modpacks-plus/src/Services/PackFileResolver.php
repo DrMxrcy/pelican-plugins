@@ -24,8 +24,9 @@ use DrMxrcy\ModpacksPlus\Support\PlanValidator;
  *   `host_not_allowed`), by the panel, and checked against the source's sha1;
  * - a file with no usable hash (no sha1 from the source, none from CurseForge) is never
  *   downloaded: it is listed (`no_usable_hash`). The one exception: a file the source serves
- *   from ATLauncher's own CDN and vouches for with an md5 (`md5`, ATLauncher only) is fetched
- *   with no redirects and checked against that md5 (PlanFile::VERIFY_ATLAUNCHER_MD5);
+ *   from a container on ATLauncher's own CDN and vouches for with an md5 (`md5`, ATLauncher only;
+ *   PlanValidator::isAtlauncherMd5Url) is fetched by the panel with no redirects and checked
+ *   against that md5 (PlanFile::VERIFY_ATLAUNCHER_MD5);
  * - a file CurseForge returns nothing for is listed (`not_on_curseforge`), one without a
  *   usable size is listed (`no_usable_size`);
  * - a file only on CurseForge or the source's host and larger than max_panel_fetch_bytes is
@@ -201,8 +202,9 @@ class PackFileResolver
     }
 
     /**
-     * The md5-checked plan file for a file served from ATLauncher's own CDN that has no sha1
-     * anywhere, or null when it isn't one (other host, no md5). A malformed md5 stops the install.
+     * The md5-checked plan file for a file served from a container on ATLauncher's own CDN
+     * (PlanValidator::isAtlauncherMd5Url) that has no sha1 anywhere, or null when it isn't one
+     * (other host or path, no md5). A malformed md5 stops the install.
      *
      * @param  array<string, mixed>  $candidate
      *
@@ -212,8 +214,7 @@ class PackFileResolver
     {
         $url = $candidate['url'] ?? null;
         $md5 = $candidate['md5'] ?? null;
-        if (!is_string($url) || !str_starts_with($url, PlanValidator::ATLAUNCHER_MD5_PREFIX) || !self::onHosts($url, ['download.nodecdn.net'])
-            || $md5 === null || $md5 === '') {
+        if (!is_string($url) || !PlanValidator::isAtlauncherMd5Url($url) || $md5 === null || $md5 === '') {
             return null;
         }
         if (!is_string($md5) || !preg_match('/^[0-9a-fA-F]{32}$/', $md5)) {

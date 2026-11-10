@@ -71,8 +71,12 @@ final class PlanValidator
         'mediafilez.forgecdn.net',
     ];
 
-    /** The only place an md5 is ever accepted (PlanFile::VERIFY_ATLAUNCHER_MD5). */
-    public const ATLAUNCHER_MD5_PREFIX = 'https://download.nodecdn.net/containers/atl/';
+    /**
+     * The only place an md5 is ever accepted (PlanFile::VERIFY_ATLAUNCHER_MD5): a file in a
+     * container on ATLauncher's own CDN (`/containers/atl/` and partner containers such as
+     * `/containers/reforged/`). See isAtlauncherMd5Url().
+     */
+    public const ATLAUNCHER_MD5_ORIGIN = 'https://download.nodecdn.net/containers/';
 
     /** Why a pack file is listed for the user to download instead of installed. */
     public const MANUAL_REASONS = ['distribution_disabled', 'datapack', 'unsupported_type', 'too_large', 'curseforge_key_required', 'no_usable_hash', 'host_not_allowed', 'not_on_curseforge', 'no_usable_size'];
@@ -283,9 +287,24 @@ final class PlanValidator
             return null;
         }
 
-        $url = is_string($url) && preg_match('#^https://www\.curseforge\.com/minecraft/[A-Za-z0-9/_.\-]{1,200}$#', $url) && !str_contains($url, '..') ? $url : null;
+        return ['name' => $name, 'url' => self::manualUrl($url), 'reason' => $reason];
+    }
 
-        return ['name' => $name, 'url' => $url, 'reason' => $reason];
+    /**
+     * The link shown with a file listed for manual download: a CurseForge page, or (plan 32
+     * step 6) the file itself on ATLauncher's CDN when it is one isAtlauncherMd5Url() accepts.
+     * Anything else is dropped (null).
+     */
+    public static function manualUrl(mixed $url): ?string
+    {
+        if (!is_string($url)) {
+            return null;
+        }
+        if (preg_match('#^https://www\.curseforge\.com/minecraft/[A-Za-z0-9/_.\-]{1,200}$#', $url) && !str_contains($url, '..')) {
+            return $url;
+        }
+
+        return self::isAtlauncherMd5Url($url) ? $url : null;
     }
 
     /** Whether a normalised override target is something only a game client uses (top level only). */
@@ -656,8 +675,9 @@ final class PlanValidator
 
     /**
      * The md5 of an ATLauncher-CDN file that has no sha1/sha512 (PlanFile::VERIFY_ATLAUNCHER_MD5).
-     * Refused (`bad_hash`) unless the URL is on ATLauncher's own CDN path, the md5 is well-formed
-     * and no stronger hash exists (then that one must be used instead).
+     * Refused (`bad_hash`) unless the URL is a file in a container on ATLauncher's own CDN
+     * (isAtlauncherMd5Url), the md5 is well-formed and no stronger hash exists (then that one
+     * must be used instead).
      *
      * @param  array<string, string>  $hashes
      *
@@ -666,12 +686,46 @@ final class PlanValidator
     public static function atlauncherMd5(array $hashes, ?string $url, string $detail = ''): string
     {
         $md5 = strtolower($hashes['md5'] ?? '');
-        if ($url === null || !str_starts_with($url, self::ATLAUNCHER_MD5_PREFIX) || isset($hashes['sha1']) || isset($hashes['sha512'])
+        if (!self::isAtlauncherMd5Url($url) || isset($hashes['sha1']) || isset($hashes['sha512'])
             || !preg_match('/^[0-9a-f]{32}$/', $md5)) {
             throw new UnsafePlanException('bad_hash', $detail);
         }
 
         return $md5;
+    }
+
+    /**
+     * Whether $url is a file ATLauncher serves from a container on its own CDN, the only URLs an
+     * md5 is accepted for (plan 32 rulings, step 6):
+     * `https://download.nodecdn.net/containers/<container>/<path>`, exactly that origin (no
+     * userinfo, port, other scheme or look-alike host), no query or fragment, a plain container
+     * name and a path whose segments, decoded once, are plain names (no empty, `.` or `..`
+     * segment, no encoded `/` or `\`, no control characters, no double encoding).
+     *
+     * Why md5 is enough here: Configs.json, which names the URL and the md5, comes from
+     * ATLauncher's own `/containers/atl/` over HTTPS. Swapping the hosted file alone needs an
+     * md5 second preimage, which is infeasible; a collision needs whoever writes the manifest's
+     * md5, who could name any file anyway. Fetched by the panel only, with no redirects.
+     */
+    public static function isAtlauncherMd5Url(?string $url): bool
+    {
+        if ($url === null || strlen($url) > self::MAX_URL_LENGTH || str_contains($url, '?') || str_contains($url, '#')
+            || !(new self(new Caps(), ['world'], ['download.nodecdn.net']))->isAllowedUrl($url)
+            || !preg_match('#^'.preg_quote(self::ATLAUNCHER_MD5_ORIGIN, '#').'[A-Za-z0-9][A-Za-z0-9._\-]{0,63}/(.+)$#D', $url, $match)) {
+            return false;
+        }
+
+        $segments = [];
+        foreach (explode('/', $match[1]) as $segment) {
+            $decoded = rawurldecode($segment);
+            if ($segment === '' || str_contains($decoded, '/')) {
+                return false;
+            }
+            $segments[] = $decoded;
+        }
+
+        // Each decoded segment: no `.`/`..`, control characters, backslashes or leftover percent-encoding.
+        return self::isSafeRelativePath(implode('/', $segments));
     }
 
     /**

@@ -106,6 +106,7 @@ class Plan32HardeningTest extends TestCase
         return [
             'ftb' => [FtbPackProvider::ID, 'https://dist.modpacks.ch/modpacks/1/a.jar'],
             'atlauncher' => [AtLauncherPackProvider::ID, 'https://download.nodecdn.net/containers/atl/packs/P/files/a.jar'],
+            'atlauncher partner container' => [AtLauncherPackProvider::ID, 'https://download.nodecdn.net/containers/reforged/server/release/9.4.2/a.jar'],
         ];
     }
 
@@ -145,7 +146,18 @@ class Plan32HardeningTest extends TestCase
         }
     }
 
-    public function test_an_md5_download_follows_no_redirect_at_all(): void
+    /** @return array<string, array{string}> */
+    public static function md5Urls(): array
+    {
+        return [
+            'atl container' => ['https://download.nodecdn.net/containers/atl/packs/P/files/a.jar'],
+            // Plan 32 step 6: a `download: direct` file in a partner container (Pixelmon's server jar).
+            'partner container' => ['https://download.nodecdn.net/containers/reforged/server/release/9.4.2/a.jar'],
+        ];
+    }
+
+    #[DataProvider('md5Urls')]
+    public function test_an_md5_download_follows_no_redirect_at_all(string $url): void
     {
         $handler = new MockHandler([
             new Response(302, ['Location' => 'https://download.nodecdn.net/containers/atl/packs/P/files/b.jar']),
@@ -154,10 +166,73 @@ class Plan32HardeningTest extends TestCase
 
         $this->expectException(PackUnavailableException::class);
         try {
-            (new ModrinthClient($handler))->download('https://download.nodecdn.net/containers/atl/packs/P/files/a.jar', $this->destination, 100, self::validator('atlauncher'), maxRedirects: 0);
+            (new ModrinthClient($handler))->download($url, $this->destination, 100, self::validator('atlauncher'), maxRedirects: 0);
         } finally {
             $this->assertCount(1, $handler);
         }
+    }
+
+    public function test_the_size_lookup_is_one_head_request_that_never_follows_a_redirect(): void
+    {
+        $url = 'https://download.nodecdn.net/containers/reforged/server/release/9.4.2/a.jar';
+        $requests = [];
+        $answers = [
+            new Response(302, ['Location' => 'https://download.nodecdn.net/containers/atl/packs/P/files/b.jar']),
+            new Response(200, ['Content-Length' => '3']),
+        ];
+        $handler = function (RequestInterface $request, array $options) use (&$requests, &$answers) {
+            $requests[] = [$request->getMethod(), (string) $request->getUri(), $request->getHeaderLine('User-Agent')];
+
+            return Create::promiseFor(array_shift($answers));
+        };
+
+        $this->assertNull((new ModrinthClient($handler))->contentLength($url, self::validator('atlauncher')));
+        $this->assertCount(1, $requests);
+        $this->assertSame(['HEAD', $url], array_slice($requests[0], 0, 2));
+        $this->assertStringStartsWith('DrMxrcy/modpacks-plus/', $requests[0][2]);
+    }
+
+    /** @return array<string, array{Response, ?int}> */
+    public static function sizeAnswers(): array
+    {
+        return [
+            'size' => [new Response(200, ['Content-Length' => '43258781']), 43258781],
+            'no size' => [new Response(200), null],
+            'not a number' => [new Response(200, ['Content-Length' => '12abc']), null],
+            'negative' => [new Response(200, ['Content-Length' => '-1']), null],
+            'absurd' => [new Response(200, ['Content-Length' => '99999999999999999999']), null],
+            'compressed' => [new Response(200, ['Content-Length' => '3', 'Content-Encoding' => 'gzip']), null],
+            'not found' => [new Response(404, ['Content-Length' => '3']), null],
+        ];
+    }
+
+    #[DataProvider('sizeAnswers')]
+    public function test_the_size_lookup_only_trusts_a_plain_content_length_on_a_200(Response $answer, ?int $expected): void
+    {
+        $handler = new MockHandler([$answer]);
+
+        $this->assertSame($expected, (new ModrinthClient($handler))->contentLength('https://download.nodecdn.net/containers/reforged/a.jar', self::validator('atlauncher')));
+    }
+
+    public function test_a_failing_size_lookup_is_worth_another_attempt(): void
+    {
+        $handler = new MockHandler([new Response(503)]);
+
+        $this->expectException(PackUnavailableException::class);
+        (new ModrinthClient($handler))->contentLength('https://download.nodecdn.net/containers/reforged/a.jar', self::validator('atlauncher'));
+    }
+
+    public function test_the_size_lookup_refuses_a_url_off_the_allowlist_without_a_request(): void
+    {
+        $handler = new MockHandler([new Response(200, ['Content-Length' => '3'])]);
+
+        try {
+            (new ModrinthClient($handler))->contentLength('https://download.nodecdn.net.evil.com/containers/reforged/a.jar', self::validator('atlauncher'));
+            $this->fail('An off-allowlist URL was looked up');
+        } catch (UnsafePlanException $exception) {
+            $this->assertSame('no_allowed_url', $exception->reason);
+        }
+        $this->assertCount(1, $handler);
     }
 
     public function test_a_slow_redirect_chain_shares_one_deadline(): void
