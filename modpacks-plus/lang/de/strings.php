@@ -70,7 +70,7 @@ return [
         'refused' => 'Die Installation konnte nicht gestartet werden',
         'started' => ':name wird installiert. Der Fortschritt wird oben auf der Seite angezeigt.',
         'confirm_heading' => ':name :version installieren?',
-        'confirm_body' => 'Zuerst wird ein gesperrtes Backup erstellt. Dann werden :folders nach .modpacks-plus/previous-<Datum>/ verschoben (nichts wird gelöscht), die Serverdateien des Packs heruntergeladen und seine Overrides angewendet. Welten, Ops, Whitelist, Bannlisten und server.properties bleiben unberührt. Stoppe den Server vor der Installation.',
+        'confirm_body' => 'Zuerst wird ein gesperrtes Backup erstellt und der Server gestoppt. Dann werden :folders nach .modpacks-plus/previous-<Datum>/ verschoben (nichts wird gelöscht), die Serverdateien des Packs heruntergeladen und seine Overrides angewendet. Welten, Ops, Whitelist, Bannlisten und server.properties bleiben unberührt. Starte den Server nach der Installation wieder.',
         'no_room' => 'Nicht genug Speicherplatz',
         'wont_fit' => 'Nicht genug Speicherplatz: Dieses Pack braucht mindestens :needed, frei sind :free von :limit (etwas Platz bleibt immer frei).',
         'server_failed_install' => 'Die letzte Installation des Servers ist fehlgeschlagen. Installiere den Server neu (Einstellungen → Server neu installieren), bevor du ein Pack installierst.',

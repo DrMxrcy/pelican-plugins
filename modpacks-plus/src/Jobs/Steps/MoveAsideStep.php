@@ -16,14 +16,14 @@ use Illuminate\Http\Client\RequestException;
 use RuntimeException;
 
 /**
- * Moves the previous pack's folders into `.modpacks-plus/previous-<date>-<id>/`.
- * Nothing is deleted. A folder that is (or contains) a world or another protected
- * path is never moved. Idempotent: a folder already moved is not at the root anymore.
+ * Stops the server (plan 47), then moves the previous pack's folders into
+ * `.modpacks-plus/previous-<date>-<id>/`. Nothing is deleted. A folder that is (or contains)
+ * a world or another protected path is never moved. Idempotent: a folder already moved is not
+ * at the root anymore.
  *
  * Plan 36, replacing a recorded pack (a switch, or the same pack again): the files the old
  * install's manifest lists outside those folders go aside too. "Start a fresh world": the
- * server is stopped first, then the world (`level-name` with its `_nether`/`_the_end`) is moved
- * aside the one way a protected path may move, ServerFiles::movePreserved(), never deleted.
+ * world (`level-name` with its `_nether`/`_the_end`) is moved aside the one way a protected path may move, ServerFiles::movePreserved(), never deleted.
  * Every such entry is recorded in progress.moved before it moves, so "Restore previous files"
  * puts it back after a failure or cancel even if the worker died mid-move.
  */
@@ -36,8 +36,11 @@ class MoveAsideStep extends InstallStep
     protected function perform(PackInstall $install, Server $server, InstallEngine $engine): StepResult
     {
         $freshWorld = $install->option('fresh_world');
-        // A running server writes its world back: the world only moves once it is stopped.
-        if ($freshWorld && !$this->ensureStopped($install, $server, $engine)) {
+        // Plan 47: every install stops the server before anything moves, in every mode (even
+        // with no pack folders to move: the next steps write mods/ and config/). The old pack must
+        // not keep running while its folders move, nor save its config on shutdown on top of the
+        // new pack's files; a running server also writes its world back (fresh world).
+        if (!$this->ensureStopped($install, $server, $engine)) {
             return StepResult::again(self::STOP_POLL_SECONDS);
         }
 

@@ -18,6 +18,7 @@ use DrMxrcy\ModpacksPlus\Jobs\Steps\AwaitReinstallStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\ChangeEggStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\DownloadStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\InstallStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\MoveAsideStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\PreserveStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\ReinstallStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\RestorePreservedStep;
@@ -712,9 +713,11 @@ class LoaderSwitchTest extends TestCase
         $this->runSwitch($server, 40);
 
         $install = $this->latestInstall();
-        $this->assertSame(PreserveStep::KEY, $install->current_step);
+        // Plan 47: the stop is waited for before the old pack's folders move (move_aside).
+        $this->assertSame(MoveAsideStep::KEY, $install->current_step);
+        $this->assertNull($install->moved_aside_path);
         // Plan 36 review: a server that keeps running gets the stop again every few checks.
-        $polls = (int) $install->progressValue('stop_polls_'.PreserveStep::KEY);
+        $polls = (int) $install->progressValue('stop_polls_'.MoveAsideStep::KEY);
         $this->assertSame(intdiv($polls - 1, InstallStep::STOP_RESEND_POLLS) + 1, $this->power->stops);
         $this->assertGreaterThan(1, $this->power->stops);
         $this->assertSame([], $this->files->argsOf('movePreserved'));

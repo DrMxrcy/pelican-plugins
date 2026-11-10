@@ -177,6 +177,23 @@ class PackSwitchTest extends TestCase
         $this->assertNull($install->summary['fresh_world'] ?? null);
     }
 
+    public function test_a_pack_switch_stops_a_running_server_before_the_old_pack_moves(): void
+    {
+        $server = $this->serverWithPackA();
+        // Plan 47: same loader, no fresh world, the old pack still running.
+        $this->power->state = 'running';
+        $this->power->afterStop = 'offline';
+        $stops = $this->power->stops;
+
+        $install = $this->runVersion($server, 'BVERS001', packId: 'PACKBBBB');
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame($stops + 1, $this->power->stops);
+        $this->assertCount(1, array_filter($install->log ?? [], fn (array $line) => ($line['key'] ?? null) === 'stopping_server'));
+        $this->assertSame('a-mod', $this->files->files[$install->moved_aside_path.'/mods/a.jar'] ?? null);
+        $this->assertSame('b-mod', $this->files->files['mods/b.jar']);
+    }
+
     public function test_a_folder_where_the_old_pack_had_a_file_is_never_moved_on_a_switch(): void
     {
         $server = $this->serverWithPackA();

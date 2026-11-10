@@ -70,7 +70,7 @@ return [
         'refused' => 'The install could not be started',
         'started' => 'Installing :name. Progress is shown at the top of the page.',
         'confirm_heading' => 'Install :name :version?',
-        'confirm_body' => 'A locked backup is made first. Then :folders are moved into .modpacks-plus/previous-<date>/ (nothing is deleted), the pack\'s server files are downloaded and its overrides applied. Worlds, ops, whitelist, ban lists and server.properties are not touched. Stop the server before installing.',
+        'confirm_body' => 'A locked backup is made first and the server is stopped. Then :folders are moved into .modpacks-plus/previous-<date>/ (nothing is deleted), the pack\'s server files are downloaded and its overrides applied. Worlds, ops, whitelist, ban lists and server.properties are not touched. Start the server again once the install is done.',
         'no_room' => 'Not enough disk space',
         'wont_fit' => 'Not enough disk space: this pack needs at least :needed, :free free of :limit (some space is always kept free).',
         'server_failed_install' => 'The server\'s last install failed. Reinstall the server (Settings → Reinstall server) before installing a pack.',

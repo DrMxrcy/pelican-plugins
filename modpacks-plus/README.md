@@ -23,8 +23,10 @@ the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft v
      backups per 600 seconds, e.g. right after a version change) the step waits until the window has
      passed and tries again, up to its 60-minute deadline; a full backup limit or no backup host ends
      the install at once;
-  3. **move aside** — `mods/`, `config/`, `defaultconfigs/`, `kubejs/`, `scripts/` go to
-     `.modpacks-plus/previous-<date>/` (nothing is deleted);
+  3. **move aside** — the server is stopped first (every install, switch and version change, even with
+     no old pack folders: the old pack must not keep running while its folders move or save its config
+     on shutdown over the new pack's files); then `mods/`, `config/`, `defaultconfigs/`, `kubejs/`,
+     `scripts/` go to `.modpacks-plus/previous-<date>/` (nothing is deleted);
   4. **download** — server-side files land in `.modpacks-plus/staging/<install>/`, are verified there
      and only then renamed into place (see "Downloads" below);
   5. **overrides** — `overrides/` then `server-overrides/` from the archive. Fewer than 50 files are
@@ -394,8 +396,10 @@ again, so direct calls get 403.
   and deletes it. `.modpacks-plus/previous-*` folders are not cleaned up automatically: delete old ones
   with the file manager once you no longer need them. After a failed install, `.modpacks-plus/staging/` may keep
   files that were never used.
-- Stop the server before installing; a plain install doesn't stop it for you (a loader switch does,
-  before moving worlds; a server started again during the switch is stopped again before they move back).
+- Every install stops the server before it moves anything and doesn't start it again; start it once the
+  install is done. A server started again while files download is not stopped again (only a pack that
+  ships `server.properties` stops it once more before merging it; a loader switch stops it again before
+  the worlds move back).
 - A node pull that times out is checked and retried, at most 3 attempts per file; a very slow CDN
   download can therefore fail the install (retry it later).
 - Moves never replace anything because the panel checks the target is free right before each one;

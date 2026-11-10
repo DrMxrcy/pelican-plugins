@@ -14,6 +14,7 @@ use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\BackupStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\DownloadStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\InstallStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\MoveAsideStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\PrepareStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
@@ -246,6 +247,84 @@ class InstallEngineTest extends TestCase
 
         $this->assertSame('server_properties_unreadable', $this->latestInstall()->error);
         $this->assertSame(0, $this->files->writeCalls());
+    }
+
+    public function test_a_plain_install_stops_a_running_server_before_anything_moves(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack();
+        $this->seedServer();
+        $this->power->state = 'running';
+
+        $this->start($server);
+        $this->runJobs(20, between: fn () => $this->finishBackups($server));
+
+        // Plan 47: waiting on move_aside for the stop; the old pack is still in place, nothing written.
+        $install = $this->latestInstall();
+        $this->assertTrue($install->isActive(), (string) json_encode($install->log));
+        $this->assertSame(MoveAsideStep::KEY, $install->current_step);
+        // Sent again every few checks while it keeps running (InstallStep::STOP_RESEND_POLLS).
+        $this->assertGreaterThanOrEqual(1, $this->power->stops);
+        $stops = $this->power->stops;
+        $this->assertCount(1, $this->logLines($install, 'stopping_server'));
+        $this->assertSame('old', $this->files->files['mods/old-mod.jar']);
+        $this->assertSame('old config', $this->files->files['config/old.toml']);
+        $this->assertNull($install->moved_aside_path);
+        $this->assertSame(0, $this->files->writeCalls());
+
+        $this->power->state = 'offline';
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame($stops, $this->power->stops);
+        $this->assertCount(1, $this->logLines($install, 'stopping_server'));
+        $this->assertSame('old', $this->files->files[$install->moved_aside_path.'/mods/old-mod.jar'] ?? null);
+    }
+
+    public function test_an_install_onto_a_stopped_server_goes_straight_on(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack();
+        $this->seedServer();
+
+        $this->start($server);
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame(0, $this->power->stops);
+        $this->assertSame([], $this->logLines($install, 'stopping_server'));
+    }
+
+    /**
+     * Plan 47, the chosen behaviour: the server is stopped once, before anything moves. A server
+     * someone starts again while files download is not stopped again by the download or overrides
+     * steps (only a pack that ships server.properties stops it again before merging it).
+     */
+    public function test_a_server_started_again_during_the_download_is_not_stopped_again(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack();
+        $this->seedServer();
+        $this->power->state = 'running';
+        $this->power->afterStop = 'offline';
+        $restarted = false;
+
+        $this->start($server);
+        $this->runJobs(between: function (InstallStep $job) use ($server, &$restarted) {
+            $this->finishBackups($server);
+            if ($job instanceof DownloadStep && !$restarted) {
+                $restarted = true;
+                $this->power->state = 'running';
+            }
+        });
+
+        $install = $this->latestInstall();
+        $this->assertTrue($restarted);
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame(1, $this->power->stops);
+        $this->assertSame('running', $this->power->state);
     }
 
     public function test_impossible_backup_stops_the_install(): void
