@@ -1,0 +1,43 @@
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_a9d4fbb8dfb873 400-401
+modpacks-plus/lang/de/strings.php
+  s_01ae9662a57a34::t_07574c424f8154 346
+modpacks-plus/lang/en/strings.php
+  s_01ae9662a57a34::t_52964c1d381501 346
+modpacks-plus/src/Contracts/ServerPower.php
+  s_01ae9662a57a34::t_bbba1c6e534608 21-23
+modpacks-plus/src/Jobs/RestorePreviousFilesJob.php
+  s_01ae9662a57a34::t_7fdd278dabbc3e 160-167
+modpacks-plus/src/Jobs/Steps/InstallStep.php
+  s_1d8485e49bfacb::t_ec780a70a73d2f 56-61,245-249,253-258,280-306
+modpacks-plus/src/Services/DaemonServerPower.php
+  s_01ae9662a57a34::t_c99078f8f84809 25-29
+modpacks-plus/tests/Feature/LoaderSwitchTest.php
+  s_01ae9662a57a34::t_818ce64196104a 734-805
+modpacks-plus/tests/Support/FakeServerPower.php
+  s_01ae9662a57a34::t_70a953de82b6a5 15-19,35-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c52c5fbc5905ad89d9a0be025466f726d663588f",
+  "prompts": {},
+  "sessions": {
+    "s_01ae9662a57a34": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7e88d9a1-8376-47e1-bf9c-3ebca44a251a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    },
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
