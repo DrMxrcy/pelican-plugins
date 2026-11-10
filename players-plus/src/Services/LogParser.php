@@ -15,6 +15,7 @@ use DrMxrcy\PlayersPlus\Enums\LogEventType;
  * - Forge:             `[12:00:31] [Server thread/INFO] [minecraft/MinecraftServer]: Alice joined the game`
  * - NeoForge:          `[09Nov2026 12:00:31.007] [Server thread/INFO] [net.minecraft.server.MinecraftServer/]: ...`
  * - Fabric (alt):      `[12:00:31] [Server thread/INFO] (Minecraft) Alice joined the game`
+ * - Minecraft 26.x:    `[12:00:31] [Server thread/INFO]: System chat: Alice joined the game`
  *
  * Log content is tenant-controlled and players can write chat, so the message after the
  * logger header must be exactly the event text: a chat line (`<Bob> Alice joined the game`,
@@ -43,6 +44,13 @@ final class LogParser
     private const LEAVE = '/^(\S+) left the game$/D';
 
     private const UUID = '/^UUID of player (\S+) is ([0-9a-fA-F-]{32,36})$/D';
+
+    /**
+     * Minecraft 26.x logs broadcast system messages (join, leave, kick feedback) with this
+     * prefix. Only one leading copy is dropped, so the event text must still follow it
+     * exactly: a player's chat line starts with `<name>` / `[name]` / `* name`, never with it.
+     */
+    private const SYSTEM_CHAT = 'System chat: ';
 
     /** Null for a line with no leading timestamp (stack traces, blank lines, junk). */
     public static function line(string $raw): ?LogLine
@@ -77,6 +85,10 @@ final class LogParser
 
     public static function event(string $message): ?LogEvent
     {
+        if (str_starts_with($message, self::SYSTEM_CHAT)) {
+            $message = substr($message, strlen(self::SYSTEM_CHAT));
+        }
+
         if (preg_match(self::JOIN, $message, $m) === 1) {
             return MinecraftQuery::isPlayerName($m[1]) ? new LogEvent(LogEventType::Join, $m[1]) : null;
         }

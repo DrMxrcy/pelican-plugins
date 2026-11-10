@@ -63,6 +63,16 @@ class LogParserTest extends TestCase
         ], self::events('paper'));
     }
 
+    /** Minecraft 26.x: joins and leaves are logged as "System chat: ..." (seen live on 26.3 Fabric). */
+    public function test_minecraft_26_system_chat_join_and_leave_lines_are_parsed(): void
+    {
+        $this->assertSame([
+            ['2026-11-09 12:00:30', 'uuid', 'Alice', self::ALICE],
+            ['2026-11-09 12:00:31', 'join', 'Alice', null],
+            ['2026-11-09 12:10:44', 'leave', 'Alice', null],
+        ], self::events('system-chat'));
+    }
+
     public function test_neoforge_dates_win_over_the_clock(): void
     {
         $this->assertSame('2026-11-09 12:00:31', self::events('neoforge', '2020-01-01')[1][0]);

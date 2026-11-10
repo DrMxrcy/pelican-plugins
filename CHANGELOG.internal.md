@@ -10,9 +10,9 @@ _Full work log — every item, including internal/dev work. The curated public c
 - Pin a mod to its current version so no updates are offered
 - (pending) See who is online on your Minecraft server right from the panel.
 - (pending) Charts show how many players were online over the last day, week and month, with peak times.
-- (pending) Every player gets a profile with playtime, past sessions and in-game stats.
+- Every player gets a profile with playtime, past sessions and in-game stats.
 - (pending) Player history also includes joins and leaves recorded in the server log, even from before the plugin was installed.
-- (pending) Kick, ban, whitelist and op players without typing console commands.
+- Kick, ban, whitelist and op players without typing console commands.
 - (pending) Browse Modrinth modpacks and install one onto your server, with an automatic backup first.
 - (pending) Install CurseForge modpacks too, using the official server pack when one exists.
 - (pending) FTB and ATLauncher modpacks can be installed as well.

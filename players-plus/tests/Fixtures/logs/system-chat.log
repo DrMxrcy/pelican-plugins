@@ -1,0 +1,6 @@
+[12:00:30] [User Authenticator #1/INFO]: UUID of player Alice is 853c80ef-3c37-49fd-aa49-938b674adae6
+[12:00:31] [Server thread/INFO]: Alice[/203.0.113.7:51234] logged in with entity id 22 at (-41.5, 62.0, -100.5)
+[12:00:31] [Server thread/INFO]: System chat: Alice joined the game
+[12:05:00] [Server thread/INFO]: System chat: Kicked Bob: Live QA kick test
+[12:10:44] [Server thread/INFO]: Alice lost connection: Disconnected
+[12:10:44] [Server thread/INFO]: System chat: Alice left the game

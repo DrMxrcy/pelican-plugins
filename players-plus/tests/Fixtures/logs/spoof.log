@@ -11,3 +11,10 @@
 [12:00:50] [Server thread/INFO]: ThisNameIsWayTooLong joined the game
 Alice joined the game
     at net.minecraft.server.Foo.bar(Foo.java:12) Alice left the game
+[12:00:51] [Server thread/INFO]: <Bob> System chat: Alice joined the game
+[12:00:52] [Server thread/INFO]: [Not Secure] <Bob> System chat: Alice left the game
+[12:00:53] [Server thread/INFO]: [Bob] System chat: Alice joined the game
+[12:00:54] [Server thread/INFO]: System chat: <Bob> Alice joined the game
+[12:00:55] [Server thread/INFO]: System chat: System chat: Alice joined the game
+[12:00:56] [Server thread/INFO]: System chat: [Bob] Alice joined the game
+[12:00:57] [Server thread/INFO]: System chat:Alice joined the game
