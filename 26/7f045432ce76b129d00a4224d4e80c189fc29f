@@ -1,0 +1,37 @@
+modpacks-plus/src/Support/LoaderLaunchFiles.php
+  s_1d8485e49bfacb::t_88b3b22a8a2cc4 90
+  s_1d8485e49bfacb::t_e18c96d31ff07f 1-89,91-128
+  s_1d8485e49bfacb::t_3f55867b23f3a6 129
+modpacks-plus/tests/Unit/LoaderLaunchFilesTest.php
+  s_1d8485e49bfacb::t_456cb3255a4ca7 1-116
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_be3ccee20081a1 248-254
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_e776cfc978927f 222,306
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_cd450542c801ab 222,306
+modpacks-plus/src/Jobs/Steps/AwaitReinstallStep.php
+  s_1d8485e49bfacb::t_4a528b826d17df 10,12,19-23,62-83,87-99
+modpacks-plus/tests/Feature/LoaderSwitchTest.php
+  s_1d8485e49bfacb::t_f929fea8df607e 57-70,184-186,363-459
+modpacks-plus/tests/Feature/PackSwitchTest.php
+  s_1d8485e49bfacb::t_6f55e709037190 95
+modpacks-plus/tests/Support/FakeServerFiles.php
+  s_1d8485e49bfacb::t_189fa756b27a18 51-53,73,175-178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "267f045432ce76b129d00a4224d4e80c189fc29f",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
