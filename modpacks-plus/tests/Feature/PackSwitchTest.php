@@ -189,7 +189,7 @@ class PackSwitchTest extends TestCase
 
         $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
         $this->assertSame($stops + 1, $this->power->stops);
-        $this->assertCount(1, array_filter($install->log ?? [], fn (array $line) => ($line['key'] ?? null) === 'stopping_server'));
+        $this->assertCount(1, array_filter($install->log ?? [], fn (array $line) => $line['key'] === 'stopping_server'));
         $this->assertSame('a-mod', $this->files->files[$install->moved_aside_path.'/mods/a.jar'] ?? null);
         $this->assertSame('b-mod', $this->files->files['mods/b.jar']);
     }

@@ -412,7 +412,7 @@ class InstallEngineTest extends TestCase
     /** @return array<int, array<string, mixed>> */
     private function logLines(PackInstall $install, string $key): array
     {
-        return array_values(array_filter($install->log ?? [], fn (array $line) => ($line['key'] ?? null) === $key));
+        return array_values(array_filter($install->log ?? [], fn (array $line) => $line['key'] === $key));
     }
 
     public function test_a_throttled_backup_waits_for_the_window_and_the_install_completes(): void

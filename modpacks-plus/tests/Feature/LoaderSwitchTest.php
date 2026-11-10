@@ -760,7 +760,7 @@ class LoaderSwitchTest extends TestCase
 
         $install = $this->latestInstall();
         $this->assertSame(1, $this->power->kills);
-        $killed = array_values(array_filter($install->log ?? [], fn (array $line) => ($line['key'] ?? null) === 'killing_server'));
+        $killed = array_values(array_filter($install->log ?? [], fn (array $line) => $line['key'] === 'killing_server'));
         $this->assertCount(1, $killed);
         $this->assertSame('stopping', $killed[0]['params']['state'] ?? null);
         // Still hanging after the kill: never a second kill, nothing moved while it runs.
@@ -798,7 +798,7 @@ class LoaderSwitchTest extends TestCase
 
         $install->refresh();
         $this->assertSame(1, $this->power->kills);
-        $this->assertCount(1, array_filter($install->log ?? [], fn (array $line) => ($line['key'] ?? null) === 'killing_server'));
+        $this->assertCount(1, array_filter($install->log ?? [], fn (array $line) => $line['key'] === 'killing_server'));
         $this->assertNotNull($install->restored_at, (string) json_encode($install->log));
         $this->assertSame('old', $this->files->files['mods/old-mod.jar'] ?? null);
     }
