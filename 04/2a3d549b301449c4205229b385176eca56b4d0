@@ -1,0 +1,27 @@
+modpacks-plus/src/Services/LoaderVersions.php
+  s_1d8485e49bfacb::t_eb666c88c51dcb 1-377
+modpacks-plus/tests/Support/LoaderMeta.php
+  s_1d8485e49bfacb::t_bbe3888c857322 1-95
+modpacks-plus/tests/Feature/LoaderVersionsTest.php
+  s_1d8485e49bfacb::t_5f1515fc398938 1-198
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_a9cda1c9b07024 250-251
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_933c990bc3fc13 250-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "042a3d549b301449c4205229b385176eca56b4d0",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
