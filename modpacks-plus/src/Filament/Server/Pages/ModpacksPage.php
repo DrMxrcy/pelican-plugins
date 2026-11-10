@@ -11,6 +11,7 @@ use DrMxrcy\ModpacksPlus\Exceptions\InstallRefusedException;
 use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
 use DrMxrcy\ModpacksPlus\Jobs\RestorePreviousFilesJob;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\VersionPrepareStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\AtLauncher\AtLauncherPackProvider;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgeClient;
@@ -619,12 +620,30 @@ class ModpacksPage extends Page implements HasTable
             ->first(fn (PackInstall $install) => (bool) $install->progressValue('restore_discarded'));
     }
 
-    /** The newest installed pack; none once a version change (plan 40) came after it (its versions no longer apply). */
+    /** The newest installed pack (plan 40: never a version change, which installs no pack). */
     private function lastInstalledPack(): ?PackInstall
     {
-        $installed = PackInstall::query()->where('server_id', $this->server()->id)->where('status', PackInstall::STATUS_INSTALLED)->latest('id')->first();
+        return PackInstall::installedPack($this->server()->id);
+    }
 
-        return $installed?->mode === PackInstall::MODE_VERSION ? null : $installed;
+    /** The banner's second line: a version change since the pack (plan 40), an update, or when it was installed. */
+    private function installedPackDescription(): ?string
+    {
+        $installed = $this->lastInstalledPack();
+        if ($installed === null) {
+            return null;
+        }
+
+        $change = $installed->versionChangeSince();
+        if ($change !== null) {
+            return trans('modpacks-plus::strings.page.version_changed_since', [
+                'target' => VersionPrepareStep::label($change->loader_switch['loader'] ?? null, $change->loader_switch['minecraft'] ?? null),
+            ]).($installed->update_available ? ' '.trans('modpacks-plus::strings.page.update_available', ['version' => (string) $installed->latest_version_number]) : '');
+        }
+
+        return $installed->update_available
+            ? trans('modpacks-plus::strings.page.update_available', ['version' => (string) $installed->latest_version_number])
+            : $installed->finished_at?->diffForHumans();
     }
 
     /**
@@ -1567,9 +1586,7 @@ class ModpacksPage extends Page implements HasTable
                 'name' => (string) $this->lastInstalledPack()?->name,
                 'version' => (string) $this->lastInstalledPack()?->version_number,
             ]))
-                ->description(fn () => ($installed = $this->lastInstalledPack()) !== null && $installed->update_available
-                    ? trans('modpacks-plus::strings.page.update_available', ['version' => (string) $installed->latest_version_number])
-                    : $this->lastInstalledPack()?->finished_at?->diffForHumans())
+                ->description(fn () => $this->installedPackDescription())
                 ->icon('tabler-package')
                 ->color(fn () => $this->lastInstalledPack()?->update_available ? 'info' : 'success')
                 ->actions([

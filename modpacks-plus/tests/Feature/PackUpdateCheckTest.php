@@ -96,6 +96,46 @@ class PackUpdateCheckTest extends TestCase
         return DB::table('notifications')->count();
     }
 
+    /** Plan 40: a version change recorded after the pack (Fabric 1.20.1 -> $loader $minecraft). */
+    private function versionChange(Server $server, string $loader, string $minecraft): PackInstall
+    {
+        return PackInstall::query()->create([
+            'server_id' => $server->id, 'provider' => PackInstall::VERSION_PROVIDER, 'pack_id' => $loader, 'version_id' => $minecraft,
+            'name' => "$loader $minecraft", 'status' => PackInstall::STATUS_INSTALLED, 'mode' => PackInstall::MODE_VERSION, 'seq' => 2,
+            'loader_switch' => ['loader' => $loader, 'minecraft' => $minecraft],
+        ]);
+    }
+
+    public function test_after_a_version_change_the_pack_is_checked_for_the_new_setup_only(): void
+    {
+        [$server, $install] = $this->installed();
+        $change = $this->versionChange($server, 'fabric', '26.2');
+        // Newest first: a 1.20.1 build (the pack's old version) and a 26.2 build.
+        $this->versions = [self::version('VERSID03', '3.0.0'), self::version('VERSID02', '2.0.0', 'fabric', '26.2'), self::version('VERSID01', '1.0.0')];
+        $this->fakeModrinth();
+
+        $this->check();
+
+        $install->refresh();
+        $this->assertTrue($install->update_available);
+        $this->assertSame('VERSID02', $install->latest_version_id);
+        $this->assertNull($change->fresh()?->update_checked_at);
+    }
+
+    public function test_after_a_loader_change_no_version_for_the_old_loader_is_offered(): void
+    {
+        [$server, $install] = $this->installed();
+        $this->versionChange($server, 'neoforge', '1.21.1');
+        $this->versions = [self::version('VERSID03', '3.0.0'), self::version('VERSID02', '2.0.0', 'fabric', '1.21.1'), self::version('VERSID01', '1.0.0')];
+        $this->fakeModrinth();
+
+        $this->check();
+
+        $install->refresh();
+        $this->assertFalse($install->update_available);
+        $this->assertSame(0, $this->notifications());
+    }
+
     public function test_marks_the_update_and_notifies_the_owner_once_per_version(): void
     {
         [$server, $install] = $this->installed();

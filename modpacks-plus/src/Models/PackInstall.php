@@ -145,6 +145,30 @@ class PackInstall extends Model
         return $this->belongsTo(User::class);
     }
 
+    /**
+     * Installed pack records only: a version change (plan 40) never replaces the installed pack,
+     * so every "installed pack" lookup (page, update checks, the next install's previous) skips it.
+     *
+     * @param  Builder<PackInstall>  $query
+     */
+    public function scopeInstalledPack(Builder $query): void
+    {
+        $query->where('status', self::STATUS_INSTALLED)->where('mode', '!=', self::MODE_VERSION);
+    }
+
+    /** The newest installed pack record of a server (never a version change). */
+    public static function installedPack(int $serverId): ?self
+    {
+        return self::query()->where('server_id', $serverId)->installedPack()->latest('id')->first();
+    }
+
+    /** The newest version change (plan 40) that ended installed after this pack record, if any. */
+    public function versionChangeSince(): ?self
+    {
+        return self::query()->where('server_id', $this->server_id)->where('status', self::STATUS_INSTALLED)
+            ->where('mode', self::MODE_VERSION)->where('id', '>', $this->id)->latest('id')->first();
+    }
+
     /** @param  Builder<PackInstall>  $query */
     public function scopeActive(Builder $query): void
     {

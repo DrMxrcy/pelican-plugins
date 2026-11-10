@@ -101,6 +101,54 @@ class PackSwitchTest extends TestCase
         }, 'PACKCCCC', ['loader' => 'neoforge', 'minecraft' => '1.21.1', 'egg_id' => $this->neoforge->id, 'egg_name' => 'NeoForge']);
     }
 
+    /** Plan 40: a version change (no pack) recorded after pack A, as the picker leaves it. */
+    private function versionChangeAfter(Server $server): PackInstall
+    {
+        return PackInstall::query()->create([
+            'server_id' => $server->id, 'provider' => PackInstall::VERSION_PROVIDER, 'pack_id' => 'fabric', 'version_id' => '1.20.1',
+            'name' => 'Fabric 1.20.1', 'status' => PackInstall::STATUS_INSTALLED, 'mode' => PackInstall::MODE_VERSION, 'seq' => 2,
+            'steps' => [], 'log' => [], 'progress' => [], 'loader_switch' => ['loader' => 'fabric', 'minecraft' => '1.20.1'],
+        ]);
+    }
+
+    public function test_after_a_version_change_a_switch_still_replaces_the_old_pack_and_moves_its_files_aside(): void
+    {
+        $server = $this->serverWithPackA();
+        $a = $this->latestInstall();
+        $this->versionChangeAfter($server);
+        $this->assertSame($a->id, PackInstall::installedPack($server->id)?->id);
+        // A loader change moved mods/ aside already: a listed file that is gone is skipped.
+        unset($this->files->files['mods/a.jar']);
+
+        $install = $this->runVersion($server, 'BVERS001', packId: 'PACKBBBB');
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame(PackInstall::MODE_SWITCH, $install->mode);
+        $this->assertSame($a->id, $install->previous_install_id);
+        $aside = (string) $install->moved_aside_path;
+        foreach (['server-icon.png' => 'icon-a', 'packmenu/menu.json' => '{}', 'config/a.toml' => 'a'] as $path => $contents) {
+            $this->assertArrayNotHasKey($path, $this->files->files, $path);
+            $this->assertSame($contents, $this->files->files["$aside/$path"] ?? null, $path);
+        }
+        $this->assertSame('b-mod', $this->files->files['mods/b.jar']);
+        $this->assertSame([], $this->files->violations);
+    }
+
+    public function test_after_a_version_change_the_installed_pack_can_still_be_updated(): void
+    {
+        $server = $this->serverWithPackA();
+        $a = $this->latestInstall();
+        $this->packVersion('AVERS002', '2.0.0', ['mods/a.jar' => 'a-mod-2'], ['overrides/config/a.toml' => 'a2'], 'PACKAAAA');
+        $this->versionChangeAfter($server);
+
+        $install = $this->runVersion($server, 'AVERS002', ['update' => true], packId: 'PACKAAAA');
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame(PackInstall::MODE_UPDATE, $install->mode);
+        $this->assertSame($a->id, $install->previous_install_id);
+        $this->assertSame('a-mod-2', $this->files->files['mods/a.jar'] ?? null);
+    }
+
     public function test_switching_packs_keeps_player_data_and_moves_every_old_pack_file_aside(): void
     {
         $server = $this->serverWithPackA();

@@ -228,8 +228,9 @@ class InstallEngine
                 throw new InstallRefusedException('server_unavailable', $stuck);
             }
 
-            // The pack this one replaces: the newest installed one (plan 36).
-            $previous = PackInstall::query()->where('server_id', $server->id)->where('status', PackInstall::STATUS_INSTALLED)->latest('id')->first();
+            // The pack this one replaces: the newest installed one (plan 36), never a version
+            // change (plan 40: it put no pack on the server, the pack's files are still listed).
+            $previous = PackInstall::installedPack($server->id);
             if ($update && ($previous === null || $previous->provider !== $provider || $previous->pack_id !== $packId || $previous->manifestEntries() === null)) {
                 throw new InstallRefusedException('update_no_manifest', (string) $previous?->name);
             }

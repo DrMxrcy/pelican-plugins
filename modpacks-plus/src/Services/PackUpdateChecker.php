@@ -50,7 +50,7 @@ class PackUpdateChecker
         $result = ['checked' => 0, 'available' => 0, 'notified' => 0, 'skipped' => 0];
 
         $latest = PackInstall::query()
-            ->whereIn('id', PackInstall::query()->selectRaw('max(id)')->where('status', PackInstall::STATUS_INSTALLED)->groupBy('server_id'))
+            ->whereIn('id', PackInstall::query()->selectRaw('max(id)')->installedPack()->groupBy('server_id'))
             // Newest installs first: when the per-run cap is reached, the oldest are left out.
             ->orderByDesc('id')
             ->with('server.user')
@@ -118,7 +118,9 @@ class PackUpdateChecker
 
     /**
      * The newest version for the installed pack's loader and Minecraft version, when it is
-     * newer than the installed one (listed before it, newest first); null otherwise.
+     * newer than the installed one (listed before it, newest first); null otherwise. After a
+     * version change (plan 40) the server runs that change's loader and Minecraft version, so
+     * only versions for those are offered (never one for the pack's old version).
      *
      * @param  array<int, array{id: string, version_number: string, game_versions: array<int, string>, loaders: array<int, string>}>  $versions
      * @return array{id: string, version_number: string}|null
@@ -129,12 +131,22 @@ class PackUpdateChecker
         if ($plan === null || $plan->loader === '' || $plan->minecraftVersion === '') {
             return null;
         }
+        $loader = $plan->loader;
+        $minecraft = $plan->minecraftVersion;
+        $change = $install->versionChangeSince();
+        if ($change !== null) {
+            $loader = (string) ($change->loader_switch['loader'] ?? '');
+            $minecraft = (string) ($change->loader_switch['minecraft'] ?? '');
+            if ($loader === '' || $minecraft === '') {
+                return null;
+            }
+        }
 
         foreach ($versions as $version) {
             if ($version['id'] === $install->version_id) {
                 return null;
             }
-            if (in_array($plan->loader, array_map('strtolower', $version['loaders']), true) && in_array($plan->minecraftVersion, $version['game_versions'], true)) {
+            if (in_array($loader, array_map('strtolower', $version['loaders']), true) && in_array($minecraft, $version['game_versions'], true)) {
                 return ['id' => $version['id'], 'version_number' => $version['version_number']];
             }
         }

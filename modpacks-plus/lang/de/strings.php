@@ -8,6 +8,7 @@ return [
         'unknown' => 'Unbekannt',
         'unsupported' => 'Auf diesem Server können noch keine Modpacks installiert werden',
         'installed_pack' => 'Installiertes Pack: :name :version',
+        'version_changed_since' => 'Der Server wurde seitdem auf :target umgestellt (Minecraft-Versionsauswahl); die Dateien dieses Packs wurden dafür nicht angepasst.',
         'progress' => ':name — :status',
         'discarded_banner' => 'Am :date wurde eine Wiederherstellung verworfen: Welten und Spielerdateien eines Loader-Wechsels liegen weiter in :path.',
         'curseforge_not_configured' => 'CurseForge ist nicht eingerichtet',

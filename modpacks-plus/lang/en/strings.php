@@ -8,6 +8,7 @@ return [
         'unknown' => 'Unknown',
         'unsupported' => 'Modpacks can\'t be installed on this server yet',
         'installed_pack' => 'Installed pack: :name :version',
+        'version_changed_since' => 'The server has since been changed to :target (Minecraft version picker); this pack\'s files were not updated for it.',
         'progress' => ':name — :status',
         'discarded_banner' => 'A restore was discarded on :date: worlds and player files of a loader switch are still in :path.',
         'curseforge_not_configured' => 'CurseForge is not set up',

@@ -310,16 +310,17 @@ and/or loader without installing a pack: pick the loader, the Minecraft version 
 on).
 
 - **Loaders**: Fabric, Quilt, Forge and NeoForge, each only when its official pelican-eggs egg is
-  imported and usable (as for *Loader switching*). Vanilla and Paper are not offered: the plugin has no
-  table of their eggs' variables, so it can't set their versions safely.
+  imported and usable (as for *Loader switching*).
+- **Not offered yet**: snapshots, Vanilla, Paper and NeoForge for 1.20.1, because the plugin only sets
+  versions it can check against a known egg (release versions of the four loader eggs; NeoForge 1.20.1
+  is a separate old artifact).
 - **Lists** come only from the loaders' own metadata, at fixed URLs: Mojang's version manifest
   (`piston-meta.mojang.com`, releases only), `meta.fabricmc.net` (stable game versions and loader
   builds), `meta.quiltmc.org` (stable game versions), `maven.neoforged.net` (NeoForge release builds,
   no betas) and `maven.minecraftforge.net` (Forge `<mc>-<forge>` builds). They are read only when the
   picker opens (never for the page), with no redirects, at most 2 MB and 5 s per answer, and cached
   for an hour. When a host doesn't answer, the picker says so (and doesn't ask again for a minute);
-  the rest of the page works as usual. Snapshots are not offered (the loader eggs take release
-  versions only).
+  the rest of the page works as usual.
 - **What it does**: the steps of *Loader switching* without the pack: check the server and the
   versions, record the current setup, a locked backup, worlds and player files set aside, egg (if it
   changes) and its version variables, the Java image, reinstall and its launch-file check, worlds and
@@ -332,8 +333,10 @@ on).
 - **Worlds**: a world opened in a newer Minecraft version may not load in an older one; the picker
   warns when the chosen version is older than the server's. The backup keeps the current world.
 - A failed reinstall ends `failed` like a switch; **Restore previous files** puts worlds, player
-  files and moved folders back. After a version change the previously installed pack is no longer
-  shown as installed (its versions were for the old setup), and pack updates aren't offered for it.
+  files and moved folders back. A version change never replaces the installed pack: the
+  page still shows the pack, says the server has been changed since, and update checks then only offer
+  pack versions for the server's new loader and Minecraft version. A later pack install still moves the
+  old pack's recorded files aside.
 
 ## Permissions
 

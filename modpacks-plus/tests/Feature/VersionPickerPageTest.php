@@ -242,17 +242,23 @@ class VersionPickerPageTest extends TestCase
         $this->assertSame(0, PackInstall::query()->count());
     }
 
-    public function test_after_a_version_change_the_old_pack_is_no_longer_shown_as_installed(): void
+    public function test_after_a_version_change_the_pack_is_still_shown_with_the_change(): void
     {
         $server = $this->ownerOnFabricServer();
         $this->fakeMeta();
         $base = ['server_id' => $server->id, 'status' => PackInstall::STATUS_INSTALLED, 'seq' => 1, 'steps' => [], 'log' => [], 'progress' => []];
         PackInstall::query()->create($base + ['provider' => 'modrinth', 'pack_id' => 'AAAAAAAA', 'version_id' => 'BBBBBBBB', 'name' => 'Old Pack', 'version_number' => '1.0', 'mode' => PackInstall::MODE_INSTALL]);
+        $banner = trans('modpacks-plus::strings.page.installed_pack', ['name' => 'Old Pack', 'version' => '1.0']);
+        $since = trans('modpacks-plus::strings.page.version_changed_since', ['target' => 'NeoForge 1.21.1']);
 
-        Livewire::test(ModpacksPage::class)->assertSee(trans('modpacks-plus::strings.page.installed_pack', ['name' => 'Old Pack', 'version' => '1.0']));
+        Livewire::test(ModpacksPage::class)->assertSee($banner)->assertDontSee($since);
 
-        PackInstall::query()->create($base + ['provider' => PackInstall::VERSION_PROVIDER, 'pack_id' => 'fabric', 'version_id' => '26.2', 'name' => 'Fabric 26.2', 'mode' => PackInstall::MODE_VERSION, 'loader_switch' => ['loader' => 'fabric', 'minecraft' => '26.2']]);
+        PackInstall::query()->create($base + ['provider' => PackInstall::VERSION_PROVIDER, 'pack_id' => 'neoforge', 'version_id' => '1.21.1', 'name' => 'NeoForge 1.21.1', 'mode' => PackInstall::MODE_VERSION, 'loader_switch' => ['loader' => 'neoforge', 'minecraft' => '1.21.1']]);
 
-        Livewire::test(ModpacksPage::class)->assertDontSee(trans('modpacks-plus::strings.page.installed_pack', ['name' => 'Old Pack', 'version' => '1.0']));
+        // Still the installed pack, with the change; the version change shows in the progress section.
+        Livewire::test(ModpacksPage::class)
+            ->assertSee($banner)
+            ->assertSee($since)
+            ->assertSee(trans('modpacks-plus::strings.page.progress', ['name' => 'NeoForge 1.21.1', 'status' => trans('modpacks-plus::strings.status.installed')]));
     }
 }
