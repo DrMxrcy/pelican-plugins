@@ -249,6 +249,8 @@ return [
         'properties_unmergeable' => 'The pack\'s server.properties can\'t be merged safely, so the server\'s own was left as it is: :detail',
         'update_no_manifest' => 'The installed pack (:detail) has no record of its files (installed before updates were supported, or another pack), so it can\'t be updated in place. Install the version instead: its files are then moved aside as usual.',
         'update_needs_switch' => 'This version needs another loader or Minecraft version, so it can\'t be an update. Use "Switch to … and install" (admins).',
+        'versions_unavailable' => 'The version list could not be loaded (:detail did not answer). Try again in a minute.',
+        'version_not_offered' => 'This version is not on the current list for the loader (:detail). Open the picker again and choose from the list.',
     ],
     'steps' => [
         'prepare' => 'Check the pack',

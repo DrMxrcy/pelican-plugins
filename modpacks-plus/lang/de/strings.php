@@ -249,6 +249,8 @@ return [
         'properties_unmergeable' => 'Die server.properties des Packs lässt sich nicht sicher zusammenführen; die des Servers blieb unverändert: :detail',
         'update_no_manifest' => 'Für das installierte Pack (:detail) gibt es keine Liste seiner Dateien (vor der Update-Funktion installiert oder ein anderes Pack); es lässt sich nicht direkt aktualisieren. Installiere die Version stattdessen: seine Dateien werden dann wie üblich beiseitegelegt.',
         'update_needs_switch' => 'Diese Version braucht einen anderen Loader oder eine andere Minecraft-Version und kann daher kein Update sein. Nutze "Wechseln zu … und installieren" (Admins).',
+        'versions_unavailable' => 'Die Versionsliste konnte nicht geladen werden (:detail hat nicht geantwortet). Versuche es in einer Minute erneut.',
+        'version_not_offered' => 'Diese Version steht nicht in der aktuellen Liste des Loaders (:detail). Öffne die Auswahl erneut und wähle aus der Liste.',
     ],
     'steps' => [
         'prepare' => 'Pack prüfen',
