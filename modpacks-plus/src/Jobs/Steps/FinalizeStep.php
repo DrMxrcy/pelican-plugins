@@ -27,6 +27,11 @@ class FinalizeStep extends InstallStep
 
     protected function perform(PackInstall $install, Server $server, InstallEngine $engine): StepResult
     {
+        // Plan 40: a version change put no pack on the server, so there is nothing to record.
+        if ($install->isVersionChange()) {
+            return StepResult::done();
+        }
+
         // Once per install (plan 36): what this install put on the server, for later updates.
         if (!$install->progressValue('manifest_recorded')) {
             $this->recordManifest($install, $engine);

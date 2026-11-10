@@ -2,6 +2,7 @@
 
 namespace DrMxrcy\ModpacksPlus\Filament\Server\Components;
 
+use DrMxrcy\ModpacksPlus\Jobs\Steps\VersionPrepareStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\ModrinthMetadataWriter;
 use DrMxrcy\ModpacksPlus\Support\DiskBudget;
@@ -207,6 +208,11 @@ final class InstallProgress
             $lines[] = trans('modpacks-plus::strings.summary.preserved_unexpected', ['paths' => implode(', ', array_map('strval', $unexpected)), 'path' => (string) $install->preserved_path]);
         }
 
+        // Plan 40: a version change says what changed first.
+        if (is_array($summary['version_change'] ?? null)) {
+            $lines = array_merge(self::versionLines($summary['version_change']), $lines);
+        }
+
         $switch = $summary['loader_switch'] ?? null;
         if (is_array($switch)) {
             $lines = array_merge($lines, self::switchLines($switch, $install, $showSetup));
@@ -303,6 +309,33 @@ final class InstallProgress
 
         if (is_string($result['previous'] ?? null)) {
             $lines[] = trans('modpacks-plus::strings.summary.metadata_previous', ['path' => $result['previous']]);
+        }
+
+        return $lines;
+    }
+
+    /**
+     * What a version change (plan 40) changed: loader and Minecraft version from and to, and
+     * whether mods/ and config/ stayed in place.
+     *
+     * @param  array<string, mixed>  $change
+     * @return array<int, string>
+     */
+    public static function versionLines(array $change): array
+    {
+        $from = is_array($change['from'] ?? null) ? $change['from'] : [];
+        $to = is_array($change['to'] ?? null) ? $change['to'] : [];
+        $loader = is_string($to['loader_version'] ?? null) && $to['loader_version'] !== '' ? $to['loader_version'] : null;
+        $params = [
+            'from' => VersionPrepareStep::label($from['loader'] ?? null, $from['minecraft'] ?? null),
+            'to' => VersionPrepareStep::label($to['loader'] ?? null, $to['minecraft'] ?? null),
+        ];
+
+        $lines = [$loader !== null
+            ? trans('modpacks-plus::strings.summary.version_changed', $params + ['loader' => $loader])
+            : trans('modpacks-plus::strings.summary.version_changed_plain', $params)];
+        if (!empty($change['mods_kept'])) {
+            $lines[] = trans('modpacks-plus::strings.summary.version_mods_kept');
         }
 
         return $lines;

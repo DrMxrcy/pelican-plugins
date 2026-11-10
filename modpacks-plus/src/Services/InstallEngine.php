@@ -26,10 +26,12 @@ use DrMxrcy\ModpacksPlus\Jobs\Steps\RestorePreservedStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\SnapshotStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\UpdateApplyStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\UpdateDiffStep;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\VersionPrepareStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use DrMxrcy\ModpacksPlus\Support\ServerAvailability;
+use DrMxrcy\ModpacksPlus\Support\ServerTarget;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -113,6 +115,30 @@ class InstallEngine
         FinalizeStep::KEY,
     ];
 
+    /** The version-change steps besides the switch steps (step key => job class, plan 40). */
+    public const VERSION_STEPS = [
+        VersionPrepareStep::KEY => VersionPrepareStep::class,
+    ];
+
+    /**
+     * Run order of a version change without a pack (plan 40, the "Minecraft version" picker):
+     * the loader-switch steps with no pack to check, download or apply. MoveAsideStep (the old
+     * mods/ and config/ aside) only runs when the loader changes; for another version of the
+     * same loader they stay in place (the confirm says mods may not support it).
+     */
+    public const VERSION_ORDER = [
+        VersionPrepareStep::KEY,
+        SnapshotStep::KEY,
+        BackupStep::KEY,
+        MoveAsideStep::KEY,
+        PreserveStep::KEY,
+        ChangeEggStep::KEY,
+        ReinstallStep::KEY,
+        AwaitReinstallStep::KEY,
+        RestorePreservedStep::KEY,
+        FinalizeStep::KEY,
+    ];
+
     /** Minutes each step may take in total, waits and resumes included. */
     public const DEADLINES = [
         PrepareStep::KEY => 15,
@@ -132,6 +158,7 @@ class InstallEngine
         UpdateDiffStep::KEY => 30,
         UpdateApplyStep::KEY => 30,
         PropertiesStep::KEY => 20,
+        VersionPrepareStep::KEY => 15,
     ];
 
     /** A chain whose heartbeat is older than this is considered lost and resumed. */
@@ -144,11 +171,13 @@ class InstallEngine
      *
      * A loader switch passes its target (the caller checked who may switch):
      *
-     * @param  array{loader: string, minecraft: string, egg_id: int, egg_name: string}|null  $loaderSwitch
-     * @param  array{update?: bool, fresh_world?: bool, overwrite_changes?: bool}  $options  plan 36: `update` applies
-     *                                                                                       the version as a diff of the
-     *                                                                                       installed same pack (never
-     *                                                                                       with a loader switch)
+     * @param  array{loader: string, minecraft: string, egg_id: int, egg_name: string, loader_version?: ?string, from?: array{loader: ?string, minecraft: ?string}, keep_mods?: bool}|null  $loaderSwitch
+     * @param  array{update?: bool, fresh_world?: bool, overwrite_changes?: bool, version_change?: bool}  $options  plan 36: `update` applies
+     *                                                                                                             the version as a diff of the
+     *                                                                                                             installed same pack (never
+     *                                                                                                             with a loader switch); plan 40:
+     *                                                                                                             `version_change` is a switch
+     *                                                                                                             without a pack (startVersionChange())
      *
      * @throws InstallRefusedException
      */
@@ -157,6 +186,10 @@ class InstallEngine
         $update = !empty($options['update']);
         if ($update && $loaderSwitch !== null) {
             throw new InstallRefusedException('update_needs_switch');
+        }
+        $versionChange = !empty($options['version_change']);
+        if ($versionChange !== ($provider === PackInstall::VERSION_PROVIDER) || ($versionChange && ($loaderSwitch === null || $update))) {
+            throw new InstallRefusedException('loader_unsupported', $provider);
         }
 
         // Waits re-dispatch themselves; the sync queue would run them inline, forever.
@@ -201,12 +234,15 @@ class InstallEngine
                 throw new InstallRefusedException('update_no_manifest', (string) $previous?->name);
             }
             $mode = match (true) {
+                $versionChange => PackInstall::MODE_VERSION,
                 $update => PackInstall::MODE_UPDATE,
                 $previous !== null && ($previous->provider !== $provider || $previous->pack_id !== $packId) => PackInstall::MODE_SWITCH,
                 default => PackInstall::MODE_INSTALL,
             };
 
+            $keepMods = $versionChange && !empty($loaderSwitch['keep_mods']);
             $order = match (true) {
+                $versionChange => array_values(array_filter(self::VERSION_ORDER, fn (string $key) => !$keepMods || $key !== MoveAsideStep::KEY)),
                 $loaderSwitch !== null => self::SWITCH_ORDER,
                 $update => self::UPDATE_ORDER,
                 default => array_keys(self::STEPS),
@@ -236,7 +272,14 @@ class InstallEngine
                     'minecraft' => $loaderSwitch['minecraft'],
                     'egg_id' => $loaderSwitch['egg_id'],
                     'egg_name' => mb_strimwidth($loaderSwitch['egg_name'], 0, 250, '…'),
-                ] : null,
+                ] + ($versionChange ? [
+                    'loader_version' => $loaderSwitch['loader_version'] ?? null,
+                    'from' => [
+                        'loader' => $loaderSwitch['from']['loader'] ?? null,
+                        'minecraft' => $loaderSwitch['from']['minecraft'] ?? null,
+                    ],
+                    'keep_mods' => $keepMods,
+                ] : []) : null,
                 'log' => [],
                 'progress' => [],
                 'step_started_at' => now(),
@@ -245,7 +288,9 @@ class InstallEngine
             ]);
 
             $install->addLog('info', 'started', ['name' => $install->name, 'version' => $install->version_number ?? $versionId]);
-            if ($loaderSwitch !== null) {
+            if ($versionChange) {
+                $install->addLog('info', 'version_planned', ['to' => VersionPrepareStep::label($loaderSwitch['loader'], $loaderSwitch['minecraft']), 'egg' => $install->loader_switch['egg_name'] ?? '']);
+            } elseif ($loaderSwitch !== null) {
                 $install->addLog('info', 'switch_planned', ['loader' => $loaderSwitch['loader'], 'minecraft' => $loaderSwitch['minecraft'], 'egg' => $install->loader_switch['egg_name'] ?? '']);
             }
             $install->save();
@@ -256,6 +301,46 @@ class InstallEngine
         $this->dispatch($install);
 
         return $install;
+    }
+
+    /**
+     * Plan 40: moves the server to another Minecraft version and/or loader without a pack: the
+     * loader-switch engine (snapshot, backup, worlds and player files aside, egg and version
+     * variables, reinstall and its check, files back) with no pack steps. The caller checked who
+     * may do this and that the versions are on the loaders' lists; the egg comes from
+     * LoaderEggResolver. Same loader: mods/ and config/ stay; another loader: they go aside.
+     *
+     * @param  array{loader: string, minecraft: string, loader_version: ?string, egg_id: int, egg_name: string}  $target
+     *
+     * @throws InstallRefusedException
+     */
+    public function startVersionChange(Server $server, ?User $user, array $target): PackInstall
+    {
+        $fromLoader = ServerTarget::loader($server);
+        $fromMinecraft = ServerTarget::minecraftVersion($server);
+        $loaderVersion = $target['loader_version'] !== null && $target['loader_version'] !== '' ? $target['loader_version'] : null;
+
+        return $this->start(
+            $server,
+            $user,
+            PackInstall::VERSION_PROVIDER,
+            $target['loader'],
+            $target['minecraft'],
+            VersionPrepareStep::label($target['loader'], $target['minecraft']),
+            $loaderVersion,
+            null,
+            [
+                'loader' => $target['loader'],
+                'minecraft' => $target['minecraft'],
+                'egg_id' => $target['egg_id'],
+                'egg_name' => $target['egg_name'],
+                'loader_version' => $loaderVersion,
+                'from' => ['loader' => $fromLoader, 'minecraft' => $fromMinecraft],
+                // Unknown current loader: treated as a loader change (the safer side).
+                'keep_mods' => $fromLoader !== null && $fromLoader === $target['loader'],
+            ],
+            ['version_change' => true],
+        );
     }
 
     /** Asks a running install to stop; the next step job (or the watchdog) acts on it. */
@@ -319,7 +404,7 @@ class InstallEngine
     /** @return class-string<InstallStep>|null */
     public static function stepClass(?string $step): ?string
     {
-        return $step === null ? null : (self::STEPS[$step] ?? self::SWITCH_STEPS[$step] ?? self::UPDATE_STEPS[$step] ?? null);
+        return $step === null ? null : (self::STEPS[$step] ?? self::SWITCH_STEPS[$step] ?? self::UPDATE_STEPS[$step] ?? self::VERSION_STEPS[$step] ?? null);
     }
 
     /**
@@ -518,6 +603,19 @@ class InstallEngine
                 'preserved_path' => $install->preserved_path,
                 'preserved' => $install->preservedEntries(),
                 'preserved_restored' => (bool) $install->progressValue('preserved_restored', false),
+            ] : null,
+            // Plan 40: what a version change changed (loader and Minecraft version, from and to).
+            'version_change' => $install->isVersionChange() ? [
+                'from' => [
+                    'loader' => $install->loader_switch['from']['loader'] ?? null,
+                    'minecraft' => $install->loader_switch['from']['minecraft'] ?? null,
+                ],
+                'to' => [
+                    'loader' => $install->loader_switch['loader'] ?? null,
+                    'minecraft' => $install->loader_switch['minecraft'] ?? null,
+                    'loader_version' => $install->loader_switch['loader_version'] ?? null,
+                ],
+                'mods_kept' => (bool) ($install->loader_switch['keep_mods'] ?? false),
             ] : null,
         ];
     }

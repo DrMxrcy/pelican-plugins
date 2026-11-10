@@ -3,6 +3,7 @@
 namespace DrMxrcy\ModpacksPlus\Jobs\Steps;
 
 use App\Models\Server;
+use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
 use DrMxrcy\ModpacksPlus\Exceptions\NotEnoughDiskException;
 use DrMxrcy\ModpacksPlus\Exceptions\StepFailedException;
@@ -133,8 +134,18 @@ class PrepareStep extends InstallStep
      */
     private function worlds(Server $server): array
     {
-        $files = $this->files();
+        return self::findWorlds($this->files(), $server);
+    }
 
+    /**
+     * worlds() for another step (plan 40, a version change has no pack to check).
+     *
+     * @return array<int, string>
+     *
+     * @throws StepFailedException
+     */
+    public static function findWorlds(ServerFiles $files, Server $server): array
+    {
         try {
             $properties = $files->read($server, 'server.properties', 1024 * 1024);
         } catch (FileNotFoundException) {

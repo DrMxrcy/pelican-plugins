@@ -32,9 +32,17 @@ class SnapshotStep extends InstallStep
             return StepResult::done();
         }
 
-        $plan = $install->installPlan();
-        if ($plan === null) {
-            throw new StepFailedException('unexpected', 'no plan');
+        // The versions come from the pack, or (plan 40, a version change) from the confirmed choice.
+        if ($install->isVersionChange()) {
+            $minecraft = (string) ($switch['minecraft'] ?? '');
+            $loaderVersion = is_string($switch['loader_version'] ?? null) ? $switch['loader_version'] : null;
+        } else {
+            $plan = $install->installPlan();
+            if ($plan === null) {
+                throw new StepFailedException('unexpected', 'no plan');
+            }
+            $minecraft = $plan->minecraftVersion;
+            $loaderVersion = $plan->loaderVersion;
         }
 
         $loader = (string) ($switch['loader'] ?? '');
@@ -42,8 +50,8 @@ class SnapshotStep extends InstallStep
         if ($egg === null) {
             throw new StepFailedException('egg_missing', LoaderEggResolver::loaderName($loader));
         }
-        $variables = EggVariableMap::variables($loader, $plan->minecraftVersion, $plan->loaderVersion);
-        $image = (new JavaImagePicker())->pick($egg->docker_images ?? [], $plan->minecraftVersion);
+        $variables = EggVariableMap::variables($loader, $minecraft, $loaderVersion);
+        $image = (new JavaImagePicker())->pick($egg->docker_images ?? [], $minecraft);
 
         $server->refresh();
         $server->loadMissing(['egg', 'mounts']);
@@ -77,7 +85,7 @@ class SnapshotStep extends InstallStep
 
         $install->loader_switch = array_merge($switch, [
             'egg_uuid' => $egg->uuid,
-            'loader_version' => $plan->loaderVersion,
+            'loader_version' => $loaderVersion,
             'variables' => $variables,
             'image' => $image['image'],
             'image_label' => $image['label'],
@@ -86,7 +94,7 @@ class SnapshotStep extends InstallStep
 
         $install->addLog('info', 'snapshot_taken', ['egg' => $server->egg->name]);
         if (!EggVariableMap::pinsLoaderVersion($loader)) {
-            $install->addLog('warning', 'loader_version_unpinned', ['loader' => LoaderEggResolver::loaderName($loader), 'version' => (string) $plan->loaderVersion]);
+            $install->addLog('warning', 'loader_version_unpinned', ['loader' => LoaderEggResolver::loaderName($loader), 'version' => (string) $loaderVersion]);
         }
 
         return StepResult::done();

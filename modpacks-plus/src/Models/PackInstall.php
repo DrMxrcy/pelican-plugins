@@ -78,6 +78,12 @@ class PackInstall extends Model
     /** A newer version of the installed pack, applied as a diff (plan 36). */
     public const MODE_UPDATE = 'update';
 
+    /** Another Minecraft version and/or loader without a pack (plan 40, the "Minecraft version" picker). */
+    public const MODE_VERSION = 'version';
+
+    /** The provider of a version change record (not a pack source: never in PackProviders::IDS). */
+    public const VERSION_PROVIDER = 'minecraft';
+
     public const STEP_PENDING = 'pending';
 
     public const STEP_RUNNING = 'running';
@@ -154,6 +160,12 @@ class PackInstall extends Model
     public function isLoaderSwitch(): bool
     {
         return is_array($this->loader_switch) && $this->loader_switch !== [];
+    }
+
+    /** Whether this is a pack-less change of the Minecraft version and/or loader (plan 40). */
+    public function isVersionChange(): bool
+    {
+        return $this->mode === self::MODE_VERSION && $this->isLoaderSwitch();
     }
 
     /** Whether a restore of this install's files is running (asked for recently, not finished). */
