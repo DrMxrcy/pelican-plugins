@@ -11,6 +11,7 @@ use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
+use Throwable;
 
 /**
  * A locked backup through Pelican's InitiateBackupService, never with `override`
@@ -23,12 +24,22 @@ use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
  * locked backup of this server, created no earlier than the install, whose name holds
  * that exact nonce, so a backup someone else made (same-looking name, older, unlocked)
  * can never stand in for the install's safety backup.
+ *
+ * Plan 46: the panel's backup throttle (TooManyRequestsHttpException, e.g. a version change
+ * right before) is waited out until the step deadline; a full backup limit or no backup host
+ * still ends the install at once (or skips the backup when the admin allows it).
  */
 class BackupStep extends InstallStep
 {
     public const KEY = 'backup';
 
     public const POLL_SECONDS = 10;
+
+    /** Seconds added to the panel's Retry-After before trying again (plan 46). */
+    public const THROTTLE_MARGIN_SECONDS = 5;
+
+    /** Longest single wait for the backup throttle; the step deadline bounds the total. */
+    public const MAX_THROTTLE_WAIT_SECONDS = 600;
 
     public static function backupName(PackInstall $install, string $nonce): string
     {
@@ -55,18 +66,25 @@ class BackupStep extends InstallStep
                     $existing = app(InitiateBackupService::class)
                         ->setIsLocked(true)
                         ->handle($server, self::backupName($install, $nonce));
-                } catch (TooManyBackupsException|TooManyRequestsHttpException|ModelNotFoundException $exception) {
-                    $why = $exception instanceof ModelNotFoundException ? 'no backup host' : $exception->getMessage();
+                } catch (TooManyRequestsHttpException $exception) {
+                    // Plan 46: the panel's backup throttle clears by itself; wait it out
+                    // (one hop per window, no busy loop) while the step deadline allows.
+                    $wait = self::throttleWait($exception);
+                    $deadline = $install->step_deadline_at;
+                    if ($deadline === null || now()->addSeconds($wait)->lt($deadline)) {
+                        if (!$install->progressValue('backup_throttle_logged')) {
+                            $install->setProgress('backup_throttle_logged', true);
+                            $install->addLog('warning', 'waiting_backup_throttle', ['seconds' => $wait]);
+                        }
 
-                    // A loader switch reinstalls the server: never without a backup.
-                    if (!config('modpacks-plus.allow_skip_backup', false) || $install->isLoaderSwitch()) {
-                        throw new StepFailedException('backup_impossible', $why, $exception);
+                        return StepResult::again($wait);
                     }
 
-                    $install->setProgress('backup_skipped', true);
-                    $install->addLog('warning', 'backup_skipped', ['reason' => $why]);
+                    return $this->impossible($install, $exception->getMessage(), $exception);
+                } catch (TooManyBackupsException|ModelNotFoundException $exception) {
+                    $why = $exception instanceof ModelNotFoundException ? 'no backup host' : $exception->getMessage();
 
-                    return StepResult::skipped();
+                    return $this->impossible($install, $why, $exception);
                 }
             }
 
@@ -93,6 +111,37 @@ class BackupStep extends InstallStep
         $install->addLog('info', 'backup_done', ['uuid' => $backup->uuid]);
 
         return StepResult::done();
+    }
+
+    /**
+     * No backup can be made: the install fails, or (admin setting, never for a loader switch)
+     * goes on without one.
+     *
+     * @throws StepFailedException
+     */
+    private function impossible(PackInstall $install, string $why, Throwable $exception): StepResult
+    {
+        // A loader switch reinstalls the server: never without a backup.
+        if (!config('modpacks-plus.allow_skip_backup', false) || $install->isLoaderSwitch()) {
+            throw new StepFailedException('backup_impossible', $why, $exception);
+        }
+
+        $install->setProgress('backup_skipped', true);
+        $install->addLog('warning', 'backup_skipped', ['reason' => $why]);
+
+        return StepResult::skipped();
+    }
+
+    /**
+     * Seconds until the throttle window has passed: the panel's Retry-After (plus a small
+     * margin), or one throttle period when it gives none; never shorter than a poll.
+     */
+    private static function throttleWait(TooManyRequestsHttpException $exception): int
+    {
+        $retryAfter = $exception->getHeaders()['Retry-After'] ?? null;
+        $seconds = is_numeric($retryAfter) ? (int) $retryAfter + self::THROTTLE_MARGIN_SECONDS : (int) config('backups.throttles.period', 600);
+
+        return max(self::POLL_SECONDS, min($seconds, self::MAX_THROTTLE_WAIT_SECONDS));
     }
 
     /** The backup this install created just before a crash, if any (see class doc). */

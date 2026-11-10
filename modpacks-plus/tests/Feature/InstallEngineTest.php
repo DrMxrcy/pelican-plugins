@@ -31,6 +31,7 @@ use Mockery;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
+use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 /**
  * Plan 30 step 4: the install engine (backup → move aside → downloads → overrides →
@@ -287,6 +288,122 @@ class InstallEngineTest extends TestCase
         $mock->shouldReceive('handle')->andThrow(new TooManyBackupsException(0));
 
         return $mock;
+    }
+
+    /**
+     * Plan 46: the panel's backup throttle ("Only 2 backups may be generated within a 600 second
+     * span of time.") throws the first $throttled times (all of them when null), then backs up.
+     */
+    private function throttledBackups(?int $throttled, int $retryAfter = 120): MockInterface
+    {
+        $calls = 0;
+        $mock = Mockery::mock(InitiateBackupService::class);
+        $mock->shouldReceive('setIsLocked')->with(true)->andReturnSelf();
+        $mock->shouldReceive('handle')->andReturnUsing(function (Server $server, string $name) use (&$calls, $throttled, $retryAfter) {
+            $calls++;
+            if ($throttled === null || $calls <= $throttled) {
+                throw new TooManyRequestsHttpException($retryAfter, 'Only 2 backups may be generated within a 600 second span of time.');
+            }
+            $this->backupsCreated++;
+
+            return Backup::factory()->create([
+                'server_id' => $server->id,
+                'backup_host_id' => BackupHost::factory()->create()->getKey(),
+                'name' => $name,
+                'is_locked' => true,
+                'is_successful' => false,
+                'completed_at' => null,
+            ]);
+        });
+
+        return $mock;
+    }
+
+    /** Runs the chain, letting time pass by each job's delay (the queue would hold it that long). */
+    private function runWithTime(Server $server, int $max = 200): void
+    {
+        $this->runJobs($max, between: function (InstallStep $job) use ($server) {
+            if (is_int($job->delay) && $job->delay > 0) {
+                $this->travel($job->delay)->seconds();
+            }
+            $this->finishBackups($server);
+        });
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function logLines(PackInstall $install, string $key): array
+    {
+        return array_values(array_filter($install->log ?? [], fn (array $line) => ($line['key'] ?? null) === $key));
+    }
+
+    public function test_a_throttled_backup_waits_for_the_window_and_the_install_completes(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack();
+        $this->seedServer();
+        $this->app->instance(InitiateBackupService::class, $this->throttledBackups(2));
+
+        $install = $this->start($server);
+        $this->runJobs(2);
+
+        // Throttled: still on the backup step, waiting a delay (not a busy loop), nothing moved.
+        $install->refresh();
+        $this->assertTrue($install->isActive(), (string) json_encode($install->log));
+        $this->assertSame('backup', $install->current_step);
+        $this->assertSame('old', $this->files->files['mods/old-mod.jar']);
+        $waits = array_values(array_filter(Queue::pushedJobs()[BackupStep::class] ?? [], fn (array $entry) => $entry['job']->seq === $install->seq));
+        $this->assertCount(1, $waits);
+        $this->assertSame(120 + BackupStep::THROTTLE_MARGIN_SECONDS, $waits[0]['job']->delay);
+
+        $this->runWithTime($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame(1, $this->backupsCreated);
+        $this->assertNotNull($install->backup_uuid);
+        $lines = $this->logLines($install, 'waiting_backup_throttle');
+        $this->assertCount(1, $lines);
+        $this->assertSame(125, $lines[0]['params']['seconds'] ?? null);
+    }
+
+    public function test_a_throttled_backup_waits_even_when_skipping_backups_is_allowed(): void
+    {
+        config()->set('modpacks-plus.allow_skip_backup', true);
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack();
+        $this->app->instance(InitiateBackupService::class, $this->throttledBackups(1));
+
+        $this->start($server);
+        $this->runWithTime($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame(PackInstall::STEP_DONE, $install->stepStatus('backup'));
+        $this->assertSame(1, $this->backupsCreated);
+    }
+
+    public function test_a_throttle_that_never_clears_fails_backup_impossible_by_the_step_deadline(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $this->scenarioPack();
+        $this->seedServer();
+        $this->app->instance(InitiateBackupService::class, $this->throttledBackups(null));
+
+        $this->start($server);
+        $this->runJobs(2);
+        $this->assertSame('backup', $this->latestInstall()->current_step);
+        $deadline = $this->latestInstall()->step_deadline_at;
+        $this->assertNotNull($deadline);
+        $this->runWithTime($server, 500);
+
+        $install = $this->latestInstall();
+        $this->assertSame('backup_impossible', $install->error, (string) json_encode($install->log));
+        $this->assertSame('Only 2 backups may be generated within a 600 second span of time.', $install->progressValue('error_detail'));
+        $this->assertTrue(now()->lte($deadline), 'The wait ran past the step deadline');
+        $this->assertCount(1, $this->logLines($install, 'waiting_backup_throttle'));
+        $this->assertSame(0, $this->backupsCreated);
+        $this->assertSame(0, $this->files->writeCalls());
+        $this->assertSame('old', $this->files->files['mods/old-mod.jar']);
     }
 
     public function test_waits_for_the_backup_and_stops_if_it_fails(): void

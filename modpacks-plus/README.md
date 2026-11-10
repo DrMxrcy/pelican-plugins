@@ -19,7 +19,10 @@ the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft v
   2. **backup** — a locked backup through Pelican's backup service (never deletes an old backup).
      Only the backup whose uuid the install stored is trusted; after a crash between creating it and
      storing its uuid, only a locked backup made after the install started and carrying the install's
-     random nonce in its name is accepted;
+     random nonce in its name is accepted. When the panel's backup throttle refuses it (by default 2
+     backups per 600 seconds, e.g. right after a version change) the step waits until the window has
+     passed and tries again, up to its 60-minute deadline; a full backup limit or no backup host ends
+     the install at once;
   3. **move aside** — `mods/`, `config/`, `defaultconfigs/`, `kubejs/`, `scripts/` go to
      `.modpacks-plus/previous-<date>/` (nothing is deleted);
   4. **download** — server-side files land in `.modpacks-plus/staging/<install>/`, are verified there

@@ -314,6 +314,7 @@ return [
         'disk_unlimited' => 'This server has no disk limit; the configured limit of :cap applies.',
         'disk_usage_unknown' => 'The node did not report the server\'s disk usage, so the configured limit of :cap applies.',
         'override_protected' => 'Skipped protected override: :path',
+        'waiting_backup_throttle' => 'Waiting about :seconds seconds: the panel allows only a few backups in a short time (the backup is made once that window has passed).',
         'backup_started' => 'Backup :uuid started.',
         'backup_done' => 'Backup :uuid finished.',
         'backup_skipped' => 'Backup skipped (allowed by the admin): :reason',
