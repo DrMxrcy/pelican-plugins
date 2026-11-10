@@ -1,0 +1,49 @@
+modpacks-plus/README.md
+  s_01ae9662a57a34::t_fd5ed0da28e207 213-228,419-420
+modpacks-plus/lang/de/strings.php
+  s_01ae9662a57a34::t_2f93346bcb6db0 29,171,173
+modpacks-plus/lang/en/strings.php
+  s_01ae9662a57a34::t_263d61c5a06280 29,171,173
+modpacks-plus/src/Providers/AtLauncher/AtLauncherPackProvider.php
+  s_1d8485e49bfacb::t_fc769a80f3f5a3 12,32-39,77-82,296,360-374,379-381,385-386
+modpacks-plus/src/Providers/Modrinth/ModrinthClient.php
+  s_1d8485e49bfacb::t_1cc1a21ebf3af8 233-278
+modpacks-plus/src/Services/PackFileResolver.php
+  s_01ae9662a57a34::t_4c0255a48843be 27-29,205-207,217
+modpacks-plus/src/Support/PlanValidator.php
+  s_1d8485e49bfacb::t_246ea7940d6629 74-79,290-305,307,678-680,689,697-730
+modpacks-plus/tests/Feature/AtLauncherInstallTest.php
+  s_1d8485e49bfacb::t_de368cffa33005 21,82-102,173-215
+modpacks-plus/tests/Feature/AtLauncherPackProviderTest.php
+  s_01ae9662a57a34::t_d0513f7d1febb9 9,250,252,264,271-409
+modpacks-plus/tests/Feature/Plan32HardeningTest.php
+  s_1d8485e49bfacb::t_14d06b02bd2526 109,149-160,169,175-237
+modpacks-plus/tests/Support/AtLauncher.php
+  s_1d8485e49bfacb::t_b9ac02543e3810 19-20,119-150
+modpacks-plus/tests/Unit/Plan32ValidatorHardeningTest.php
+  s_01ae9662a57a34::t_4e3143c9f46297 49-100,107-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "96221dc721d24fa8e1180ad4d97a3371d5b0600e",
+  "prompts": {},
+  "sessions": {
+    "s_01ae9662a57a34": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7e88d9a1-8376-47e1-bf9c-3ebca44a251a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    },
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
