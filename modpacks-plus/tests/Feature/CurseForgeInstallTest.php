@@ -5,6 +5,7 @@ namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 use App\Models\Server;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
+use DrMxrcy\ModpacksPlus\Jobs\Steps\OverridesStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\CurseForge\CurseForgePackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
@@ -280,8 +281,6 @@ class CurseForgeInstallTest extends TestCase
         // The installed manifest (plan 36) has it too, hashed without reading it into memory.
         $manifest = collect($install->manifest ?? [])->keyBy('path');
         $this->assertSame(['size' => 5000, 'hash' => 'sha512:'.hash('sha512', $create)], array_intersect_key($manifest['mods/create.jar'] ?? [], ['size' => 0, 'hash' => 0]));
-        // No extracted copy is left on the panel.
-        $this->assertSame([], glob(app(InstallEngine::class)->workDir($install).'/*.jar') ?: []);
     }
 
     /** A server pack (5 KB Create jar, override cap 1 KB) whose CurseForge stubs are faked. */
@@ -322,24 +321,95 @@ class CurseForgeInstallTest extends TestCase
         $this->assertSame([], $this->files->violations);
     }
 
-    public function test_a_big_jar_write_the_node_keeps_refusing_fails_the_install_after_three_tries(): void
+    /** @return array<string, array{int, string}> override_archive_min (per file: above the 2 overrides) and the node error */
+    public static function refusedBigJarWrites(): array
     {
-        config()->set('modpacks-plus.override_archive_min', 1);
+        return [
+            'per file, HTTP error' => [50, '507'],
+            'per file, wrong size on the node' => [50, 'size'],
+            'batched, HTTP error' => [1, '507'],
+            'batched, wrong size on the node' => [1, 'size'],
+        ];
+    }
+
+    /**
+     * Fix round: a big jar written per file (plans under override_archive_min) is checked and
+     * counted like a batched one: its size is read back from the node, node errors count
+     * towards three tries, then the install fails with override_write_failed.
+     */
+    #[DataProvider('refusedBigJarWrites')]
+    public function test_a_big_jar_write_the_node_keeps_refusing_fails_the_install_after_three_tries(int $archiveMin, string $status): void
+    {
+        config()->set('modpacks-plus.override_archive_min', $archiveMin);
         $server = $this->forgeServer();
         $this->fakeBigJarServerPack(random_bytes(5000));
-        $this->files->beforeWrite = function (string $path) {
-            if ($path === 'mods/create.jar') {
-                throw new RequestException(new Response(new Psr7Response(507)));
-            }
-        };
+        if ($status === 'size') {
+            $this->files->afterWrite = function (string $path) {
+                if ($path === 'mods/create.jar') {
+                    $this->files->files[$path] = 'cut short';
+                }
+            };
+        } else {
+            $this->files->beforeWrite = function (string $path) {
+                if ($path === 'mods/create.jar') {
+                    throw new RequestException(new Response(new Psr7Response(507)));
+                }
+            };
+        }
 
         $install = $this->install($server);
 
         $this->assertSame(PackInstall::STATUS_FAILED, $install->status, (string) json_encode($install->log));
         $this->assertSame('override_write_failed', $install->error);
-        $this->assertCount(3, array_filter($this->files->calls, fn ($call) => $call[0] === 'writeFile'));
-        $this->assertArrayNotHasKey('mods/create.jar', $this->files->files);
-        $this->assertContains(['override_write_retry', '507'], array_map(fn ($entry) => [$entry['key'], $entry['params']['status'] ?? null], $install->log ?? []));
+        $this->assertSame('mods/create.jar', $install->progressValue('error_detail'));
+        $this->assertCount(OverridesStep::MAX_APPLY_ATTEMPTS, array_filter($this->files->calls, fn ($call) => $call[0] === 'writeFile'));
+        $this->assertCount(OverridesStep::MAX_APPLY_ATTEMPTS, array_filter($install->log ?? [], fn ($entry) => $entry['key'] === 'override_write_retry' && ($entry['params']['status'] ?? null) === $status));
+    }
+
+    /**
+     * The jar extracted for a write is removed after every try (a refused one and the one that
+     * worked), checked on the panel while the install still runs (its work folder goes at the end).
+     */
+    #[DataProvider('overridePaths')]
+    public function test_the_extracted_jar_is_removed_after_every_write(int $archiveMin): void
+    {
+        config()->set('modpacks-plus.override_archive_min', $archiveMin);
+        $server = $this->forgeServer();
+        $create = random_bytes(5000);
+        $this->fakeBigJarServerPack($create);
+        $parts = fn (): array => glob(app(InstallEngine::class)->workDir($this->latestInstall()).'/override-*.part') ?: [];
+        $seen = [];
+        $refuse = 1;
+        $this->files->beforeWrite = function (string $path) use ($parts, &$seen, &$refuse) {
+            $current = $parts();
+            if ($path === 'mods/create.jar') {
+                // Only the copy being written exists; every earlier one is gone.
+                $this->assertCount(1, $current);
+                $this->assertNotContains($current[0], $seen);
+                $seen[] = $current[0];
+                if ($refuse-- > 0) {
+                    throw new RequestException(new Response(new Psr7Response(500)));
+                }
+            } else {
+                $this->assertSame([], $current, "extracted jar still on the panel while writing $path");
+            }
+        };
+        $this->files->afterWrite = function (string $path) use ($parts) {
+            if ($path !== 'mods/create.jar') {
+                $this->assertSame([], $parts(), "extracted jar still on the panel after writing $path");
+            }
+        };
+
+        $install = $this->install($server);
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame($create, $this->files->files['mods/create.jar'] ?? null);
+        // A refused try and the one that worked, each from a copy of its own; a later write
+        // (config/a.toml, or the archive holding it) found none left.
+        $this->assertCount(2, $seen);
+        $kinds = array_column($this->files->calls, 0);
+        $lastJarWrite = (int) array_key_last(array_filter($kinds, fn ($kind) => $kind === 'writeFile'));
+        $this->assertContains('write', array_slice($kinds, $lastJarWrite + 1));
     }
 
     public function test_a_pack_for_another_loader_is_refused_before_any_change(): void

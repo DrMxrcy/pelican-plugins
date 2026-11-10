@@ -262,7 +262,7 @@ final class PlanValidator
      */
     public static function isServerPackModJar(string $path): bool
     {
-        return preg_match('#^mods/[^/.][^/]*\.[jJ][aA][rR]$#', $path) === 1;
+        return preg_match('#^mods/[^/.][^/]*\.[jJ][aA][rR]\z#', $path) === 1;
     }
 
     /**

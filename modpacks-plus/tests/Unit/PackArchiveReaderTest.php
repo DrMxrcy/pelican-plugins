@@ -2,10 +2,12 @@
 
 namespace DrMxrcy\ModpacksPlus\Tests\Unit;
 
+use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PackArchiveReader;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use ZipArchive;
 
@@ -83,6 +85,67 @@ class PackArchiveReaderTest extends TestCase
                     $this->assertSame('file_too_large', $exception->reason);
                 }
                 $this->assertFileDoesNotExist($destination);
+            }
+        } finally {
+            $reader->close();
+            if (is_file($destination)) {
+                unlink($destination);
+            }
+        }
+    }
+
+    /**
+     * A zip whose one deflated entry declares $declared bytes (local and central header) but
+     * holds $actual.
+     */
+    private function lyingZip(int $actual, int $declared): void
+    {
+        $zip = new ZipArchive();
+        $zip->open($this->path, ZipArchive::OVERWRITE);
+        $zip->addFromString('mods/big.jar', str_repeat('A', $actual));
+        $zip->setCompressionName('mods/big.jar', ZipArchive::CM_DEFLATE);
+        $zip->close();
+
+        $bytes = (string) file_get_contents($this->path);
+        $local = strpos($bytes, "PK\x03\x04");
+        $central = strpos($bytes, "PK\x01\x02");
+        $this->assertIsInt($local);
+        $this->assertIsInt($central);
+        $bytes = substr_replace($bytes, pack('V', $declared), $local + 22, 4);
+        $bytes = substr_replace($bytes, pack('V', $declared), $central + 24, 4);
+        file_put_contents($this->path, $bytes);
+    }
+
+    /** @return array<string, array{int, int}> */
+    public static function lyingSizes(): array
+    {
+        return [
+            'more than declared (zip bomb)' => [100000, 1000],
+            'truncated (less than declared)' => [1000, 100000],
+        ];
+    }
+
+    #[DataProvider('lyingSizes')]
+    public function test_an_entry_whose_size_lies_is_never_extracted_nor_hashed(int $actual, int $declared): void
+    {
+        $this->lyingZip($actual, $declared);
+        $destination = $this->path.'.out';
+        $reader = PackArchiveReader::open($this->path, new PlanValidator(new Caps()), new Caps());
+
+        try {
+            $this->assertSame($declared, $reader->size('mods/big.jar'));
+            foreach ([
+                'extract' => fn () => $reader->extract('mods/big.jar', 1024 * 1024, $destination),
+                'hash' => fn () => $reader->hash('mods/big.jar', 1024 * 1024, 'sha512'),
+                'read' => fn () => $reader->read('mods/big.jar', 1024 * 1024),
+            ] as $name => $call) {
+                try {
+                    $call();
+                    $this->fail("$name accepted an entry of $actual bytes declared as $declared");
+                } catch (UnsafePlanException|PackUnavailableException $exception) {
+                    $this->assertContains($exception->reason, ['file_too_large', 'bad_archive'], $name);
+                }
+                $this->assertFileDoesNotExist($destination, $name);
             }
         } finally {
             $reader->close();

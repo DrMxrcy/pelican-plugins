@@ -45,7 +45,9 @@ use Illuminate\Http\Client\RequestException;
  * `max_file_bytes`, PlanValidator::overrideCap()) is never read into memory nor zipped: it is
  * extracted to a file on the panel (capped, declared size enforced) and streamed to its target
  * in a write of its own (a chunk of its own in the batch, its size checked on the server),
- * started only with LARGE_WRITE_MIN_SECONDS left; a timeout hands it to a fresh job.
+ * started only with LARGE_WRITE_MIN_SECONDS left, per file or batched alike (writeLarge()): a
+ * timeout hands it to a fresh job, node errors count towards MAX_APPLY_ATTEMPTS and then fail
+ * the install (`override_write_failed`).
  */
 class OverridesStep extends InstallStep
 {
@@ -142,9 +144,16 @@ class OverridesStep extends InstallStep
                 if ($validator->isProtected($entry->path)) {
                     $install->addLog('warning', 'override_protected', ['path' => $entry->path]);
                 } elseif (!isset($skip[$entry->path])) {
-                    // A large one starts only with a fresh job's time (nothing moved yet).
-                    if ($large && !self::hasLargeWriteTime()) {
-                        return StepResult::again();
+                    if ($large) {
+                        // Node errors count (as in the batch), timeouts don't.
+                        $failures = (int) $install->progressValue('large_write_failures', 0);
+                        if ($failures >= self::MAX_APPLY_ATTEMPTS) {
+                            throw new StepFailedException('override_write_failed', $entry->path);
+                        }
+                        // A large one starts only with a fresh job's time (nothing moved yet).
+                        if (!self::hasLargeWriteTime()) {
+                            return StepResult::again();
+                        }
                     }
 
                     $pending = $install->progressValue('pending_override');
@@ -157,44 +166,43 @@ class OverridesStep extends InstallStep
                         $this->moveExistingAside($install, $server, $entry->path);
                     }
 
-                    $local = null;
-                    $contents = '';
                     if ($large) {
-                        $local = $this->extractLarge($install, $engine, $reader, $validator, $plan, $entry);
+                        // Pending first: a retry writes it again without moving it aside as foreign.
+                        $install->setProgress('pending_override', $index);
+                        $engine->persist($install);
+
+                        try {
+                            $failed = $this->writeLarge($install, $engine, $server, $files, $reader, $validator, $plan, $entry);
+                        } catch (ConnectionException) {
+                            // A slow link or a busy node: a fresh job writes it again, no attempt used.
+                            $install->addLog('warning', 'override_write_retry', ['path' => $entry->path, 'status' => 'timeout']);
+                            $engine->persist($install);
+
+                            return StepResult::again(20);
+                        }
+                        if ($failed !== null) {
+                            $install->setProgress('large_write_failures', (int) $install->progressValue('large_write_failures', 0) + 1);
+                            $install->addLog('warning', 'override_write_retry', ['path' => $entry->path, 'status' => $failed]);
+                            $engine->persist($install);
+
+                            return StepResult::again(10);
+                        }
                     } else {
                         $contents = $reader->read($entry->entry, $caps->maxOverrideBytes);
-                    }
 
-                    try {
                         $install->setProgress('pending_override', $index);
                         $engine->persist($install);
 
                         $directory = dirname($entry->path);
                         $this->ensureDirectory($install, $server, $directory === '.' ? '' : $directory);
-                        if ($local !== null) {
-                            $files->writeFile($server, $entry->path, $local, self::largeWriteTimeout($entry->size));
-                        } else {
-                            $files->write($server, $entry->path, $contents);
-                        }
-                    } catch (ConnectionException $exception) {
-                        if ($local === null) {
-                            throw $exception;
-                        }
-                        // A slow link: a fresh job writes it again (pending, so it is not moved aside).
-                        $install->addLog('warning', 'override_write_retry', ['path' => $entry->path, 'status' => 'timeout']);
-                        $engine->persist($install);
-
-                        return StepResult::again(20);
-                    } finally {
-                        if ($local !== null) {
-                            @unlink($local);
-                        }
+                        $files->write($server, $entry->path, $contents);
                     }
                 }
 
                 $index++;
                 $install->setProgress('override_index', $index);
                 $install->setProgress('pending_override', null);
+                $install->setProgress('large_write_failures', null);
                 $engine->persist($install);
             }
         } finally {
@@ -295,19 +303,45 @@ class OverridesStep extends InstallStep
         return 10 + intdiv(max(0, $bytes), 1024 * 1024);
     }
 
+    /** The panel file a large override is extracted to while it is written (removed after every try). */
+    public static function largeWorkFile(string $workDir): string
+    {
+        return $workDir.'/override-'.bin2hex(random_bytes(8)).'.part';
+    }
+
     /**
-     * Extracts a large override (a server pack's mod jar) to a fresh file in the install's work
-     * folder, capped by PlanValidator::overrideCap(); the caller removes it.
+     * Writes one large override (a server pack's mod jar) to its target, per file or batched:
+     * extracted to a fresh file in the install's work folder (capped by
+     * PlanValidator::overrideCap()), streamed with writeFile(), then its size on the server
+     * checked. The extracted file is removed whatever happens.
      *
+     * @return string|null null when the file is on the server at its size, else the node error
+     *                     (`size` or the HTTP status), which counts towards MAX_APPLY_ATTEMPTS
+     *
+     * @throws ConnectionException a timeout (retried by a fresh job, not counted)
      * @throws UnsafePlanException
      * @throws PackUnavailableException
      */
-    private function extractLarge(PackInstall $install, InstallEngine $engine, PackArchiveReader $reader, PlanValidator $validator, InstallPlan $plan, OverrideEntry $entry): string
+    private function writeLarge(PackInstall $install, InstallEngine $engine, Server $server, ServerFiles $files, PackArchiveReader $reader, PlanValidator $validator, InstallPlan $plan, OverrideEntry $entry): ?string
     {
-        $local = $engine->workDir($install).'/override-'.bin2hex(random_bytes(8)).'.part';
+        $local = self::largeWorkFile($engine->workDir($install));
         $reader->extract($entry->entry, $validator->overrideCap($entry->path, $plan), $local);
 
-        return $local;
+        try {
+            $directory = dirname($entry->path);
+            $this->ensureDirectory($install, $server, $directory === '.' ? '' : $directory);
+            $files->writeFile($server, $entry->path, $local, self::largeWriteTimeout($entry->size));
+
+            $stat = $files->stat($server, $entry->path);
+
+            return $stat === null || $stat['directory'] || $stat['size'] !== $entry->size ? 'size' : null;
+        } catch (RequestException $exception) {
+            return (string) $exception->response->status();
+        } finally {
+            if (is_file($local)) {
+                unlink($local);
+            }
+        }
     }
 
     /** Seconds the archive write may take: 10 s plus 1 s per MiB, at most 20 (the unpack gets the rest). */
@@ -387,27 +421,18 @@ class OverridesStep extends InstallStep
 
                     if ($direct) {
                         $entry = $chunk[0];
-                        $local = $this->extractLarge($install, $engine, $reader, $validator, $plan, $entry);
 
                         try {
-                            $directory = dirname($entry->path);
-                            $this->ensureDirectory($install, $server, $directory === '.' ? '' : $directory);
-                            $files->writeFile($server, $entry->path, $local, self::largeWriteTimeout($entry->size));
-
-                            $stat = $files->stat($server, $entry->path);
-                            if ($stat === null || $stat['directory'] || $stat['size'] !== $entry->size) {
-                                return $this->applyFailed($install, $engine, $batch, 'size', $entry->path);
-                            }
+                            $failed = $this->writeLarge($install, $engine, $server, $files, $reader, $validator, $plan, $entry);
                         } catch (ConnectionException) {
                             // A slow link or a busy node: a fresh job writes it again, no attempt used.
                             $install->addLog('warning', 'override_write_retry', ['path' => $entry->path, 'status' => 'timeout']);
                             $engine->persist($install);
 
                             return StepResult::again(20);
-                        } catch (RequestException $exception) {
-                            return $this->applyFailed($install, $engine, $batch, (string) $exception->response->status(), $entry->path);
-                        } finally {
-                            @unlink($local);
+                        }
+                        if ($failed !== null) {
+                            return $this->applyFailed($install, $engine, $batch, $failed, $entry->path);
                         }
 
                         $batch = self::state('apply', 0, $batch['chunk'] + 1);
