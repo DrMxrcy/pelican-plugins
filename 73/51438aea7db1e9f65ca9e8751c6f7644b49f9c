@@ -1,0 +1,64 @@
+modpacks-plus/src/Jobs/Steps/ReinstallStep.php
+  s_1d8485e49bfacb::t_af195c6ce82913 11,56-62
+modpacks-plus/tests/Feature/InstallEngineTest.php
+  s_1d8485e49bfacb::t_af195c6ce82913 687-688
+modpacks-plus/tests/Feature/DiskBudgetPageTest.php
+  s_1d8485e49bfacb::t_5f362c656207a2 5,188-198
+  s_1d8485e49bfacb::t_b93b8650e6b6cf 199-200
+modpacks-plus/tests/Feature/ServerAvailabilityTest.php
+  s_1d8485e49bfacb::t_4b53e4112c19dc 1-90,92-139
+  s_1d8485e49bfacb::t_7f4caaba9013b4 91
+modpacks-plus/src/Filament/Server/Components/InstallProgress.php
+  s_1d8485e49bfacb::t_fdf10e9ef960e0 9,75,77-79
+  s_1d8485e49bfacb::t_a45a486bd7434a 76
+modpacks-plus/tests/Feature/LoaderSwitchTest.php
+  s_1d8485e49bfacb::t_6d3d46b3b313a9 984-989
+  s_1d8485e49bfacb::t_43dadd51b9cd74 28,963-983,990-994
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_fdf10e9ef960e0 64-65,224
+modpacks-plus/src/Jobs/Steps/InstallStep.php
+  s_1d8485e49bfacb::t_af195c6ce82913 135-138
+  s_1d8485e49bfacb::t_18222aeea15200 15,139-141
+CHANGELOG.internal.md
+  s_1d8485e49bfacb::t_ff7ad40033b1c2 22
+  s_1d8485e49bfacb::t_163337d39a7d51 21
+  s_1d8485e49bfacb::t_f0598205e9b1a7 16
+  s_1d8485e49bfacb::t_502c4d7c7cc152 23
+  s_1d8485e49bfacb::t_389f98055e103e 27,29
+CHANGELOG.md
+  s_1d8485e49bfacb::t_ff7ad40033b1c2 17
+  s_1d8485e49bfacb::t_f0598205e9b1a7 11
+  s_1d8485e49bfacb::t_163337d39a7d51 16
+  s_1d8485e49bfacb::t_502c4d7c7cc152 18
+  s_1d8485e49bfacb::t_389f98055e103e 20
+modpacks-plus/src/Filament/Server/Pages/ModpacksPage.php
+  s_1d8485e49bfacb::t_fdf10e9ef960e0 29,975-976,1006-1007,1066,1068,1073-1076
+  s_1d8485e49bfacb::t_af195c6ce82913 1067,1070-1072,1172-1174
+  s_1d8485e49bfacb::t_4fc5730a5fd44c 1063-1065,1069
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_fdf10e9ef960e0 64-65,224
+modpacks-plus/src/Services/InstallEngine.php
+  s_1d8485e49bfacb::t_af195c6ce82913 190-195
+  s_1d8485e49bfacb::t_a51e31d0ee13a7 32
+  s_1d8485e49bfacb::t_3403e66d3cbd6b 196-197
+modpacks-plus/src/Support/ServerAvailability.php
+  s_1d8485e49bfacb::t_5c218bce8744b3 1-6,8-15,17-22,33-47
+  s_1d8485e49bfacb::t_af195c6ce82913 7,23-32
+  s_1d8485e49bfacb::t_650385c7797a0f 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7351438aea7db1e9f65ca9e8751c6f7644b49f9c",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
