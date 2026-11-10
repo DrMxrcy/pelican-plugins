@@ -69,6 +69,9 @@ class CurseForgePackProvider implements PackProvider
 
     private const MAX_SMALL_LIST = 100;
 
+    /** gameVersions entries read per file (Minecraft versions, loaders, Client/Server, …). */
+    private const MAX_TAGS = 500;
+
     private const CACHE_MINUTES = 10;
 
     private const MAX_BODY_CHARS = 20000;
@@ -551,6 +554,7 @@ class CurseForgePackProvider implements PackProvider
 
         $candidates = [];
         $manual = [];
+        $clientOnly = [];
         foreach ($entries as $entry) {
             $file = $files[$entry['file']] ?? null;
             $mod = $mods[$entry['project']] ?? null;
@@ -577,13 +581,19 @@ class CurseForgePackProvider implements PackProvider
             }
 
             $url = $this->fileUrl($file, $mod, $entry['file'], $name);
+            $clientClass = in_array($classId, self::CLIENT_CLASSES, true);
+            // Plan 48: the author tagged this file for game clients only on CurseForge itself.
+            $taggedClient = !$clientClass && self::isClientOnlyFile($file);
+            if ($taggedClient) {
+                $clientOnly[] = ['path' => $folder.'/'.$name, 'project' => self::projectName($mod, $entry['project']), 'source' => self::ID];
+            }
             $candidates[] = [
                 'path' => $folder.'/'.$name,
                 'urls' => $url !== null ? [$url] : [],
                 'size' => is_int($file['fileLength'] ?? null) ? $file['fileLength'] : -1,
                 'hashes' => self::hashes($file),
                 // Resource and shader packs only matter to game clients.
-                'side' => in_array($classId, self::CLIENT_CLASSES, true) ? 'unsupported' : 'unknown',
+                'side' => $clientClass || $taggedClient ? 'unsupported' : 'unknown',
                 'manual' => ['name' => $display, 'url' => $link, 'reason' => 'distribution_disabled'],
             ];
         }
@@ -591,10 +601,10 @@ class CurseForgePackProvider implements PackProvider
         // Modrinth-first: a file Modrinth has (same sha1, same size) is downloaded from
         // cdn.modrinth.com and checked against Modrinth's sha512, which also installs files
         // CurseForge may not hand out; its server_side drops client-only mods. Unknown stays in.
+        // A file already client-only (by its kind or its CurseForge tag) stays client-only.
         $matches = $this->matcher->match(array_values(array_filter(array_map(fn (array $candidate) => $candidate['hashes']['sha1'] ?? null, $candidates))));
 
         $planFiles = [];
-        $clientOnly = [];
         foreach ($candidates as $candidate) {
             $match = $matches[$candidate['hashes']['sha1'] ?? ''] ?? null;
             $onModrinth = $match !== null && $match['size'] === $candidate['size'];
@@ -641,7 +651,9 @@ class CurseForgePackProvider implements PackProvider
      * never used). Files CurseForge doesn't return, or with an unsafe name, are left out.
      *
      * @param  array<int, array{project: int, file: int}>  $entries
-     * @return array<int, array{name: string, size: int, sha1: ?string, url: ?string, link: ?string}> by file id
+     *                                                               Plan 48: `client_only` is CurseForge's own tag on the file (isClientOnlyFile), `project` the
+     *                                                               name the summary shows for it.
+     * @return array<int, array{name: string, size: int, sha1: ?string, url: ?string, link: ?string, client_only: bool, project: string}> by file id
      *
      * @throws PackUnavailableException `curseforge_not_configured` without a key or the mirror (nothing is asked)
      */
@@ -671,6 +683,8 @@ class CurseForgePackProvider implements PackProvider
                 'sha1' => self::hashes($file)['sha1'] ?? null,
                 'url' => $this->fileUrl($file, $mod, $entry['file'], $name),
                 'link' => $page !== null ? $page.'/files/'.$entry['file'] : null,
+                'client_only' => self::isClientOnlyFile($file),
+                'project' => self::projectName($mod, $entry['project']),
             ];
         }
 
@@ -934,6 +948,43 @@ class CurseForgePackProvider implements PackProvider
         }
 
         return is_string($value) && self::isValidId($value) ? (int) $value : null;
+    }
+
+    /**
+     * Plan 48: whether CurseForge's own file record (POST /mods/files, with a key or through the
+     * mirror) tags the file for game clients only: an environment tag `Client` and no `Server`
+     * among its gameVersions or sortableGameVersions names (any case). Untagged files and files
+     * tagged Server (with or without Client) are not. No other source's tags are read.
+     *
+     * @param  array<mixed>  $file
+     */
+    public static function isClientOnlyFile(array $file): bool
+    {
+        $tags = [];
+        foreach (self::items($file['gameVersions'] ?? null, self::MAX_TAGS) as $value) {
+            if (is_string($value)) {
+                $tags[strtolower(trim($value))] = true;
+            }
+        }
+        foreach (self::items($file['sortableGameVersions'] ?? null, self::MAX_TAGS) as $value) {
+            if (is_array($value) && is_string($value['gameVersionName'] ?? null)) {
+                $tags[strtolower(trim($value['gameVersionName']))] = true;
+            }
+        }
+
+        return isset($tags['client']) && !isset($tags['server']);
+    }
+
+    /**
+     * The name the summary shows for a CurseForge project: its slug when it is a plain one, else its id.
+     *
+     * @param  array<mixed>  $mod
+     */
+    private static function projectName(array $mod, int $projectId): string
+    {
+        $slug = $mod['slug'] ?? null;
+
+        return is_string($slug) && preg_match('/^[A-Za-z0-9_\-.]{1,64}$/', $slug) ? $slug : (string) $projectId;
     }
 
     /**

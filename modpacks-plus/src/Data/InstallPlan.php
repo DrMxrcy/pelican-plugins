@@ -28,8 +28,11 @@ final class InstallPlan
      *                                       without a server pack, set when $archive itself holds server
      *                                       files at that root (ATLauncher's Configs.zip, plan 32)
      * @param  array{reason: string, detail: string}|null  $serverPackFallback  why a server pack was not used
-     * @param  array<int, array{path: string, project: string}>  $clientOnlyBy  skipped client files and the Modrinth
-     *                                                                          project whose server_side said so
+     * @param  array<int, array{path: string, project: string, source?: string}>  $clientOnlyBy  skipped client files and
+     *                                                                                           the project that said so: Modrinth's
+     *                                                                                           server_side, or with source
+     *                                                                                           'curseforge' the CurseForge file's
+     *                                                                                           own Client tag (plan 48)
      * @param  array<int, string>  $skippedClientFolderFiles  pack files under client-only folders (resourcepacks/,
      *                                                        shaderpacks/, …), also in $skippedClientFiles
      */
@@ -177,7 +180,7 @@ final class InstallPlan
             clientOnlyBy: array_values(array_filter(array_map(
                 fn ($entry) => is_array($entry) && is_string($entry['path'] ?? null) && is_string($entry['project'] ?? null)
                     && PlanValidator::isSafeRelativePath($entry['path']) && preg_match('/^[A-Za-z0-9_\-.]{1,64}$/', $entry['project'])
-                    ? ['path' => $entry['path'], 'project' => $entry['project']] : null,
+                    ? ['path' => $entry['path'], 'project' => $entry['project']] + (($entry['source'] ?? null) === 'curseforge' ? ['source' => 'curseforge'] : []) : null,
                 $list('client_only_by'),
             ))),
             skippedClientFolderFiles: array_values(array_filter($list('skipped_client_folder_files'), 'is_string')),

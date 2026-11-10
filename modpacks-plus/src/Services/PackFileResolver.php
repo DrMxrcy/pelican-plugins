@@ -16,6 +16,8 @@ use DrMxrcy\ModpacksPlus\Support\PlanValidator;
  * - a file the pack says is a CurseForge file (project + file id) is first looked up on
  *   Modrinth by sha1 (ModrinthMatcher: same sha1, same size, cdn.modrinth.com, sha512);
  *   a match is downloaded from Modrinth and Modrinth's server_side drops client-only mods;
+ * - a CurseForge file whose own CurseForge record (asked below) tags it `Client` and not
+ *   `Server` is left out as client-only whatever Modrinth says (plan 48);
  * - a CurseForge-hosted file not on Modrinth is only fetched from the URL CurseForge's own
  *   API gives for that file id (CurseForgePackProvider::referencedFiles: built from id and
  *   name, never when allowModDistribution is false). Without a CurseForge key or the mirror
@@ -49,7 +51,7 @@ class PackFileResolver
     /**
      * @param  array<int, Candidate>  $candidates
      * @param  array<int, string>  $ownHosts  exact hosts the source serves its own files from
-     * @return array{files: array<int, PlanFile>, manual: array<int, ManualFile>, client_only: array<int, array{path: string, project: string}>}
+     * @return array{files: array<int, PlanFile>, manual: array<int, ManualFile>, client_only: array<int, array{path: string, project: string, source?: string}>}
      *
      * @throws UnsafePlanException
      * @throws PackUnavailableException
@@ -71,6 +73,7 @@ class PackFileResolver
         }
         $refs = $cfReady && $needCf !== [] ? $this->curseforge->referencedFiles(array_values($needCf)) : [];
 
+        $clientOnly = [];
         foreach ($candidates as $index => $candidate) {
             $ref = $candidate['curseforge'] !== null ? ($refs[$candidate['curseforge']['file']] ?? null) : null;
             if ($ref === null) {
@@ -87,6 +90,12 @@ class PackFileResolver
             if ($candidate['size'] < 0) {
                 $candidates[$index]['size'] = $ref['size'];
             }
+
+            // Plan 48: CurseForge's own record tags the file Client and not Server.
+            if ($ref['client_only']) {
+                $candidates[$index]['side'] = 'unsupported';
+                $clientOnly[] = ['path' => $candidate['path'], 'project' => $ref['project'], 'source' => CurseForgePackProvider::ID];
+            }
         }
 
         // Modrinth-first, for CurseForge files only (plan 31).
@@ -97,7 +106,6 @@ class PackFileResolver
 
         $files = [];
         $manual = [];
-        $clientOnly = [];
         foreach ($candidates as $candidate) {
             $sha1 = $candidate['sha1'];
             $side = $candidate['side'];

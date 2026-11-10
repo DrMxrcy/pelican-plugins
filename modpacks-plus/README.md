@@ -190,7 +190,15 @@ Checked before anything is written to the server; archive entries are checked ag
   A server pack over the caps or unusable falls back to the manifest build; the summary says why.
 - **Manifest build.** Otherwise `manifest.json` is read, its files resolved in batches and placed by kind
   (`mods/`; resource and shader packs are client-only and skipped), optional files left out, `overrides/`
-  applied.
+  applied. This is also the only build through the mirror, which never uses server packs.
+- **Client-only by CurseForge's tag.** A file whose own CurseForge file record (the batched file lookup,
+  with a key or through the mirror) has the environment tag `Client` and not `Server` in its game versions
+  is not downloaded; the summary lists it as client-only according to CurseForge, with its CurseForge
+  project. Files tagged `Client` and `Server`, only `Server`, or untagged install as before; tags are never
+  read from anywhere but that file record. Like a pack's own client-only marker, this tag wins: Modrinth's
+  side data can drop more files but never puts a CurseForge-tagged client file back. FTB and ATLauncher
+  packs follow the same rule for the CurseForge files whose record is looked up (files taken from
+  CurseForge, or without a sha1 of their own).
 - **Download URLs.** A file's URL is always built from its own id and name
   (`https://edge.forgecdn.net/files/<id/1000>/<id%1000>/<name>`); the API's `downloadUrl` must name exactly
   that path or the file isn't fetched. File names must be plain `.jar`/`.zip` names. CurseForge CDN files

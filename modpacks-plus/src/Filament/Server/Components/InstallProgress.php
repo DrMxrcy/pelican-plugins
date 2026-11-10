@@ -169,10 +169,17 @@ final class InstallProgress
             ]);
         }
         if (!empty($summary['client_only_by']) && is_array($summary['client_only_by'])) {
-            $lines[] = trans('modpacks-plus::strings.summary.client_only_by', ['files' => implode(', ', array_map(
-                fn ($entry) => is_array($entry) ? ((string) ($entry['path'] ?? '')).' ('.((string) ($entry['project'] ?? '')).')' : '',
-                $summary['client_only_by'],
-            ))]);
+            // Plan 48: files CurseForge itself tags client-only get a line of their own.
+            $entries = array_filter($summary['client_only_by'], 'is_array');
+            $byCurseForge = array_filter($entries, fn (array $entry) => ($entry['source'] ?? null) === 'curseforge');
+            $named = fn (array $list) => implode(', ', array_map(fn (array $entry) => ((string) ($entry['path'] ?? '')).' ('.((string) ($entry['project'] ?? '')).')', $list));
+            $byModrinth = array_diff_key($entries, $byCurseForge);
+            if ($byModrinth !== []) {
+                $lines[] = trans('modpacks-plus::strings.summary.client_only_by', ['files' => $named($byModrinth)]);
+            }
+            if ($byCurseForge !== []) {
+                $lines[] = trans('modpacks-plus::strings.summary.client_only_curseforge', ['files' => $named($byCurseForge)]);
+            }
         }
         if (!empty($summary['client_only_folder_files'])) {
             $lines[] = trans('modpacks-plus::strings.summary.client_only_folder_files', ['paths' => implode(', ', array_map('strval', (array) $summary['client_only_folder_files']))]);

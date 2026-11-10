@@ -160,6 +160,7 @@ return [
         'server_pack' => 'Installed from the pack\'s server pack; its start scripts and loader installer were not used (the egg installs the loader).',
         'server_pack_fallback' => 'The pack\'s server pack was not used, so the server files were built from its manifest: :reason',
         'client_only_by' => 'Client-only according to Modrinth, not installed (Modrinth project in brackets): :files',
+        'client_only_curseforge' => 'Client-only according to CurseForge (the file is tagged Client, not Server), not installed (CurseForge project in brackets): :files',
         'client_only_folder_files' => 'Client-only folder (resource packs, shaders), not installed: :paths',
         'client_only_pack_files' => 'Client-only according to the pack, not installed: :paths',
         'skipped_pack_files' => 'Start scripts, installers, launcher files and bundled Java from the pack, not written: :paths',
