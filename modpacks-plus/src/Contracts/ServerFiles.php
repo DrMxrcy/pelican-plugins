@@ -26,12 +26,13 @@ interface ServerFiles
 
     /**
      * Entries of a directory ('' = server root), keyed by name, or null when it doesn't exist.
+     * `modified` (unix seconds) only when the node reported a readable modification time.
      *
-     * @return array<string, array{size: int, directory: bool}>|null
+     * @return array<string, array{size: int, directory: bool, modified?: int}>|null
      */
     public function list(Server $server, string $directory): ?array;
 
-    /** @return array{size: int, directory: bool}|null */
+    /** @return array{size: int, directory: bool, modified?: int}|null */
     public function stat(Server $server, string $path): ?array;
 
     /** Creates a directory and its parents; existing ones are fine. */

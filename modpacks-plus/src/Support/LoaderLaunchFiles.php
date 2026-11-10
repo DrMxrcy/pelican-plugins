@@ -9,7 +9,8 @@ use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
  * Plan 43: what a loader egg's install script leaves behind when it worked, so a loader
  * switch can tell a reinstall the node reported successful (live 2026-11-10: a script that
  * printed a message and exited 1 still counted as installed) from one that left nothing to
- * start. At most two directory listings (the root and `libraries/net`), no file contents.
+ * start. At most two directory listings (the root and `libraries/net`), no file contents;
+ * a launch file left by the previous loader (older than the reinstall) does not count.
  *
  * From the official pelican-eggs/minecraft scripts (checked 2026-11-10):
  * - NeoForge: the installer's `run.sh` and `libraries/net/neoforged/...`, the script links
@@ -23,6 +24,9 @@ use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
  */
 final class LoaderLaunchFiles
 {
+    /** Seconds a launch file may predate the reinstall request (node and panel clocks differ). */
+    public const CLOCK_SKEW = 120;
+
     /** Placeholder for the egg's SERVER_JARFILE value in the map below. */
     private const JAR = '{SERVER_JARFILE}';
 
@@ -54,15 +58,23 @@ final class LoaderLaunchFiles
     }
 
     /**
-     * What is missing for $loader to start, or null when its launch files are there (or the
-     * loader is not one this map knows). Daemon errors propagate: the caller retries.
+     * What is missing for $loader to start (null: its launch files are there, or the loader
+     * is not one this map knows), and whether a matched launch file had no modification time.
+     * With $since, a launch file counts only when it was written at or after $since minus
+     * CLOCK_SKEW: the official scripts rewrite these files on every install, so a file older
+     * than the reinstall was left by the previous loader (live 2026-11-10: a NeoForge to
+     * Fabric switch whose script exited 1 left the old server.jar). A file without a time
+     * counts (`undated`): unknown is not proof of a failed install. Daemon errors propagate:
+     * the caller retries.
      *
      * @param  ?string  $jarFile  the server's SERVER_JARFILE value, if its egg has one
+     * @param  ?int  $since  when the reinstall was requested (unix seconds)
+     * @return array{missing: ?string, undated: bool}
      */
-    public static function missing(ServerFiles $files, Server $server, string $loader, ?string $jarFile): ?string
+    public static function check(ServerFiles $files, Server $server, string $loader, ?string $jarFile, ?int $since = null): array
     {
         if (!self::knows($loader)) {
-            return null;
+            return ['missing' => null, 'undated' => false];
         }
 
         $jarFile = self::jarFile($jarFile);
@@ -84,8 +96,25 @@ final class LoaderLaunchFiles
 
         foreach ($alternatives as $alternative) {
             $missing = [];
-            if (!self::anyFile($root, $alternative['root'])) {
+            $undated = false;
+            $present = self::presentFiles($root, $alternative['root']);
+            if ($present === []) {
                 $missing[] = implode(' or ', $alternative['root']);
+            } elseif ($since !== null) {
+                $fresh = false;
+                foreach ($present as $name) {
+                    $modified = $root[$name]['modified'] ?? null;
+                    if ($modified === null) {
+                        $undated = true;
+                    } elseif ($modified >= $since - self::CLOCK_SKEW) {
+                        $fresh = true;
+                    }
+                }
+                if ($fresh) {
+                    $undated = false;
+                } elseif (!$undated) {
+                    $missing[] = implode(' or ', $alternative['root']).' (only older than the reinstall: '.implode(', ', $present).')';
+                }
             }
             if ($alternative['library'] !== null) {
                 $libraries ??= $files->list($server, 'libraries/net') ?? [];
@@ -95,28 +124,31 @@ final class LoaderLaunchFiles
             }
 
             if ($missing === []) {
-                return null;
+                return ['missing' => null, 'undated' => $undated];
             }
             $missingParts[] = implode(' + ', $missing);
         }
 
         // Every loader has an alternative without the jar placeholder, so this is never empty.
-        return implode('; or ', $missingParts);
+        return ['missing' => implode('; or ', $missingParts), 'undated' => false];
+    }
+
+    /** check() without the time check: what is missing, or null. */
+    public static function missing(ServerFiles $files, Server $server, string $loader, ?string $jarFile): ?string
+    {
+        return self::check($files, $server, $loader, $jarFile)['missing'];
     }
 
     /**
-     * @param  array<string, array{size: int, directory: bool}>  $root
+     * The names among $names that are files in the root.
+     *
+     * @param  array<string, array{size: int, directory: bool, modified?: int}>  $root
      * @param  array<int, string>  $names
+     * @return array<int, string>
      */
-    private static function anyFile(array $root, array $names): bool
+    private static function presentFiles(array $root, array $names): array
     {
-        foreach ($names as $name) {
-            if (isset($root[$name]) && !$root[$name]['directory']) {
-                return true;
-            }
-        }
-
-        return false;
+        return array_values(array_filter($names, fn (string $name) => isset($root[$name]) && !$root[$name]['directory']));
     }
 
     /** A plain file name in the root, as the egg's startup runs it; anything else is ignored. */

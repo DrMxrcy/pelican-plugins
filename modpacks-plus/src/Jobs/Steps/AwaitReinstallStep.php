@@ -19,7 +19,8 @@ use Throwable;
  *
  * Plan 43: a node can report an install script that failed as a successful install, so a
  * reported success is only taken once the target loader's launch files are on the server
- * (LoaderLaunchFiles, two listings at most). Missing: `reinstall_incomplete`, same
+ * and written since the request (LoaderLaunchFiles, two listings at most, 120 s clock skew;
+ * a file without a time counts, logged once). Missing: `reinstall_incomplete`, same
  * outcome as a failed reinstall. A daemon error while listing is retried within the deadline.
  */
 class AwaitReinstallStep extends InstallStep
@@ -67,7 +68,7 @@ class AwaitReinstallStep extends InstallStep
         $loader = (string) ($install->loader_switch['loader'] ?? '');
 
         try {
-            $missing = LoaderLaunchFiles::missing($this->files(), $server, $loader, self::jarFile($server));
+            $result = LoaderLaunchFiles::check($this->files(), $server, $loader, self::jarFile($server), $requested->getTimestamp());
         } catch (Throwable $exception) {
             report($exception);
             if (!$install->progressValue('reinstall_check_logged')) {
@@ -78,8 +79,14 @@ class AwaitReinstallStep extends InstallStep
             return StepResult::again(self::POLL_SECONDS);
         }
 
-        if ($missing !== null) {
-            throw new StepFailedException('reinstall_incomplete', $missing);
+        if ($result['missing'] !== null) {
+            throw new StepFailedException('reinstall_incomplete', $result['missing']);
+        }
+
+        if ($result['undated'] && !$install->progressValue('reinstall_check_undated')) {
+            // The node gave no modification time: whether the reinstall wrote the file is unknown.
+            $install->setProgress('reinstall_check_undated', true);
+            $install->addLog('warning', 'reinstall_check_undated', []);
         }
 
         return StepResult::done();

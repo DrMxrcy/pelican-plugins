@@ -259,7 +259,10 @@ official [pelican-eggs/minecraft](https://github.com/pelican-eggs/minecraft) loa
    that the new loader's launch files are there (NeoForge/Forge: `unix_args.txt` or `run.sh` and
    `libraries/net/neoforged` / `libraries/net/minecraftforge`, or for old Forge the `SERVER_JARFILE`
    jar; Fabric/Quilt: `fabric-server-launch.jar` / `quilt-server-launch.jar` or the `SERVER_JARFILE`
-   jar). A node can report an install script that failed (e.g. `exit 1`) as a successful install;
+   jar), written by this reinstall (a launch file older than the reinstall request, beyond 120 s of
+   clock skew, was left by the previous loader and does not count; a node that reports no file times
+   is trusted, with a warning in the log). A node can report an install script that failed (e.g.
+   `exit 1`) as a successful install;
    then the switch ends `failed` with `reinstall_incomplete` before any pack file is downloaded,
    like a failed reinstall;
 6. **put worlds and player files back** (anything the reinstall made in their place is kept in

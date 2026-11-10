@@ -100,14 +100,31 @@ class DaemonServerFiles implements ServerFiles
         $result = [];
         foreach ($entries as $entry) {
             if (is_array($entry) && is_string($entry['name'] ?? null)) {
-                $result[$entry['name']] = [
+                $item = [
                     'size' => is_numeric($entry['size'] ?? null) ? (int) $entry['size'] : 0,
                     'directory' => (bool) ($entry['directory'] ?? false),
                 ];
+                $modified = self::modifiedTime($entry['modified'] ?? null);
+                if ($modified !== null) {
+                    $item['modified'] = $modified;
+                }
+                $result[$entry['name']] = $item;
             }
         }
 
         return $result;
+    }
+
+    /** Wings reports `modified` as an RFC 3339 time; anything unreadable is left out. */
+    private static function modifiedTime(mixed $value): ?int
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        $time = strtotime($value);
+
+        return $time === false || $time <= 0 ? null : $time;
     }
 
     public function stat(Server $server, string $path): ?array

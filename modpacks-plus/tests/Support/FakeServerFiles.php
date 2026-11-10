@@ -9,6 +9,7 @@ use DrMxrcy\ModpacksPlus\Services\DaemonServerFiles;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
+use Illuminate\Support\Carbon;
 use RuntimeException;
 
 /**
@@ -23,6 +24,12 @@ final class FakeServerFiles implements ServerFiles
 
     /** @var array<string, true> */
     public array $dirs = [];
+
+    /** @var array<string, int> path => modification time (unix seconds), set on every write */
+    public array $modified = [];
+
+    /** Whether listings carry `modified` (false: a node that reports none). */
+    public bool $reportsModified = true;
 
     /** @var array<string, string> URL => body the "node" downloads */
     public array $remote = [];
@@ -64,6 +71,8 @@ final class FakeServerFiles implements ServerFiles
         $copy->worlds = array_values(array_unique(array_merge($this->worlds, $worlds)));
         $copy->files = &$this->files;
         $copy->dirs = &$this->dirs;
+        $copy->modified = &$this->modified;
+        $copy->reportsModified = &$this->reportsModified;
         $copy->calls = &$this->calls;
         $copy->violations = &$this->violations;
         $copy->remote = &$this->remote;
@@ -133,6 +142,18 @@ final class FakeServerFiles implements ServerFiles
             $this->mkdirs($directory);
         }
         $this->files[$path] = $contents;
+        $this->modified[$path] = Carbon::now()->getTimestamp();
+    }
+
+    /** @return array{size: int, directory: bool, modified?: int} */
+    private function fileEntry(string $path): array
+    {
+        $entry = ['size' => strlen($this->files[$path]), 'directory' => false];
+        if ($this->reportsModified && isset($this->modified[$path])) {
+            $entry['modified'] = $this->modified[$path];
+        }
+
+        return $entry;
     }
 
     /** @return array<int, array<int, mixed>> arguments of every call of $operation */
@@ -186,7 +207,7 @@ final class FakeServerFiles implements ServerFiles
             if ($prefix === '' || str_starts_with($path, $prefix)) {
                 $rest = substr($path, strlen($prefix));
                 if (!str_contains($rest, '/')) {
-                    $entries[$rest] = ['size' => strlen($contents), 'directory' => false];
+                    $entries[$rest] = $this->fileEntry($path);
                 }
             }
         }
@@ -211,7 +232,7 @@ final class FakeServerFiles implements ServerFiles
         }
 
         if (isset($this->files[$path])) {
-            return ['size' => strlen($this->files[$path]), 'directory' => false];
+            return $this->fileEntry($path);
         }
 
         return isset($this->dirs[$path]) ? ['size' => 4096, 'directory' => true] : null;
@@ -241,6 +262,7 @@ final class FakeServerFiles implements ServerFiles
 
         if (isset($this->files[$from])) {
             $this->put($to, $this->files[$from]);
+            $this->modified[$to] = $this->modified[$from] ?? $this->modified[$to];
             unset($this->files[$from]);
 
             return;
@@ -254,6 +276,7 @@ final class FakeServerFiles implements ServerFiles
         foreach ($this->files as $path => $contents) {
             if (str_starts_with($path, "$from/")) {
                 $this->put($to.substr($path, strlen($from)), $contents);
+                $this->modified[$to.substr($path, strlen($from))] = $this->modified[$path] ?? Carbon::now()->getTimestamp();
                 unset($this->files[$path]);
             }
         }

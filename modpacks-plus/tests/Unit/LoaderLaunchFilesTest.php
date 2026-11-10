@@ -97,6 +97,46 @@ class LoaderLaunchFilesTest extends TestCase
         $this->assertSame('fabric-server-launch.jar', LoaderLaunchFiles::missing($fake, new Server(), 'fabric', null));
     }
 
+    public function test_a_launch_file_older_than_the_reinstall_does_not_count(): void
+    {
+        $since = 1_800_000_000;
+        $fake = (new FakeServerFiles())->seed(['server.jar' => 'old', 'fabric-server-launch.jar' => 'old']);
+        $fake->modified = ['server.jar' => $since - LoaderLaunchFiles::CLOCK_SKEW - 1, 'fabric-server-launch.jar' => $since - 3600];
+
+        $this->assertSame(
+            ['missing' => 'fabric-server-launch.jar or server.jar (only older than the reinstall: fabric-server-launch.jar, server.jar)', 'undated' => false],
+            LoaderLaunchFiles::check($fake, new Server(), 'fabric', 'server.jar', $since),
+        );
+
+        // Within the clock skew: written by the reinstall.
+        $fake->modified['server.jar'] = $since - LoaderLaunchFiles::CLOCK_SKEW;
+        $this->assertSame(['missing' => null, 'undated' => false], LoaderLaunchFiles::check($fake, new Server(), 'fabric', 'server.jar', $since));
+    }
+
+    public function test_a_fresh_run_script_passes_while_the_old_link_is_stale(): void
+    {
+        $since = 1_800_000_000;
+        $fake = (new FakeServerFiles())->seed(['unix_args.txt' => 'x', 'run.sh' => 'x', 'libraries/net/minecraftforge/forge/x' => 'x']);
+        $fake->modified['unix_args.txt'] = $since - 3600;
+        $fake->modified['run.sh'] = $since + 30;
+
+        $this->assertSame(['missing' => null, 'undated' => false], LoaderLaunchFiles::check($fake, new Server(), 'forge', null, $since));
+
+        $fake->modified['run.sh'] = $since - 3600;
+        $this->assertSame(
+            'unix_args.txt or run.sh (only older than the reinstall: unix_args.txt, run.sh)',
+            LoaderLaunchFiles::check($fake, new Server(), 'forge', null, $since)['missing'],
+        );
+    }
+
+    public function test_a_launch_file_without_a_time_counts_as_undated(): void
+    {
+        $fake = (new FakeServerFiles())->seed(['server.jar' => 'x']);
+        $fake->reportsModified = false;
+
+        $this->assertSame(['missing' => null, 'undated' => true], LoaderLaunchFiles::check($fake, new Server(), 'quilt', 'server.jar', 1_800_000_000));
+    }
+
     public function test_an_unknown_loader_is_not_checked(): void
     {
         $fake = new FakeServerFiles();

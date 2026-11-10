@@ -404,6 +404,144 @@ class LoaderSwitchTest extends TestCase
         $this->assertSame([], $this->files->violations);
     }
 
+    /** An official pelican-eggs Fabric or Quilt egg as the panel's importer leaves it. */
+    private function makeLauncherEgg(string $loader, string $jarDefault = 'server.jar'): Egg
+    {
+        $uuid = ['fabric' => '78b02ebb-fec8-49c5-943c-ca4aa117b693', 'quilt' => 'dff33655-6e6a-4430-accf-e5aea04c2912'][$loader];
+        /** @var Egg $egg */
+        $egg = Egg::factory()->create([
+            'uuid' => $uuid,
+            'name' => ucfirst($loader),
+            'tags' => ['minecraft'],
+            'update_url' => "https://raw.githubusercontent.com/pelican-eggs/minecraft/main/java/$loader/egg-$loader.yaml",
+            'startup_commands' => ['Default' => 'java -jar {{SERVER_JARFILE}}'],
+            'docker_images' => ['Java 21' => 'ghcr.io/pelican-eggs/yolks:java_21'],
+        ]);
+        EggVariable::factory()->create(['egg_id' => $egg->id, 'env_variable' => 'MC_VERSION', 'default_value' => 'latest', 'rules' => ['required', 'string', 'between:3,15']]);
+        if ($loader === 'fabric') {
+            EggVariable::factory()->create(['egg_id' => $egg->id, 'env_variable' => 'LOADER_VERSION', 'default_value' => 'latest', 'rules' => ['required', 'string', 'between:3,15']]);
+        }
+        EggVariable::factory()->create(['egg_id' => $egg->id, 'env_variable' => 'SERVER_JARFILE', 'default_value' => $jarDefault, 'rules' => ['required', 'regex:/^([\w\d._-]+)(\.jar)$/']]);
+
+        return $egg->fresh() ?? $egg;
+    }
+
+    /**
+     * A NeoForge 1.21.1 server (the live 2026-11-10 case) with a world, player lists, the
+     * NeoForge launch files and an old server.jar from an hour ago, and a $loader pack on offer.
+     */
+    private function neoForgeServerSwitchingTo(string $loader): Server
+    {
+        [, $server] = $this->scenarioServer([], ['minecraft', 'neoforge'], '1.21.1');
+        $this->scenarioPack(null, ['minecraft' => '1.21.1', $loader.'-loader' => $loader === 'fabric' ? '0.16.9' : '0.27.1']);
+        $this->files->seed([
+            'world/level.dat' => 'level',
+            'ops.json' => '[{"name":"owner"}]',
+            'whitelist.json' => '["friend"]',
+            'server.properties' => "motd=hi\nlevel-name=world\n",
+            'server.jar' => 'old jar',
+        ] + self::NEOFORGE_LAUNCH_FILES);
+        $hourAgo = now()->subHour()->getTimestamp();
+        foreach (['server.jar', ...array_keys(self::NEOFORGE_LAUNCH_FILES)] as $path) {
+            $this->files->modified[$path] = $hourAgo;
+        }
+
+        return $server;
+    }
+
+    private function startLauncherSwitch(Server $server, string $loader, Egg $egg): PackInstall
+    {
+        return app(InstallEngine::class)->start($server, null, ModrinthPackProvider::ID, Mrpack::PACK_ID, Mrpack::VERSION_ID, 'Pack', '1.0.0', null, [
+            'loader' => $loader,
+            'minecraft' => '1.21.1',
+            'egg_id' => $egg->id,
+            'egg_name' => $egg->name,
+        ]);
+    }
+
+    /** Plan 43 (live 2026-11-10): the Fabric script exited 1, the old server.jar was still there. */
+    public function test_a_stale_jar_from_the_previous_loader_fails_the_switch_reinstall_incomplete(): void
+    {
+        $server = $this->neoForgeServerSwitchingTo('fabric');
+        $egg = $this->makeLauncherEgg('fabric');
+        $kept = $this->keptFiles();
+        $this->reinstallCreates = [];
+
+        $this->startLauncherSwitch($server, 'fabric', $egg);
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_FAILED, $install->status, (string) $install->error.' '.$install->progressValue('error_detail'));
+        $this->assertSame('reinstall_incomplete', $install->error);
+        // server.jar is the SERVER_JARFILE value, read from the egg.
+        $this->assertSame('fabric-server-launch.jar or server.jar (only older than the reinstall: server.jar)', $install->progressValue('error_detail'));
+        $this->assertSame([], $this->files->callsOf('pull'));
+        foreach ($kept as $path => $contents) {
+            $this->assertSame($contents, $this->files->files[$install->preserved_path."/$path"] ?? null, $path);
+        }
+        $this->assertTrue($install->isRestorable());
+    }
+
+    public function test_a_fabric_jar_the_reinstall_wrote_passes(): void
+    {
+        $server = $this->neoForgeServerSwitchingTo('fabric');
+        $egg = $this->makeLauncherEgg('fabric');
+        $kept = $this->keptFiles();
+        // What the official Fabric script leaves (the launcher renamed to server.jar).
+        $this->reinstallCreates = ['server.jar' => 'fabric launch', 'minecraft-server.jar' => 'vanilla', 'fabric-server-launcher.properties' => 'serverJar=minecraft-server.jar'];
+
+        $this->startLauncherSwitch($server, 'fabric', $egg);
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) $install->error.' '.$install->progressValue('error_detail'));
+        $this->assertSame($kept, $this->keptFiles());
+        $this->assertNotContains('reinstall_check_undated', array_column($install->log ?? [], 'key'));
+    }
+
+    public function test_a_quilt_switch_finds_the_jar_under_the_servers_own_jar_name(): void
+    {
+        $server = $this->neoForgeServerSwitchingTo('quilt');
+        $egg = $this->makeLauncherEgg('quilt', 'launch.jar');
+        // Only the SERVER_JARFILE lookup can find this one (not quilt-server-launch.jar, not server.jar).
+        $this->reinstallCreates = ['launch.jar' => 'quilt launch', 'minecraft.jar' => 'vanilla'];
+
+        $this->startLauncherSwitch($server, 'quilt', $egg);
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) $install->error.' '.$install->progressValue('error_detail'));
+    }
+
+    public function test_a_quilt_switch_whose_script_left_nothing_new_fails(): void
+    {
+        $server = $this->neoForgeServerSwitchingTo('quilt');
+        $egg = $this->makeLauncherEgg('quilt', 'launch.jar');
+        $this->reinstallCreates = [];
+
+        $this->startLauncherSwitch($server, 'quilt', $egg);
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame('reinstall_incomplete', $install->error);
+        $this->assertSame('quilt-server-launch.jar or launch.jar', $install->progressValue('error_detail'));
+    }
+
+    public function test_launch_files_without_a_time_count_and_are_logged_once(): void
+    {
+        $server = $this->neoForgeServerSwitchingTo('fabric');
+        $egg = $this->makeLauncherEgg('fabric');
+        $this->files->reportsModified = false;
+        $this->reinstallCreates = [];
+
+        $this->startLauncherSwitch($server, 'fabric', $egg);
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) $install->error.' '.$install->progressValue('error_detail'));
+        $this->assertSame(1, count(array_keys(array_column($install->log ?? [], 'key'), 'reinstall_check_undated', true)));
+    }
+
     public function test_a_daemon_error_while_checking_the_reinstall_is_retried_not_failed(): void
     {
         $server = $this->fabricServer();

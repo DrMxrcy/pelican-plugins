@@ -237,6 +237,26 @@ class DaemonServerFilesTest extends TestCase
         Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/files/rename'));
     }
 
+    /** Plan 43: the node's `modified` time is passed on as unix seconds; unreadable ones are left out. */
+    public function test_listings_carry_the_modification_time_when_the_node_gives_one(): void
+    {
+        $node = $this->server->node;
+        Http::swap(new HttpFactory());
+        Http::fake([
+            '*/files/list-directory*' => Http::response([
+                ['name' => 'server.jar', 'size' => 10, 'directory' => false, 'modified' => '2026-11-10T12:00:00Z'],
+                ['name' => 'run.sh', 'size' => 5, 'directory' => false, 'modified' => 'not a time'],
+                ['name' => 'libraries', 'size' => 0, 'directory' => true],
+            ], 200, ['User-Agent' => "Pelican Wings/v1.0.0 (id:{$node->daemon_token_id})"]),
+        ]);
+
+        $this->assertSame([
+            'server.jar' => ['size' => 10, 'directory' => false, 'modified' => 1_794_312_000],
+            'run.sh' => ['size' => 5, 'directory' => false],
+            'libraries' => ['size' => 0, 'directory' => true],
+        ], $this->files()->list($this->server, ''));
+    }
+
     public function test_server_power_reads_the_state_and_sends_stop(): void
     {
         $node = $this->server->node;
