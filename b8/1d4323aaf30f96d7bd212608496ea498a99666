@@ -1,0 +1,47 @@
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_d13fa3cc187b42 252-255
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_e8bc7d8f7fb86b 222,307
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_cd13af42f4e8fd 222,307
+modpacks-plus/src/Contracts/ServerFiles.php
+  s_1d8485e49bfacb::t_ef0a49e0465614 29,31,35
+modpacks-plus/src/Jobs/Steps/AwaitReinstallStep.php
+  s_1d8485e49bfacb::t_5c9297b841891e 22-23,71,82-89
+modpacks-plus/src/Services/DaemonServerFiles.php
+  s_1d8485e49bfacb::t_6d5162db4a8d7f 103,107-111,118-129
+modpacks-plus/src/Support/LoaderLaunchFiles.php
+  s_1d8485e49bfacb::t_58ad2232574774 12-13,27-29,61-68,71-72,74,77,99-101,103-117,127,133-139,143-145,147,149,151
+modpacks-plus/tests/Feature/DaemonServerFilesTest.php
+  s_6a99f84a9513ab::t_0b00101fe5704f 240-259
+modpacks-plus/tests/Feature/LoaderSwitchTest.php
+  s_1d8485e49bfacb::t_8bfd2bb34eca44 407-544
+modpacks-plus/tests/Support/FakeServerFiles.php
+  s_1d8485e49bfacb::t_cae6a422b54971 12,28-33,74-75,145-156,210,235,265,279
+modpacks-plus/tests/Unit/LoaderLaunchFilesTest.php
+  s_1d8485e49bfacb::t_918e3ea7cb65c1 100-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b81d4323aaf30f96d7bd212608496ea498a99666",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    },
+    "s_6a99f84a9513ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e8e29f44-bcd6-44cc-86f6-09a02b877062",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
