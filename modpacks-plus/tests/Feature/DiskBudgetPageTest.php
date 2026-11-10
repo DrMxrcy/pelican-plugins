@@ -2,6 +2,7 @@
 
 namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 
+use App\Enums\ServerState;
 use App\Models\Server;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModpacksPlus\Filament\Server\Pages\ModpacksPage;
@@ -182,6 +183,19 @@ class DiskBudgetPageTest extends TestCase
             Cache::put($key, $junk, 60);
             $this->assertNull(PackSizes::known(ModrinthPackProvider::ID, Mrpack::PACK_ID, Mrpack::VERSION_ID), $junk);
         }
+    }
+
+    /** Plan 39: after a failed reinstall the page says to reinstall instead of starting an install that can only wait. */
+    public function test_install_is_disabled_with_the_reason_after_a_failed_reinstall(): void
+    {
+        $server = $this->actingOn(10 * 1024, 3 * self::GIB);
+        Server::query()->whereKey($server->id)->update(['status' => ServerState::ReinstallFailed->value]);
+        Filament::setTenant($server->fresh());
+
+        $action = $this->installAction();
+
+        $this->assertTrue($action->isDisabled());
+        $this->assertSame(trans('modpacks-plus::strings.install.server_failed_install'), (string) $action->getTooltip());
     }
 
     public function test_without_a_known_size_the_download_size_is_shown_and_install_stays_enabled(): void

@@ -29,6 +29,7 @@ use DrMxrcy\ModpacksPlus\Jobs\Steps\UpdateDiffStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
+use DrMxrcy\ModpacksPlus\Support\ServerAvailability;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -184,6 +185,14 @@ class InstallEngine
                 ->get()->first(fn (PackInstall $install) => $install->hasPreservedPending());
             if ($pending !== null) {
                 throw new InstallRefusedException('preserved_pending', (string) $pending->preserved_path);
+            }
+
+            // Plan 39: after a failed (re)install or while suspended an install could only wait
+            // at its first file step until the deadline; say why now instead. A loader switch
+            // reinstalls the server itself, which repairs a failed install.
+            $stuck = ServerAvailability::stuck($server);
+            if ($stuck === ServerAvailability::SUSPENDED || ($stuck === ServerAvailability::FAILED_INSTALL && $loaderSwitch === null)) {
+                throw new InstallRefusedException('server_unavailable', $stuck);
             }
 
             // The pack this one replaces: the newest installed one (plan 36).

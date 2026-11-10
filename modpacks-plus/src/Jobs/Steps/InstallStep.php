@@ -12,6 +12,7 @@ use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Support\JobClock;
+use DrMxrcy\ModpacksPlus\Support\ServerAvailability;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -131,7 +132,13 @@ abstract class InstallStep implements ShouldQueue
             $install->heartbeat_at = now();
             $install->setStepStatus(static::KEY, PackInstall::STEP_RUNNING);
 
-            if (static::TOUCHES_FILES && $server->isInConflictState()) {
+            $stuck = static::TOUCHES_FILES && $server->isInConflictState() ? ServerAvailability::stuck($server) : null;
+            if (static::TOUCHES_FILES && $server->isInConflictState() && !ServerAvailability::switchRepairs($stuck, $install)) {
+                // Plan 39: a failed (re)install or a suspension never clears by itself; only
+                // busy states (installing, a backup restore, a transfer) are waited out.
+                if ($stuck !== null) {
+                    throw new StepFailedException('server_unavailable', $stuck);
+                }
                 if (!$install->progressValue('conflict_logged_'.static::KEY)) {
                     $install->setProgress('conflict_logged_'.static::KEY, true);
                     $install->addLog('warning', 'waiting_conflict', ['step' => static::KEY]);

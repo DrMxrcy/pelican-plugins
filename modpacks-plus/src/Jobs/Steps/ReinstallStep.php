@@ -8,6 +8,7 @@ use App\Services\Servers\ReinstallServerService;
 use DrMxrcy\ModpacksPlus\Exceptions\StepFailedException;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
+use DrMxrcy\ModpacksPlus\Support\ServerAvailability;
 use Illuminate\Support\Carbon;
 
 /**
@@ -52,7 +53,13 @@ class ReinstallStep extends InstallStep
             throw new StepFailedException('reinstall_not_started', (string) $attempts);
         }
 
-        if ($server->isInConflictState()) {
+        // Plan 39: a failed (re)install is what this reinstall repairs, so only busy states
+        // are waited out; a suspension never clears by itself.
+        $stuck = ServerAvailability::stuck($server);
+        if ($stuck === ServerAvailability::SUSPENDED) {
+            throw new StepFailedException('server_unavailable', $stuck);
+        }
+        if ($server->isInConflictState() && $stuck === null) {
             if (!$install->progressValue('conflict_logged_'.self::KEY)) {
                 $install->setProgress('conflict_logged_'.self::KEY, true);
                 $install->addLog('warning', 'waiting_conflict', ['step' => self::KEY]);

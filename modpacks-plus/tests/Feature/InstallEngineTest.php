@@ -684,7 +684,8 @@ class InstallEngineTest extends TestCase
     {
         [, $server] = $this->scenarioServer();
         $this->scenarioPack();
-        $server->forceFill(['status' => ServerState::Suspended])->save();
+        // A busy state (plan 39: stuck ones are refused up front, see ServerAvailabilityTest).
+        $server->forceFill(['status' => ServerState::RestoringBackup])->save();
 
         $this->start($server);
         $this->runJobs(5);

@@ -26,6 +26,7 @@ use DrMxrcy\ModpacksPlus\Services\ServerDiskUsage;
 use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\DiskBudget;
 use DrMxrcy\ModpacksPlus\Support\EggVariableMap;
+use DrMxrcy\ModpacksPlus\Support\ServerAvailability;
 use DrMxrcy\ModpacksPlus\Support\ServerTarget;
 use DrMxrcy\ModpacksPlus\Support\VersionMatch;
 use Filament\Actions\Action;
@@ -971,8 +972,8 @@ class ModpacksPage extends Page implements HasTable
             // Hidden without the install permissions; updatePack() re-checks them anyway.
             ->visible(fn () => static::canInstall())
             ->authorize(fn () => static::canInstall())
-            ->disabled(fn () => $this->activeInstall() !== null || $wontFit() !== null)
-            ->tooltip(fn () => $wontFit())
+            ->disabled(fn () => $this->activeInstall() !== null || $this->serverBlocked() !== null || $wontFit() !== null)
+            ->tooltip(fn () => $this->serverBlocked() ?? $wontFit())
             ->requiresConfirmation()
             ->modalHeading(fn () => trans('modpacks-plus::strings.install.update_heading', ['name' => (string) $this->lastInstalledPack()?->name, 'version' => $number()]))
             ->modalDescription(fn () => ($installed = $this->lastInstalledPack()) !== null
@@ -1002,8 +1003,8 @@ class ModpacksPage extends Page implements HasTable
             ->authorize(fn () => static::canInstall())
             // Plan 38: a version known not to fit is disabled with the reason; the prepare step
             // is still the real check for everything else.
-            ->disabled(fn () => $this->activeInstall() !== null || $this->wontFit($source, $packId, $version) !== null)
-            ->tooltip(fn () => $this->wontFit($source, $packId, $version))
+            ->disabled(fn () => $this->activeInstall() !== null || $this->serverBlocked() !== null || $this->wontFit($source, $packId, $version) !== null)
+            ->tooltip(fn () => $this->serverBlocked() ?? $this->wontFit($source, $packId, $version))
             ->requiresConfirmation()
             ->modalHeading(trans('modpacks-plus::strings.install.confirm_heading', ['name' => $title, 'version' => $version['version_number']]))
             ->modalDescription(fn () => $this->installDescription($source, $packId, $version))
@@ -1057,6 +1058,20 @@ class ModpacksPage extends Page implements HasTable
         $download = $version['file']['size'] ?? null;
 
         return is_int($download) && $download > 0 ? ['bytes' => $download, 'exact' => false] : null;
+    }
+
+    /**
+     * Plan 39: why the server can't take an install (its last install failed, or it is
+     * suspended), or null. InstallEngine::start() refuses the same states.
+     */
+    private function serverBlocked(bool $forSwitch = false): ?string
+    {
+        $blocked = ServerAvailability::stuck($this->server());
+        if ($forSwitch && $blocked === ServerAvailability::FAILED_INSTALL) {
+            return null;
+        }
+
+        return $blocked === null ? null : trans('modpacks-plus::strings.install.server_'.$blocked);
     }
 
     /**
@@ -1154,7 +1169,9 @@ class ModpacksPage extends Page implements HasTable
             // Hidden without the switch permission; switchLoaderAndInstall() re-checks it anyway.
             ->visible(fn () => static::canSwitchLoader())
             ->authorize(fn () => static::canSwitchLoader())
-            ->disabled(fn () => $this->activeInstall() !== null)
+            // Plan 39: a switch reinstalls the server, so a failed install doesn't block it.
+            ->disabled(fn () => $this->activeInstall() !== null || $this->serverBlocked(forSwitch: true) !== null)
+            ->tooltip(fn () => $this->serverBlocked(forSwitch: true))
             ->requiresConfirmation()
             ->modalHeading(trans('modpacks-plus::strings.install.switch_heading', ['name' => $title, 'version' => $version['version_number'], 'target' => $needs]))
             ->modalDescription(fn () => $this->switchDescription($target))

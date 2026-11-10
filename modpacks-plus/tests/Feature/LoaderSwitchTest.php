@@ -25,6 +25,7 @@ use DrMxrcy\ModpacksPlus\Jobs\Steps\SnapshotStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
+use DrMxrcy\ModpacksPlus\Support\ServerAvailability;
 use DrMxrcy\ModpacksPlus\Support\ServerTarget;
 use DrMxrcy\ModpacksPlus\Tests\Support\InstallScenario;
 use DrMxrcy\ModpacksPlus\Tests\Support\Mrpack;
@@ -957,6 +958,38 @@ class LoaderSwitchTest extends TestCase
         $this->runRestoreJobs();
 
         return $install->refresh();
+    }
+
+    /**
+     * Plan 39 (live 2026-11-10): after a failed reinstall the server stays reinstall_failed.
+     * A plain install is refused with the reason; retrying the switch reinstalls the server,
+     * which repairs it, and its steps up to the reinstall don't wait on that state.
+     */
+    public function test_after_a_failed_reinstall_a_plain_install_is_refused_and_a_retried_switch_repairs_it(): void
+    {
+        $install = $this->restore($this->failedSwitchAwaitingRestore());
+        $server = $install->server ?? $this->fail('server');
+        $this->assertSame(ServerState::ReinstallFailed, $server->fresh()?->status);
+        $kept = $this->keptFiles();
+
+        try {
+            app(InstallEngine::class)->start($server->fresh(), null, ModrinthPackProvider::ID, Mrpack::PACK_ID, Mrpack::VERSION_ID, 'Neo Pack', '1.0.0');
+            $this->fail('expected server_unavailable');
+        } catch (InstallRefusedException $exception) {
+            $this->assertSame('server_unavailable', $exception->reason);
+            $this->assertSame(ServerAvailability::FAILED_INSTALL, $exception->detail);
+        }
+
+        $this->reinstallOutcome = null;
+        $this->scenarioPack(null, ['minecraft' => '1.21.1', 'neoforge' => '21.1.77']);
+        $this->startSwitch($server->fresh());
+        $this->runSwitch($server);
+
+        $retry = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $retry->status, (string) $retry->error.' '.json_encode(array_slice($retry->log ?? [], -3)));
+        $this->assertNotContains('waiting_conflict', array_column($retry->log ?? [], 'key'));
+        $this->assertNull($server->fresh()?->status);
+        $this->assertSame($kept, $this->keptFiles());
     }
 
     public function test_a_planted_own_folder_name_neither_blocks_restore_nor_installs(): void

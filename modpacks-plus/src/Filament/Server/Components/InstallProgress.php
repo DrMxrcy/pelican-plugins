@@ -6,6 +6,7 @@ use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\ModrinthMetadataWriter;
 use DrMxrcy\ModpacksPlus\Support\DiskBudget;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
+use DrMxrcy\ModpacksPlus\Support\ServerAvailability;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\HtmlString;
 
@@ -71,6 +72,11 @@ final class InstallProgress
 
     public static function reason(string $reason, string $detail): string
     {
+        // Plan 39: the detail is a ServerAvailability state with its own explanation.
+        if ($reason === 'server_unavailable' && in_array($detail, [ServerAvailability::FAILED_INSTALL, ServerAvailability::SUSPENDED], true)) {
+            return trans('modpacks-plus::strings.install.server_'.$detail);
+        }
+
         $params = ['detail' => $detail];
         if ($reason === 'not_enough_disk') {
             $params += DiskBudget::detailParams($detail);

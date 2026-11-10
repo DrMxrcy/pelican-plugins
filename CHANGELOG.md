@@ -8,16 +8,16 @@
 - Every player gets a profile with playtime, past sessions and in-game stats.
 - Player history also includes joins and leaves recorded in the server log, even from before the plugin was installed.
 - Kick, ban, whitelist and op players without typing console commands.
-- (pending) Browse Modrinth modpacks and install one onto your server, with an automatic backup first.
+- Browse Modrinth modpacks and install one onto your server, with an automatic backup first.
 - (pending) Install CurseForge modpacks too, using the official server pack when one exists.
 - (pending) FTB and ATLauncher modpacks can be installed as well.
 - Mods that came with a modpack show up in the Mods page, ready to update one by one.
 - One page shows who is online and how busy every Minecraft server is.
-- (pending) Installing a modpack can switch your server to the mod loader the pack needs.
-- (pending) Update or change modpacks while your worlds, whitelist and bans stay safe, and get told when a pack update is out.
-- (pending) Bigger modpacks install when the server has room: the pack size limit follows the server's disk limit and free space.
+- Installing a modpack can switch your server to the mod loader the pack needs.
+- Update or change modpacks while your worlds, whitelist and bans stay safe, and get told when a pack update is out.
+- Bigger modpacks install when the server has room: the pack size limit follows the server's disk limit and free space.
 
-## v0.4.0 — 2026-11-08
+## v0.4.0 — 2026-11-10
 
 Minecraft Modrinth Plus gets a big upgrade. Highlights:
 - The mod list hides mods that only work on players' games and marks the ones players need too.
