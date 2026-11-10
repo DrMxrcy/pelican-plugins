@@ -172,6 +172,20 @@ class FtbPackProviderTest extends TestCase
         $this->assertSame('100', $this->provider()->search(null, null, null)['hits'][0]['id']);
     }
 
+    public function test_search_without_a_version_or_loader_lists_packs_for_any_loader_with_a_bounded_term(): void
+    {
+        $pack = Ftb::pack();
+        Http::fake([
+            Ftb::API.'modpack/search/100*' => Http::response(['packs' => [100]]),
+            Ftb::API.'modpack/100' => Http::response($pack),
+            '*' => Http::response('unexpected', 500),
+        ]);
+
+        $this->assertSame(['100'], array_column($this->provider()->search(str_repeat('s', 80), null, null)['hits'], 'id'));
+        Http::assertSent(fn (Request $request) => str_starts_with($request->url(), 'https://api.modpacks.ch/public/modpack/search/100?term='.str_repeat('s', 64))
+            && !str_contains($request->url(), str_repeat('s', 65)));
+    }
+
     public function test_project_and_versions_are_read_and_cleaned(): void
     {
         $this->fake([]);

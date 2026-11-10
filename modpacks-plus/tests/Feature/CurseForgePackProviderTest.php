@@ -100,6 +100,21 @@ class CurseForgePackProviderTest extends TestCase
         $this->assertSame('https://media.forgecdn.net/avatars/thumbnails/1/2/64/64/logo.png', $hit['icon_url']);
     }
 
+    public function test_search_without_a_version_or_loader_sends_neither_and_a_bounded_query(): void
+    {
+        Http::fake([CurseForge::API.'mods/search*' => Http::response(['data' => [], 'pagination' => ['totalCount' => 0]])]);
+
+        $this->provider()->search(str_repeat('x', 150), null, null, [], null, 1, 500);
+
+        Http::assertSent(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return !isset($query['gameVersion']) && !isset($query['modLoaderType'])
+                && $query['searchFilter'] === str_repeat('x', 100) && (int) $query['pageSize'] <= 50 && $query['classId'] === '4471';
+        });
+        $this->assertOnlyCurseForgeApi();
+    }
+
     public function test_search_never_loops_over_more_hits_than_asked_for(): void
     {
         $hits = [];

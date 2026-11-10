@@ -357,6 +357,21 @@ class ModrinthPackProviderTest extends TestCase
         });
     }
 
+    public function test_search_without_a_version_or_loader_sends_only_the_modpack_facet_and_a_bounded_query(): void
+    {
+        Http::fake(['api.modrinth.com/v2/search*' => Http::response(['hits' => [], 'total_hits' => 0])]);
+
+        $this->provider()->search(' '.str_repeat('p', 150).' ', null, null, [], 'bogus', 1, 500);
+
+        Http::assertSentCount(1);
+        Http::assertSent(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return json_decode($query['facets'], true) === [['project_type:modpack']]
+                && $query['query'] === str_repeat('p', 100) && $query['index'] === 'relevance' && $query['limit'] === '100';
+        });
+    }
+
     public function test_versions_are_normalised_with_their_mrpack(): void
     {
         $archive = Mrpack::zip(['modrinth.index.json' => Mrpack::index([])]);

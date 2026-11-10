@@ -93,6 +93,11 @@ class ModpacksPage extends Page implements HasTable
 
     private const PER_PAGE = 20;
 
+    /** Plan 45: "Show packs for" filter values. */
+    private const TARGET_SERVER = 'server';
+
+    private const TARGET_ANY = 'any';
+
     /** Versions listed in the detail view (newest first). */
     private const MAX_VERSIONS = 25;
 
@@ -261,9 +266,16 @@ class ModpacksPage extends Page implements HasTable
             return;
         }
 
+        // Plan 45: "Show packs for" stays as chosen on the other tab (sort and categories are per source).
+        $target = $this->selectedTarget($this->tableFilters);
+
         $this->source = $source;
         $this->sourceError = null;
         $this->resetTable();
+
+        if ($target === self::TARGET_ANY) {
+            $this->tableFilters['target'] = ['value' => self::TARGET_ANY];
+        }
     }
 
     /** The "Also on Modrinth" button: lists the Modrinth pack with that title (the user installs from there). */
@@ -1118,6 +1130,30 @@ class ModpacksPage extends Page implements HasTable
         return is_array($values) ? array_values(array_intersect(array_filter($values, 'is_string'), $known)) : [];
     }
 
+    /**
+     * Plan 45: "Show packs for": this server's Minecraft version and loader (the default) or any.
+     *
+     * @param  array<string, mixed>|null  $filters
+     */
+    private function selectedTarget(?array $filters): string
+    {
+        $value = is_array($filters['target'] ?? null) ? ($filters['target']['value'] ?? null) : null;
+
+        return $value === self::TARGET_ANY ? self::TARGET_ANY : self::TARGET_SERVER;
+    }
+
+    /** "This server (Fabric 1.20.1)", or just "This server" when neither is known. */
+    private function serverTargetLabel(): string
+    {
+        $server = $this->server();
+        $loader = ServerTarget::loader($server);
+        $target = trim(($loader !== null ? ServerTarget::loaderName($loader) : '').' '.(ServerTarget::minecraftVersion($server) ?? ''));
+
+        return $target === ''
+            ? trans('modpacks-plus::strings.filters.targets.server_unknown')
+            : trans('modpacks-plus::strings.filters.targets.server', ['target' => $target]);
+    }
+
     /** @param  array<string, mixed>|null  $filters */
     private function selectedSort(?array $filters): ?string
     {
@@ -1139,11 +1175,14 @@ class ModpacksPage extends Page implements HasTable
                     return new LengthAwarePaginator([], 0, self::PER_PAGE, $page);
                 }
 
+                // Plan 45: "Any" also lists packs that need a loader or version switch (offered in their details).
+                $anyTarget = $this->selectedTarget($filters) === self::TARGET_ANY;
+
                 try {
                     $result = $this->provider()->search(
                         $search,
-                        ServerTarget::minecraftVersion($server),
-                        ServerTarget::loader($server),
+                        $anyTarget ? null : ServerTarget::minecraftVersion($server),
+                        $anyTarget ? null : ServerTarget::loader($server),
                         $this->selectedCategories($filters),
                         $this->selectedSort($filters),
                         $page,
@@ -1169,6 +1208,14 @@ class ModpacksPage extends Page implements HasTable
             ->emptyStateHeading(fn () => $this->sourceError ?? trans('modpacks-plus::strings.page.no_results'))
             ->paginated([self::PER_PAGE])
             ->filters([
+                SelectFilter::make('target')
+                    ->label(trans('modpacks-plus::strings.filters.target'))
+                    ->options(fn () => [
+                        self::TARGET_SERVER => $this->serverTargetLabel(),
+                        self::TARGET_ANY => trans('modpacks-plus::strings.filters.targets.any'),
+                    ])
+                    ->default(self::TARGET_SERVER)
+                    ->selectablePlaceholder(false),
                 SelectFilter::make('sort')
                     ->label(trans('modpacks-plus::strings.filters.sort'))
                     ->options(fn () => collect($this->provider()->sorts())->mapWithKeys(fn (string $sort) => [$sort => trans('modpacks-plus::strings.filters.sorts.'.$sort)])->all())

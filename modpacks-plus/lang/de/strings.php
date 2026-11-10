@@ -30,6 +30,12 @@ return [
         'update_available' => 'Update verfügbar: :version',
     ],
     'filters' => [
+        'target' => 'Packs anzeigen für',
+        'targets' => [
+            'server' => 'Dieser Server (:target)',
+            'server_unknown' => 'Dieser Server',
+            'any' => 'Jede Minecraft-Version und jeder Loader',
+        ],
         'sort' => 'Sortierung',
         'categories' => 'Kategorien',
         'sorts' => [

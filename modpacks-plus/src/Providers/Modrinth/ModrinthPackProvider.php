@@ -104,7 +104,7 @@ class ModrinthPackProvider implements PackProvider
         $perPage = max(1, min(100, $perPage));
 
         $response = $this->get('search', array_filter([
-            'query' => $query !== null && trim($query) !== '' ? trim($query) : null,
+            'query' => $query !== null && trim($query) !== '' ? mb_substr(trim($query), 0, 100) : null,
             'facets' => json_encode($facets),
             'index' => in_array($sort, self::SORTS, true) ? $sort : 'relevance',
             'limit' => $perPage,

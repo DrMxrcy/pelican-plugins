@@ -7,7 +7,8 @@ the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft v
 
 - A **Modpacks** server page with **Modrinth**, **CurseForge**, **FTB** and **ATLauncher** sources: search
   modpacks filtered by the server's Minecraft version and loader, with categories and sort; a pack detail
-  view (description, gallery, versions). See *CurseForge* below for the API key and the opt-in mirror, and
+  view (description, gallery, versions). **Show packs for: Any Minecraft version and loader** lists packs
+  for every version and loader too (FTB never filters by them; ATLauncher only by Minecraft version). See *CurseForge* below for the API key and the opt-in mirror, and
   *FTB and ATLauncher* for those sources.
 - Versions for another Minecraft version or loader offer **Switch to &lt;loader&gt; &lt;version&gt; and install**
   (admins, or everyone with the install permissions when the setting allows it; see *Loader switching*).

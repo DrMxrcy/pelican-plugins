@@ -155,6 +155,24 @@ class AtLauncherPackProviderTest extends TestCase
         return $reasons;
     }
 
+    public function test_search_without_a_version_or_loader_lists_packs_for_every_minecraft_version(): void
+    {
+        Http::fake([
+            AtLauncher::API.'packs/full/public' => Http::response(AtLauncher::data([
+                AtLauncher::pack(),
+                AtLauncher::pack('Pixelmon', ['name' => 'Pixelmon', 'description' => 'Pokemon', 'versions' => [['version' => '9.3', 'minecraft' => '1.21.1', 'published' => 5]]]),
+            ])),
+            '*' => Http::response('unexpected', 500),
+        ]);
+
+        $this->assertSame([], $this->provider()->search('pixelmon', '26.2', 'fabric')['hits']);
+        $this->assertSame(['Pixelmon'], array_column($this->provider()->search('pixelmon', null, null)['hits'], 'id'));
+        $this->assertSame(['TestPack', 'Pixelmon'], array_column($this->provider()->search(null, null, null)['hits'], 'id'));
+        // An over-long query is cut, never sent anywhere (search reads the cached public list).
+        $this->assertSame([], $this->provider()->search(str_repeat('p', 500), null, null)['hits']);
+        Http::assertSentCount(1);
+    }
+
     public function test_search_filters_public_packs_with_the_plugin_user_agent(): void
     {
         Http::fake([

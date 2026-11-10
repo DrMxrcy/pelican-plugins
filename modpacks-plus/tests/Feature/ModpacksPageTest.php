@@ -24,8 +24,11 @@ use Filament\Facades\Filament;
 use Filament\Schemas\Components\Html;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Filament\Tables\Filters\SelectFilter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\Request as HttpRequest;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -854,5 +857,136 @@ class ModpacksPageTest extends TestCase
 
         $this->travel(8)->days();
         Livewire::test(ModpacksPage::class)->assertDontSee((string) $install->preserved_path);
+    }
+
+    /**
+     * Plan 45: Modrinth search lists "Pixelmon" (NeoForge 1.21.1) only when asked without a
+     * Minecraft version or loader, like the real API for a Fabric server.
+     */
+    private function fakeModrinthSearchForOtherLoaders(): void
+    {
+        $this->fakeModrinthApi(extra: [
+            'api.modrinth.com/v2/search*' => function (HttpRequest $request) {
+                parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+                return json_decode((string) ($query['facets'] ?? ''), true) === [['project_type:modpack']]
+                    ? Http::response(['hits' => [['project_id' => Mrpack::PACK_ID, 'slug' => 'pixelmon', 'title' => 'Pixelmon Modpack', 'description' => 'Pokemon', 'downloads' => 5]], 'total_hits' => 41])
+                    : Http::response(['hits' => [], 'total_hits' => 0]);
+            },
+        ]);
+    }
+
+    /** @return array<int, array<string, mixed>> the Modrinth search requests' query strings, in order */
+    private function modrinthSearches(): array
+    {
+        $searches = [];
+        foreach (Http::recorded() as [$request]) {
+            /** @var HttpRequest $request */
+            if (str_contains($request->url(), 'api.modrinth.com/v2/search')) {
+                parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+                $query['facets'] = json_decode((string) $query['facets'], true);
+                $searches[] = $query;
+            }
+        }
+
+        return $searches;
+    }
+
+    public function test_search_defaults_to_this_server_and_any_lists_packs_for_another_loader_and_version(): void
+    {
+        $this->actingOn();
+        $this->fakeModrinthSearchForOtherLoaders();
+
+        $page = Livewire::test(ModpacksPage::class);
+        /** @var ModpacksPage $instance */
+        $instance = $page->instance();
+        $filter = $instance->getTable()->getFilter('target');
+        $this->assertInstanceOf(SelectFilter::class, $filter);
+        $this->assertSame(
+            ['server' => trans('modpacks-plus::strings.filters.targets.server', ['target' => 'Fabric 1.20.1']), 'any' => trans('modpacks-plus::strings.filters.targets.any')],
+            $filter->getOptions(),
+        );
+
+        // Default: exactly today's request (server's version and loader).
+        $page->assertSet('tableFilters.target.value', 'server')
+            ->call('loadTable')
+            ->assertDontSee('Pixelmon Modpack')
+            ->assertSee(trans('modpacks-plus::strings.page.no_results'));
+        $this->assertSame([['facets' => [['project_type:modpack'], ['versions:1.20.1'], ['categories:fabric']], 'index' => 'relevance', 'limit' => '20', 'offset' => '0']], $this->modrinthSearches());
+
+        // Any: no version or loader facet; the pack needing NeoForge 1.21.1 is listed.
+        $page->filterTable('target', 'any')->assertSee('Pixelmon Modpack');
+        $this->assertSame([['project_type:modpack']], Arr::last($this->modrinthSearches())['facets']);
+
+        // The choice survives paging and a tab switch.
+        $page->call('gotoPage', 2);
+        $last = Arr::last($this->modrinthSearches());
+        $this->assertSame(['20', [['project_type:modpack']]], [$last['offset'], $last['facets']]);
+        $page->call('setSource', 'atlauncher')->assertSet('tableFilters.target.value', 'any')
+            ->call('setSource', 'modrinth')->assertSet('tableFilters.target.value', 'any')
+            ->assertSee('Pixelmon Modpack');
+
+        // Back to this server: scoped again.
+        $page->filterTable('target', 'server');
+        $this->assertSame([['project_type:modpack'], ['versions:1.20.1'], ['categories:fabric']], Arr::last($this->modrinthSearches())['facets']);
+    }
+
+    public function test_a_server_with_unknown_version_and_loader_searches_as_before(): void
+    {
+        [$user, $server] = $this->scenarioServer([], ['minecraft'], 'latest');
+        $this->actingAs($user);
+        Filament::setTenant($server);
+        $this->fakeModrinthSearchForOtherLoaders();
+
+        $page = Livewire::test(ModpacksPage::class);
+        /** @var ModpacksPage $instance */
+        $instance = $page->instance();
+        $filter = $instance->getTable()->getFilter('target');
+        $this->assertInstanceOf(SelectFilter::class, $filter);
+        $this->assertSame(trans('modpacks-plus::strings.filters.targets.server_unknown'), $filter->getOptions()['server'] ?? null);
+
+        $page->call('loadTable')->assertSee('Pixelmon Modpack');
+        $this->assertSame([['project_type:modpack']], Arr::last($this->modrinthSearches())['facets']);
+    }
+
+    /** A pack whose only version needs NeoForge 1.21.1 (what "Any" finds from a Fabric 1.20.1 server). */
+    private function fakeOnlyOtherLoaderVersion(): void
+    {
+        $archive = Mrpack::zip(['modrinth.index.json' => Mrpack::index([])]);
+        $other = Mrpack::version($archive);
+        $other['loaders'] = ['neoforge'];
+        $other['game_versions'] = ['1.21.1'];
+
+        $this->fakeModrinthApi(extra: [
+            'api.modrinth.com/v2/project/'.Mrpack::PACK_ID.'/version' => Http::response([$other]),
+        ]);
+    }
+
+    public function test_a_pack_found_with_any_offers_the_switch_only_to_those_allowed_and_never_an_install(): void
+    {
+        $this->importNeoForgeEgg();
+        $this->fakeOnlyOtherLoaderVersion();
+        $needs = ['target' => 'NeoForge 1.21.1'];
+
+        // A viewer without the install permissions: just what it needs.
+        $this->actingOn([SubuserPermission::FileRead]);
+        $this->assertSame(['needs_0' => trans('modpacks-plus::strings.install.needs', $needs)], $this->detailView()[1]);
+
+        // The owner, setting off: ask an admin.
+        $server = $this->actingOn();
+        $this->assertSame(['needs_0' => trans('modpacks-plus::strings.install.ask_admin', $needs)], $this->detailView()[1]);
+
+        // Root admin (setting off) and the owner with the setting on: the existing switch action.
+        $switchers = [
+            fn () => $this->actingAsRootAdminOn($server),
+            function () {
+                config()->set('modpacks-plus.allow_user_loader_switch', true);
+                $this->actingOn();
+            },
+        ];
+        foreach ($switchers as $actAs) {
+            $actAs();
+            $this->assertSame(['switch_0' => trans('modpacks-plus::strings.install.switch', $needs)], $this->detailView()[1]);
+        }
     }
 }
