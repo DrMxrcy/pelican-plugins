@@ -2,18 +2,19 @@
 
 _Full work log — every item, including internal/dev work. The curated public changelog is CHANGELOG.md._
 
-## v0.6.0 — (in progress)
+## v0.6.0 — 2026-11-10
 
 ### ✨ New
-- (pending) Minecraft version and loader picker
+- Minecraft version and loader picker
 - Modpacks Plus: install a CurseForge pack from its link or project ID
-- (pending) Modpacks Plus: apply big override sets as one archive instead of one write per file
-- (pending) Modpacks Plus: catch a loader reinstall that the node reports as successful but left no server to start
+- Modpacks Plus: apply big override sets as one archive instead of one write per file
+- Modpacks Plus: catch a loader reinstall that the node reports as successful but left no server to start
 
 ### 🐛 Fixed
 - Switching away from a big pack times out in move-aside: thousands of old pack files are renamed one request each (~5 s per file)
+- CurseForge manifest installs keep files the author tags Client-only (gameVersions has Client, not Server), so packs without a usable server pack crash at boot
 
-## v0.5.0 — (in progress)
+## v0.5.0 — 2026-11-10
 
 ### ✨ New
 - Persistent page banner when installed mods are incompatible with the current Minecraft version
@@ -25,8 +26,8 @@ _Full work log — every item, including internal/dev work. The curated public c
 - Player history also includes joins and leaves recorded in the server log, even from before the plugin was installed.
 - Kick, ban, whitelist and op players without typing console commands.
 - Browse Modrinth modpacks and install one onto your server, with an automatic backup first.
-- (pending) Install CurseForge modpacks too, using the official server pack when one exists.
-- (pending) FTB and ATLauncher modpacks can be installed as well.
+- Install CurseForge modpacks too, using the official server pack when one exists.
+- FTB and ATLauncher modpacks can be installed as well.
 - Mods that came with a modpack show up in the Mods page, ready to update one by one.
 - One page shows who is online and how busy every Minecraft server is.
 - Installing a modpack can switch your server to the mod loader the pack needs.
@@ -47,6 +48,9 @@ _Full work log — every item, including internal/dev work. The curated public c
 ### 🐛 Fixed
 - Installing a mod never overwrites a file you added yourself with the same name.
 - Documented how to update the plugin and recover if the panel marks it Crashed.
+- Modpacks search only lists packs for the server's current Minecraft version and loader, so packs that need a loader/version switch can't be found
+- An install right after another (e.g. version picker then a pack) fails backup_impossible on the panel's backup throttle instead of waiting for the window
+- A plain install or pack switch (same loader) never stops a running server before moving mods/config aside and writing the pack, so the old pack keeps running and mods saving config on shutdown can overwrite the pack's files
 
 ## v0.3.0 — 2026-11-08
 

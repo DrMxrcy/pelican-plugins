@@ -1,10 +1,10 @@
 # Changelog
 
-## v0.6.0 — (in progress)
+## v0.6.0 — 2026-11-10
 
 _Plus behind-the-scenes performance and reliability work._
 
-## v0.5.0 — (in progress)
+## v0.5.0 — 2026-11-10
 
 ### ✨ New
 - See who is online on your Minecraft server right from the panel.
@@ -13,8 +13,8 @@ _Plus behind-the-scenes performance and reliability work._
 - Player history also includes joins and leaves recorded in the server log, even from before the plugin was installed.
 - Kick, ban, whitelist and op players without typing console commands.
 - Browse Modrinth modpacks and install one onto your server, with an automatic backup first.
-- (pending) Install CurseForge modpacks too, using the official server pack when one exists.
-- (pending) FTB and ATLauncher modpacks can be installed as well.
+- Install CurseForge modpacks too, using the official server pack when one exists.
+- FTB and ATLauncher modpacks can be installed as well.
 - Mods that came with a modpack show up in the Mods page, ready to update one by one.
 - One page shows who is online and how busy every Minecraft server is.
 - Installing a modpack can switch your server to the mod loader the pack needs.
