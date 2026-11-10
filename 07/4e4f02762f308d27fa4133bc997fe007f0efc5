@@ -1,0 +1,31 @@
+players-plus/tests/Fixtures/logs/spoof.log
+  s_1d8485e49bfacb::t_3a6c4104e40cf8 14-20
+players-plus/src/Services/LogParser.php
+  s_1d8485e49bfacb::t_3a6c4104e40cf8 18,48-54,88-91
+players-plus/tests/Fixtures/logs/system-chat.log
+  s_1d8485e49bfacb::t_3a6c4104e40cf8 1-6
+players-plus/tests/Unit/LogParserTest.php
+  s_1d8485e49bfacb::t_3a6c4104e40cf8 66-75
+CHANGELOG.internal.md
+  s_1d8485e49bfacb::t_7132a4a01ca6b3 13
+  s_1d8485e49bfacb::t_ed619a7f160b78 15
+CHANGELOG.md
+  s_1d8485e49bfacb::t_ed619a7f160b78 10
+  s_1d8485e49bfacb::t_7132a4a01ca6b3 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "074e4f02762f308d27fa4133bc997fe007f0efc5",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
