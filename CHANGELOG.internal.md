@@ -11,7 +11,7 @@ _Full work log — every item, including internal/dev work. The curated public c
 - (pending) Modpacks Plus: catch a loader reinstall that the node reports as successful but left no server to start
 
 ### 🐛 Fixed
-- (pending) Switching away from a big pack times out in move-aside: thousands of old pack files are renamed one request each (~5 s per file)
+- Switching away from a big pack times out in move-aside: thousands of old pack files are renamed one request each (~5 s per file)
 
 ## v0.5.0 — (in progress)
 
