@@ -3,10 +3,17 @@
 namespace DrMxrcy\ModpacksPlus\Jobs\Steps;
 
 use App\Models\Server;
+use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
 use DrMxrcy\ModpacksPlus\Exceptions\StepFailedException;
+use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
+use DrMxrcy\ModpacksPlus\Services\PreservedFiles;
+use DrMxrcy\ModpacksPlus\Support\DirectoryListings;
+use DrMxrcy\ModpacksPlus\Support\JobClock;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
+use Illuminate\Http\Client\RequestException;
+use RuntimeException;
 
 /**
  * Moves the previous pack's folders into `.modpacks-plus/previous-<date>-<id>/`.
@@ -86,6 +93,11 @@ class MoveAsideStep extends InstallStep
     /**
      * The previous install's files outside FOLDERS (those moved as a whole), by its manifest.
      * Protected paths are never touched; a file already gone is skipped.
+     *
+     * Plan 44: up to ServerFiles::RENAME_BATCH files per daemon request, decided from one
+     * listing per directory. A batch is recorded in progress.moved before it moves; after a
+     * killed worker the files already aside are simply gone from the root (skipped). A batch
+     * the node refuses goes per file, as before.
      */
     private function moveRecordedFiles(PackInstall $install, Server $server, InstallEngine $engine, string $aside): ?StepResult
     {
@@ -94,23 +106,60 @@ class MoveAsideStep extends InstallStep
         }
 
         $previous = PackInstall::query()->whereKey($install->previous_install_id)->where('server_id', $server->id)->first();
-        $validator = $engine->validatorFor($install);
-        $files = $this->files();
         $done = $install->progressValue('recorded_done', []);
         $done = is_array($done) ? $done : [];
+        $known = array_flip(array_filter($done, 'is_string'));
 
+        $pending = [];
         foreach (array_keys($previous?->manifestEntries() ?? []) as $path) {
             $path = (string) $path;
-            if (in_array(explode('/', $path)[0], self::FOLDERS, true) || in_array($path, $done, true)) {
-                continue;
+            if (!in_array(explode('/', $path)[0], self::FOLDERS, true) && !isset($known[$path])) {
+                $pending[] = $path;
             }
-            if ($this->outOfTime()) {
+        }
+
+        foreach (array_chunk($pending, ServerFiles::RENAME_BATCH) as $chunk) {
+            if ($this->outOfTime() || JobClock::exhausted()) {
                 $install->setProgress('recorded_done', $done);
+                $engine->persist($install);
 
                 return StepResult::again();
             }
 
-            $stat = $validator->isProtected($path) ? null : $files->stat($server, $path);
+            $this->moveBatch($install, $server, $engine, $aside, $chunk);
+            $done = array_merge($done, $chunk);
+            $install->setProgress('recorded_done', $done);
+            $engine->persist($install);
+        }
+
+        $install->setProgress('recorded_moved', true);
+        $engine->persist($install);
+
+        return null;
+    }
+
+    /**
+     * One batch of recorded files: folders kept, conflicts refused, the rest moved in one request
+     * (the world's companions, eula.txt and other preserved names one by one, never in a batch).
+     *
+     * @param  array<int, string>  $paths
+     */
+    private function moveBatch(PackInstall $install, Server $server, InstallEngine $engine, string $aside, array $paths): void
+    {
+        $validator = $engine->validatorFor($install);
+        $files = $this->files();
+        $listings = new DirectoryListings($files, $server);
+        $worlds = $install->progressValue('worlds', ['world']);
+        $preserved = PreservedFiles::candidates(array_values(array_unique(array_merge(['world'], is_array($worlds) ? array_filter($worlds, 'is_string') : []))));
+
+        /** @var array<string, string> $batch path => target */
+        $batch = [];
+        /** @var array<string, string> $single path => target */
+        $single = [];
+        /** @var array<int, string> $order every path to move, in manifest order */
+        $order = [];
+        foreach ($paths as $path) {
+            $stat = $validator->isProtected($path) ? null : $listings->stat($path);
             if ($stat !== null && $stat['directory']) {
                 // The old pack listed a file here; a folder now is the user's: never moved whole.
                 $kept = $install->progressValue('kept_folders', []);
@@ -120,24 +169,68 @@ class MoveAsideStep extends InstallStep
                 $install->addLog('warning', 'kept_folder', ['path' => $path]);
             } elseif ($stat !== null) {
                 $target = "$aside/$path";
-                if ($files->stat($server, $target) !== null) {
+                if ($listings->stat($target) !== null) {
                     throw new StepFailedException('move_aside_conflict', $target);
                 }
-                $this->record($install, $engine, $path);
-                $files->createDirectory($server, dirname($target));
-                $files->rename($server, $path, $target);
-                $install->addLog('info', 'moved_aside', ['path' => $path, 'to' => $target]);
+                $order[] = $path;
+                if (self::isPreserved($path, $preserved)) {
+                    $single[$path] = $target;
+                } else {
+                    $batch[$path] = $target;
+                }
             }
-
-            $done[] = $path;
-            $install->setProgress('recorded_done', $done);
-            $engine->persist($install);
+        }
+        if ($order === []) {
+            return;
         }
 
-        $install->setProgress('recorded_moved', true);
+        // Recorded before anything moves, for the summary and for "Restore previous files".
+        $install->setProgress('moved', array_values(array_unique(array_merge($install->movedFolders(), $order))));
         $engine->persist($install);
 
-        return null;
+        $listings->createParents(array_values(array_merge($batch, $single)));
+
+        if ($batch !== []) {
+            try {
+                $files->renameMany($server, array_map(fn (string $from, string $to) => ['from' => $from, 'to' => $to], array_keys($batch), array_values($batch)));
+                $install->addLog('info', 'moved_aside_batch', ['count' => count($batch), 'to' => $aside]);
+            } catch (UnsafePlanException $exception) {
+                throw $exception;
+            } catch (RuntimeException|RequestException) {
+                // Refused (a target appeared, one source failed): what moved stays moved, the rest one by one.
+                $single = $batch + $single;
+            }
+        }
+
+        foreach ($single as $path => $target) {
+            if ($files->stat($server, $path) === null) {
+                continue; // Moved by the refused batch, or gone meanwhile.
+            }
+            if ($files->stat($server, $target) !== null) {
+                throw new StepFailedException('move_aside_conflict', $target);
+            }
+            $files->rename($server, $path, $target);
+            $install->addLog('info', 'moved_aside', ['path' => $path, 'to' => $target]);
+        }
+    }
+
+    /**
+     * A world with its other dimensions, a player list, server.properties or eula.txt (or a
+     * path inside one): never part of a batch.
+     *
+     * @param  array<int, string>  $preserved
+     */
+    private static function isPreserved(string $path, array $preserved): bool
+    {
+        $lower = strtolower($path);
+        foreach ($preserved as $candidate) {
+            $candidate = strtolower($candidate);
+            if ($lower === $candidate || str_starts_with($lower, $candidate.'/') || str_starts_with($candidate, $lower.'/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** "Start a fresh world": the world and its other dimensions aside, the player lists stay. */

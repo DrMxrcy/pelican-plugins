@@ -175,6 +175,38 @@ class DaemonServerFiles implements ServerFiles
         $this->repository($server)->renameFiles('/', [['from' => $from, 'to' => $to]])->throw();
     }
 
+    public function renameMany(Server $server, array $pairs): void
+    {
+        if (count($pairs) > self::RENAME_BATCH) {
+            throw new RuntimeException('Too many renames in one request');
+        }
+
+        $files = [];
+        foreach ($pairs as $pair) {
+            $files[] = ['from' => $this->guardTarget($pair['from']), 'to' => $this->guardTarget($pair['to'])];
+        }
+        if ($files === []) {
+            return;
+        }
+
+        // Never replaces: each target directory is listed once instead of a stat per pair.
+        $listings = [];
+        $targets = [];
+        foreach ($files as ['to' => $to]) {
+            $directory = dirname($to);
+            $directory = $directory === '.' ? '' : $directory;
+            if (!array_key_exists($directory, $listings)) {
+                $listings[$directory] = $this->list($server, $directory) ?? [];
+            }
+            if (isset($listings[$directory][basename($to)]) || isset($targets[$to])) {
+                throw new RuntimeException("Refusing to replace $to");
+            }
+            $targets[$to] = true;
+        }
+
+        $this->repository($server)->renameFiles('/', $files)->throw();
+    }
+
     public function movePreserved(Server $server, string $from, string $to): void
     {
         self::guardPreservedMove($from, $to);

@@ -321,6 +321,54 @@ class DaemonServerFilesTest extends TestCase
             && $request['file'] === '.modpacks-plus/staging/overrides-7-0-1.zip');
     }
 
+    #[DataProvider('protectedPaths')]
+    public function test_batched_renames_refuse_protected_paths_before_anything_is_sent(string $path): void
+    {
+        $server = $this->server;
+
+        // One protected pair refuses the whole batch, in either direction.
+        $this->assertRefused(fn () => $this->files()->renameMany($server, [
+            ['from' => 'journeymap/a.json', 'to' => '.modpacks-plus/previous-x/journeymap/a.json'],
+            ['from' => $path, 'to' => '.modpacks-plus/previous-x/'.$path],
+        ]), 'protected_path');
+        $this->assertRefused(fn () => $this->files()->renameMany($server, [['from' => '.modpacks-plus/previous-x/a', 'to' => $path]]), 'protected_path');
+    }
+
+    #[DataProvider('unsafePaths')]
+    public function test_batched_renames_refuse_paths_outside_the_root(string $path): void
+    {
+        $server = $this->server;
+
+        $this->assertRefused(fn () => $this->files()->renameMany($server, [['from' => 'mods/a.jar', 'to' => $path]]), 'unsafe_path');
+    }
+
+    public function test_batched_renames_go_in_one_request_and_never_replace_anything(): void
+    {
+        $pairs = [];
+        for ($i = 0; $i < 300; $i++) {
+            $pairs[] = ['from' => 'journeymap/'.($i % 3)."/f$i.json", 'to' => '.modpacks-plus/previous-x/journeymap/'.($i % 3)."/f$i.json"];
+        }
+
+        $this->files()->renameMany($this->server, $pairs);
+
+        Http::assertSentCount(4); // 3 target directories listed, 1 rename
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), '/files/rename') && $request['root'] === '/' && $request['files'] === $pairs);
+
+        $node = $this->server->node;
+        Http::swap(new HttpFactory());
+        Http::fake([
+            '*/files/list-directory*' => Http::response([['name' => 'f7.json', 'size' => 1, 'directory' => false]], 200, ['User-Agent' => "Pelican Wings/v1.0.0 (id:{$node->daemon_token_id})"]),
+            '*' => Http::response([], 200, ['User-Agent' => "Pelican Wings/v1.0.0 (id:{$node->daemon_token_id})"]),
+        ]);
+        try {
+            $this->files()->renameMany($this->server, [['from' => 'a/f7.json', 'to' => 'b/f7.json']]);
+            $this->fail('expected a refusal to replace');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('Refusing to replace b/f7.json', $exception->getMessage());
+        }
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/files/rename'));
+    }
+
     public function test_server_power_reads_the_state_and_sends_stop(): void
     {
         $node = $this->server->node;

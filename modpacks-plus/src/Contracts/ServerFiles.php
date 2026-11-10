@@ -42,6 +42,18 @@ interface ServerFiles
     /** Moves $from to $to (both relative to the root). Never replaces an existing target. */
     public function rename(Server $server, string $from, string $to): void;
 
+    /** Most {from, to} pairs one renameMany() call takes. */
+    public const RENAME_BATCH = 500;
+
+    /**
+     * rename() for up to RENAME_BATCH pairs in one daemon request, every pair checked exactly as
+     * rename() checks it. Throws (and may have moved some pairs) when the node refuses any of
+     * them; callers then go per file for that batch.
+     *
+     * @param  array<int, array{from: string, to: string}>  $pairs
+     */
+    public function renameMany(Server $server, array $pairs): void;
+
     /**
      * Moves a path between the server root and the plugin's own `.modpacks-plus/<folder>/…`
      * (either direction), protected or not. Exactly one side must be inside the own folder,

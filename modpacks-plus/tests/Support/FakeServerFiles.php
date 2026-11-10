@@ -181,13 +181,22 @@ final class FakeServerFiles implements ServerFiles
         return $entry;
     }
 
-    /** @return array<int, array<int, mixed>> arguments of every call of $operation */
+    /**
+     * Arguments of every call of $operation. For 'rename', each pair of a renameMany() call
+     * counts as a rename too (so "never renamed" checks see batched moves).
+     *
+     * @return array<int, array<int, mixed>>
+     */
     public function argsOf(string $operation): array
     {
         $out = [];
         foreach ($this->calls as [$op, $args]) {
             if ($op === $operation) {
                 $out[] = $args;
+            } elseif ($operation === 'rename' && $op === 'renameMany') {
+                foreach ($args[0] as $pair) {
+                    $out[] = [$pair['from'], $pair['to']];
+                }
             }
         }
 
@@ -197,20 +206,19 @@ final class FakeServerFiles implements ServerFiles
     /** @return array<int, string> */
     public function callsOf(string $operation): array
     {
-        $out = [];
-        foreach ($this->calls as [$op, $args]) {
-            if ($op === $operation) {
-                $out[] = (string) $args[0];
-            }
-        }
+        return array_map(fn (array $args) => (string) $args[0], $this->argsOf($operation));
+    }
 
-        return $out;
+    /** Daemon rename requests: one per rename(), one per renameMany() batch. */
+    public function renameRequests(): int
+    {
+        return count(array_filter($this->calls, fn ($call) => in_array($call[0], ['rename', 'renameMany'], true)));
     }
 
     /** Calls that change the server. */
     public function writeCalls(): int
     {
-        return count(array_filter($this->calls, fn ($call) => in_array($call[0], ['createDirectory', 'rename', 'movePreserved', 'pull', 'write', 'delete', 'decompress'], true)));
+        return count(array_filter($this->calls, fn ($call) => in_array($call[0], ['createDirectory', 'rename', 'renameMany', 'movePreserved', 'pull', 'write', 'delete', 'decompress'], true)));
     }
 
     public function list(Server $server, string $directory): ?array
@@ -277,6 +285,48 @@ final class FakeServerFiles implements ServerFiles
         $this->checkTarget($to);
 
         $this->move($server, $from, $to);
+    }
+
+    /**
+     * Like the node: every pair is tried, the ones that can't move (target exists, source
+     * missing, listed in failMoves) are skipped, and the request fails if any was. afterMove
+     * runs after each pair (a worker killed mid-batch).
+     */
+    public function renameMany(Server $server, array $pairs): void
+    {
+        $this->calls[] = ['renameMany', [$pairs]];
+        if (count($pairs) > ServerFiles::RENAME_BATCH) {
+            $this->violations[] = 'rename batch too large: '.count($pairs);
+
+            throw new RuntimeException('fake daemon: too many renames');
+        }
+        foreach ($pairs as $pair) {
+            $this->checkTarget($pair['from']);
+            $this->checkTarget($pair['to']);
+        }
+
+        $refused = [];
+        foreach ($pairs as $pair) {
+            if (in_array($pair['from'], $this->failMoves, true)) {
+                $refused[] = $pair['from'];
+
+                continue;
+            }
+            try {
+                $this->move($server, $pair['from'], $pair['to']);
+            } catch (RuntimeException) {
+                $refused[] = $pair['from'];
+
+                continue;
+            }
+            if ($this->afterMove !== null) {
+                ($this->afterMove)($pair['from'], $pair['to']);
+            }
+        }
+
+        if ($refused !== []) {
+            throw new RuntimeException('fake daemon: could not move '.implode(', ', $refused));
+        }
     }
 
     private function move(Server $server, string $from, string $to): void

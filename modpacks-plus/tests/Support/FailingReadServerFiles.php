@@ -43,6 +43,11 @@ final class FailingReadServerFiles implements ServerFiles
         $this->inner->rename($server, $from, $to);
     }
 
+    public function renameMany(Server $server, array $pairs): void
+    {
+        $this->inner->renameMany($server, $pairs);
+    }
+
     public function movePreserved(Server $server, string $from, string $to): void
     {
         $this->inner->movePreserved($server, $from, $to);

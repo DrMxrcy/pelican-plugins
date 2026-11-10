@@ -12,13 +12,17 @@ use DrMxrcy\ModpacksPlus\Jobs\Steps\InstallStep;
 use DrMxrcy\ModpacksPlus\Jobs\Steps\RestoreLog;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\PreservedFiles;
+use DrMxrcy\ModpacksPlus\Support\Caps;
+use DrMxrcy\ModpacksPlus\Support\DirectoryListings;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -216,10 +220,22 @@ class RestorePreviousFilesJob implements ShouldQueue
         }
 
         $done = $install->progressValue('restore_done', []);
+        $done = is_array($done) ? array_values(array_filter($done, 'is_string')) : [];
         // Entries this attempt could not move (kept across its re-dispatches, retried next attempt).
         $skipped = $install->progressValue('restore_skipped', []);
+        $skipped = is_array($skipped) ? array_values(array_filter($skipped, 'is_string')) : [];
+        $worldList = array_values(array_unique(array_merge(['world'], is_array($worlds) ? array_filter($worlds, 'is_string') : [])));
+        $validator = new PlanValidator(new Caps(), $worldList);
+        $preserved = PreservedFiles::candidates($worldList);
+        /** @var array<int, array{string, string, string}> $batchable old pack files: batched (plan 44) */
+        $batchable = [];
         foreach ($todo as [$key, $root, $entry]) {
             if (in_array($key, $done, true) || in_array($key, $skipped, true)) {
+                continue;
+            }
+            if (str_starts_with($key, 'm:') && self::batchable($entry, $validator, $preserved)) {
+                $batchable[] = [$key, $root, $entry];
+
                 continue;
             }
             if (microtime(true) - $this->startedAt > self::BUDGET_SECONDS) {
@@ -228,21 +244,17 @@ class RestorePreviousFilesJob implements ShouldQueue
                 return;
             }
 
-            try {
-                $result = $service->restore($files, $server, $root, $entry, $replaced);
-                RestoreLog::add($install, $result, $entry, $replaced);
-                $done[] = $key;
-                $install->setProgress('restore_done', $done);
-            } catch (StepFailedException|UnsafePlanException $exception) {
-                // One entry that can't move never stops the others, but it is not done: the
-                // install stays pending until it is back (or the restore is discarded).
-                // (Daemon errors still end the job and are retried by the queue.)
-                $skipped[] = $key;
-                $install->setProgress('restore_skipped', $skipped);
-                $install->addLog('warning', 'restore_skipped', ['path' => $entry, 'detail' => $exception->reason]);
+            $this->restoreOne($install, $files, $server, $service, $key, $root, $entry, $replaced, $done, $skipped);
+        }
+
+        foreach (array_chunk($batchable, ServerFiles::RENAME_BATCH) as $chunk) {
+            if (microtime(true) - $this->startedAt > self::BUDGET_SECONDS) {
+                $this->again(0);
+
+                return;
             }
 
-            $install->save();
+            $this->restoreBatch($install, $files, $server, $service, $chunk, $replaced, $done, $skipped);
         }
 
         $install->setProgress('restore_skipped', []);
@@ -262,6 +274,110 @@ class RestorePreviousFilesJob implements ShouldQueue
         $install->restored_at = now();
         $install->addLog('info', 'restore_finished', ['count' => count($done)]);
         $install->save();
+    }
+
+    /**
+     * An old pack file or folder that may go back in a batch: not a world, player list,
+     * server.properties, eula.txt or the own folder (those move one by one, movePreserved()).
+     *
+     * @param  array<int, string>  $preserved
+     */
+    private static function batchable(string $entry, PlanValidator $validator, array $preserved): bool
+    {
+        if ($validator->isProtected($entry)) {
+            return false;
+        }
+        $lower = strtolower($entry);
+        foreach ($preserved as $candidate) {
+            $candidate = strtolower($candidate);
+            if ($lower === $candidate || str_starts_with($lower, $candidate.'/') || str_starts_with($candidate, $lower.'/')) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * One entry put back (or reported) the way it always was.
+     *
+     * @param  array<int, string>  $done
+     * @param  array<int, string>  $skipped
+     */
+    private function restoreOne(PackInstall $install, ServerFiles $files, Server $server, PreservedFiles $service, string $key, string $root, string $entry, string $replaced, array &$done, array &$skipped): void
+    {
+        try {
+            $result = $service->restore($files, $server, $root, $entry, $replaced);
+            RestoreLog::add($install, $result, $entry, $replaced);
+            $done[] = $key;
+            $install->setProgress('restore_done', $done);
+        } catch (StepFailedException|UnsafePlanException $exception) {
+            // One entry that can't move never stops the others, but it is not done: the
+            // install stays pending until it is back (or the restore is discarded).
+            // (Daemon errors still end the job and are retried by the queue.)
+            $skipped[] = $key;
+            $install->setProgress('restore_skipped', $skipped);
+            $install->addLog('warning', 'restore_skipped', ['path' => $entry, 'detail' => $exception->reason]);
+        }
+
+        $install->save();
+    }
+
+    /**
+     * Up to ServerFiles::RENAME_BATCH old pack entries, decided from one listing per directory:
+     * free places in one request, anything already back or gone as before, an entry with
+     * something in its place (kept in $replaced first) or a batch the node refuses one by one.
+     * Resumable: an entry already back (gone from the aside folder) is never moved again.
+     *
+     * @param  array<int, array{string, string, string}>  $chunk  [key, root, entry]
+     * @param  array<int, string>  $done
+     * @param  array<int, string>  $skipped
+     */
+    private function restoreBatch(PackInstall $install, ServerFiles $files, Server $server, PreservedFiles $service, array $chunk, string $replaced, array &$done, array &$skipped): void
+    {
+        $listings = new DirectoryListings($files, $server);
+        /** @var array<string, array{string, string, string}> $pairs key => [root, entry, source] */
+        $pairs = [];
+        /** @var array<int, array{string, string, string}> $single */
+        $single = [];
+        foreach ($chunk as [$key, $root, $entry]) {
+            $source = "$root/$entry";
+            $atRoot = $listings->stat($entry) !== null;
+            if ($listings->stat($source) === null) {
+                RestoreLog::add($install, $atRoot ? PreservedFiles::RESULT_ALREADY : PreservedFiles::RESULT_ABSENT, $entry, $replaced);
+                $done[] = $key;
+
+                continue;
+            }
+            if ($atRoot) {
+                $single[] = [$key, $root, $entry];
+
+                continue;
+            }
+            $pairs[$key] = [$root, $entry, $source];
+        }
+
+        if ($pairs !== []) {
+            $listings->createParents(array_values(array_map(fn (array $pair) => $pair[1], $pairs)));
+            try {
+                $files->renameMany($server, array_values(array_map(fn (array $pair) => ['from' => $pair[2], 'to' => $pair[1]], $pairs)));
+                $install->addLog('info', 'restored_batch', ['count' => count($pairs)]);
+                $done = array_merge($done, array_keys($pairs));
+            } catch (UnsafePlanException $exception) {
+                throw $exception;
+            } catch (RuntimeException|RequestException) {
+                // Refused: what moved is back (found "already" below), the rest one by one.
+                foreach ($pairs as $key => [$root, $entry]) {
+                    $single[] = [$key, $root, $entry];
+                }
+            }
+        }
+        $install->setProgress('restore_done', $done);
+        $install->save();
+
+        foreach ($single as [$key, $root, $entry]) {
+            $this->restoreOne($install, $files, $server, $service, $key, $root, $entry, $replaced, $done, $skipped);
+        }
     }
 
     /** @param  array<string, scalar>  $params */
