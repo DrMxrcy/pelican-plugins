@@ -11,7 +11,7 @@
 - (pending) Browse Modrinth modpacks and install one onto your server, with an automatic backup first.
 - (pending) Install CurseForge modpacks too, using the official server pack when one exists.
 - (pending) FTB and ATLauncher modpacks can be installed as well.
-- (pending) Mods that came with a modpack show up in the Mods page, ready to update one by one.
+- Mods that came with a modpack show up in the Mods page, ready to update one by one.
 - One page shows who is online and how busy every Minecraft server is.
 - (pending) Installing a modpack can switch your server to the mod loader the pack needs.
 - (pending) Update or change modpacks while your worlds, whitelist and bans stay safe, and get told when a pack update is out.
