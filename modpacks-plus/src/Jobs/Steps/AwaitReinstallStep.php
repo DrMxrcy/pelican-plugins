@@ -7,13 +7,20 @@ use App\Models\Server;
 use DrMxrcy\ModpacksPlus\Exceptions\StepFailedException;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
+use DrMxrcy\ModpacksPlus\Support\LoaderLaunchFiles;
 use Illuminate\Support\Carbon;
+use Throwable;
 
 /**
  * Loader switch: waits for the reinstall by polling `servers.status` (set by the node's
  * install callback), re-dispatching every 15 s. Null after the request: done.
  * install_failed / reinstall_failed: the install fails, worlds stay in the preserved
  * folder for "Restore previous files". The step deadline (20 min) ends any longer wait.
+ *
+ * Plan 43: a node can report an install script that failed as a successful install, so a
+ * reported success is only taken once the target loader's launch files are on the server
+ * (LoaderLaunchFiles, two listings at most). Missing: `reinstall_incomplete`, same
+ * outcome as a failed reinstall. A daemon error while listing is retried within the deadline.
  */
 class AwaitReinstallStep extends InstallStep
 {
@@ -52,8 +59,42 @@ class AwaitReinstallStep extends InstallStep
             return StepResult::again(self::POLL_SECONDS);
         }
 
-        $install->addLog('info', 'reinstalled', []);
+        if (!$install->progressValue('reinstall_reported')) {
+            $install->setProgress('reinstall_reported', true);
+            $install->addLog('info', 'reinstalled', []);
+        }
+
+        $loader = (string) ($install->loader_switch['loader'] ?? '');
+
+        try {
+            $missing = LoaderLaunchFiles::missing($this->files(), $server, $loader, self::jarFile($server));
+        } catch (Throwable $exception) {
+            report($exception);
+            if (!$install->progressValue('reinstall_check_logged')) {
+                $install->setProgress('reinstall_check_logged', true);
+                $install->addLog('warning', 'reinstall_check_retry', ['detail' => class_basename($exception)]);
+            }
+
+            return StepResult::again(self::POLL_SECONDS);
+        }
+
+        if ($missing !== null) {
+            throw new StepFailedException('reinstall_incomplete', $missing);
+        }
 
         return StepResult::done();
+    }
+
+    /** The server's SERVER_JARFILE value (or the egg's default), when its egg has one. */
+    private static function jarFile(Server $server): ?string
+    {
+        $variable = $server->variables()->where('egg_variables.env_variable', 'SERVER_JARFILE')->first();
+        if ($variable === null) {
+            return null;
+        }
+
+        $value = $variable->getAttribute('server_value') ?? $variable->default_value;
+
+        return is_string($value) ? $value : null;
     }
 }

@@ -48,6 +48,9 @@ final class FakeServerFiles implements ServerFiles
     /** Runs before a stat, e.g. to make the node fail before anything moved. */
     public ?\Closure $beforeStat = null;
 
+    /** Runs before a listing, e.g. to make the daemon error. */
+    public ?\Closure $beforeList = null;
+
     /** @var array<int, string> worlds protected by the copy the engine got */
     private array $worlds = ['world'];
 
@@ -67,6 +70,7 @@ final class FakeServerFiles implements ServerFiles
         $copy->failMoves = &$this->failMoves;
         $copy->afterMove = &$this->afterMove;
         $copy->beforeStat = &$this->beforeStat;
+        $copy->beforeList = &$this->beforeList;
 
         return $copy;
     }
@@ -167,6 +171,10 @@ final class FakeServerFiles implements ServerFiles
     {
         $this->calls[] = ['list', [$directory]];
         $this->check($directory, true);
+
+        if ($this->beforeList !== null) {
+            ($this->beforeList)($directory);
+        }
 
         if ($directory !== '' && !isset($this->dirs[$directory])) {
             return null;

@@ -54,6 +54,20 @@ class LoaderSwitchTest extends TestCase
     /** What the node reports when the reinstall ends: null = success, or a failed state. */
     private ?ServerState $reinstallOutcome = null;
 
+    /**
+     * What a successful reinstall leaves on the server (plan 43 checks the launch files);
+     * the NeoForge installer's by default, [] for a script that failed but was reported fine.
+     *
+     * @var array<string, string>
+     */
+    private array $reinstallCreates = self::NEOFORGE_LAUNCH_FILES;
+
+    public const NEOFORGE_LAUNCH_FILES = [
+        'run.sh' => '#!/bin/sh',
+        'unix_args.txt' => '-p libraries',
+        'libraries/net/neoforged/neoforge/21.1.77/unix_args.txt' => '-p libraries',
+    ];
+
     /** Thrown by the reinstall service after it marked the server installing (a crash). */
     private ?\Throwable $reinstallCrash = null;
 
@@ -167,6 +181,9 @@ class LoaderSwitchTest extends TestCase
                 $fresh = $server->fresh();
                 if ($fresh?->status === ServerState::Installing) {
                     $fresh->forceFill(['status' => $this->reinstallOutcome, 'installed_at' => now()])->save();
+                    if ($this->reinstallOutcome === null && $this->reinstallCreates !== []) {
+                        $this->files->seed($this->reinstallCreates);
+                    }
                 }
             }
             if ($also !== null) {
@@ -341,6 +358,103 @@ class LoaderSwitchTest extends TestCase
 
         // The egg is not switched back automatically.
         $this->assertSame($this->neoforge->id, $server->fresh()?->egg_id);
+    }
+
+    /**
+     * Plan 43 (live 2026-11-10): an egg script that printed a message and exited 1 was
+     * reported by the node as a successful install; the switch must not carry on.
+     */
+    public function test_a_reinstall_reported_fine_without_launch_files_fails_before_any_download_and_restore_works(): void
+    {
+        $server = $this->fabricServer();
+        $kept = $this->keptFiles();
+        $this->reinstallCreates = [];
+
+        $this->startSwitch($server);
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_FAILED, $install->status);
+        $this->assertSame('reinstall_incomplete', $install->error);
+        $this->assertSame('unix_args.txt or run.sh + libraries/net/neoforged', $install->progressValue('error_detail'));
+        $this->assertSame(PackInstall::STEP_FAILED, $install->stepStatus(AwaitReinstallStep::KEY));
+        $this->assertSame(PackInstall::STEP_PENDING, $install->stepStatus(RestorePreservedStep::KEY));
+        $this->assertSame(PackInstall::STEP_PENDING, $install->stepStatus(DownloadStep::KEY));
+        $this->assertSame([], $this->files->callsOf('pull'));
+        $this->assertContains('reinstalled', array_column($install->log ?? [], 'key'));
+
+        // One listing of libraries/net (plus the root); LoaderLaunchFilesTest covers the cap.
+        $this->assertCount(1, array_filter($this->files->callsOf('list'), fn (string $dir) => $dir === 'libraries/net'));
+
+        $preserved = (string) $install->preserved_path;
+        $this->assertSame([], $this->keptFiles());
+        foreach ($kept as $path => $contents) {
+            $this->assertSame($contents, $this->files->files["$preserved/$path"] ?? null, $path);
+        }
+        $this->assertTrue($install->isRestorable());
+
+        PackInstall::query()->whereKey($install->id)->update(['restore_requested_at' => now()]);
+        dispatch(new RestorePreviousFilesJob($install->id));
+        $this->runRestoreJobs();
+
+        $install->refresh();
+        $this->assertNotNull($install->restored_at, (string) json_encode($install->log));
+        $this->assertSame($kept, $this->keptFiles());
+        $this->assertSame('old', $this->files->files['mods/old-mod.jar'] ?? null);
+        $this->assertSame([], $this->files->violations);
+    }
+
+    public function test_a_daemon_error_while_checking_the_reinstall_is_retried_not_failed(): void
+    {
+        $server = $this->fabricServer();
+        $state = new \ArrayObject(['failures' => 0, 'checking' => false]);
+        $this->files->beforeList = function (string $directory) use ($state) {
+            if ($state['checking'] && $state['failures'] < 2) {
+                $state['failures']++;
+
+                throw new RuntimeException('Daemon error while listing '.$directory);
+            }
+        };
+
+        $this->startSwitch($server);
+        $this->runSwitch($server, also: function (InstallStep $job) use ($state) {
+            $state['checking'] = $job instanceof AwaitReinstallStep;
+        });
+
+        $install = $this->latestInstall();
+        $this->assertSame(2, $state['failures']);
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) $install->error.' '.$install->progressValue('error_detail'));
+        $keys = array_column($install->log ?? [], 'key');
+        $this->assertSame(1, count(array_keys($keys, 'reinstall_check_retry', true)));
+        $this->assertSame(1, count(array_keys($keys, 'reinstalled', true)));
+    }
+
+    public function test_a_check_that_keeps_failing_ends_at_the_step_deadline_not_as_incomplete(): void
+    {
+        $server = $this->fabricServer();
+        $kept = $this->keptFiles();
+        $state = new \ArrayObject(['checking' => false, 'runs' => 0]);
+        $this->files->beforeList = function (string $directory) use ($state) {
+            if ($state['checking']) {
+                throw new RuntimeException('Daemon error while listing '.$directory);
+            }
+        };
+
+        $this->startSwitch($server);
+        $this->runSwitch($server, also: function (InstallStep $job, PackInstall $install) use ($state) {
+            $state['checking'] = $job instanceof AwaitReinstallStep;
+            if ($state['checking'] && ++$state['runs'] > 3) {
+                PackInstall::query()->whereKey($install->id)->update(['step_deadline_at' => now()->subSecond()]);
+            }
+        });
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_FAILED, $install->status);
+        $this->assertSame('step_timeout', $install->error);
+        $this->assertTrue($install->isRestorable());
+        foreach ($kept as $path => $contents) {
+            $this->assertSame($contents, $this->files->files[$install->preserved_path."/$path"] ?? null, $path);
+        }
     }
 
     public function test_the_reinstall_wait_has_a_deadline_and_nothing_is_lost_when_it_passes(): void

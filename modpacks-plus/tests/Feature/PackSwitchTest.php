@@ -92,6 +92,7 @@ class PackSwitchTest extends TestCase
                 $fresh = $server->fresh();
                 if ($fresh?->status === ServerState::Installing) {
                     $fresh->forceFill(['status' => null, 'installed_at' => now()])->save();
+                    $this->files->seed(LoaderSwitchTest::NEOFORGE_LAUNCH_FILES);
                 }
             }
             if ($between !== null) {

@@ -255,7 +255,13 @@ official [pelican-eggs/minecraft](https://github.com/pelican-eggs/minecraft) loa
    `.modpacks-plus/preserved-<date>/`;
 4. **change the egg** with Pelican's egg changer (new startup, variables kept by name, mounts the egg
    doesn't allow detached), set `MC_VERSION` and the loader version, set the image;
-5. **reinstall** with Pelican's reinstall service and **wait** for it (20-minute limit);
+5. **reinstall** with Pelican's reinstall service and **wait** for it (20-minute limit), then check
+   that the new loader's launch files are there (NeoForge/Forge: `unix_args.txt` or `run.sh` and
+   `libraries/net/neoforged` / `libraries/net/minecraftforge`, or for old Forge the `SERVER_JARFILE`
+   jar; Fabric/Quilt: `fabric-server-launch.jar` / `quilt-server-launch.jar` or the `SERVER_JARFILE`
+   jar). A node can report an install script that failed (e.g. `exit 1`) as a successful install;
+   then the switch ends `failed` with `reinstall_incomplete` before any pack file is downloaded,
+   like a failed reinstall;
 6. **put worlds and player files back** (anything the reinstall made in their place is kept in
    `.modpacks-plus/replaced-<date>/`), then download and apply the pack.
 
