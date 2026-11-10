@@ -27,7 +27,7 @@ final class OverrideArchive
     public const STAGING_FOLDER = PlanValidator::OWN_FOLDER.'/staging';
 
     /** Uncompressed bytes per archive (a single larger override still gets one of its own). */
-    public const CHUNK_BYTES = 32 * 1024 * 1024;
+    public const CHUNK_BYTES = 8 * 1024 * 1024;
 
     /** Entries per archive. */
     public const CHUNK_ENTRIES = 2000;

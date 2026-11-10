@@ -298,6 +298,19 @@ class DaemonServerFilesTest extends TestCase
         $this->assertRefused(fn () => $this->files()->protecting(['saves/survival'])->decompress($server, '.modpacks-plus/staging/overrides-7-0-1.zip', ['saves/survival/level.dat']), 'protected_path');
     }
 
+    public function test_a_write_with_a_timeout_is_guarded_like_any_write(): void
+    {
+        $server = $this->server;
+
+        $this->assertRefused(fn () => $this->files()->write($server, 'ops.json', 'x', 15), 'protected_path');
+        $this->assertRefused(fn () => $this->files()->write($server, '../escape', 'x', 15), 'unsafe_path');
+
+        $this->files()->write($server, '.modpacks-plus/staging/overrides-7-0-1.zip', 'zip bytes', 15);
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), "/api/servers/{$server->uuid}/files/write")
+            && str_contains(urldecode($request->url()), 'file=.modpacks-plus/staging/overrides-7-0-1.zip')
+            && $request->body() === 'zip bytes');
+    }
+
     public function test_decompress_unpacks_the_staged_archive_into_the_server_root(): void
     {
         $this->files()->decompress($this->server, '.modpacks-plus/staging/overrides-7-0-1.zip', ['config/a.toml', 'kubejs/server_scripts/x.js', '123']);

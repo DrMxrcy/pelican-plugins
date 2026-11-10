@@ -64,7 +64,7 @@ final class FailingReadServerFiles implements ServerFiles
         return $this->inner->read($server, $path, $maxBytes);
     }
 
-    public function write(Server $server, string $path, string $contents): void
+    public function write(Server $server, string $path, string $contents, ?int $timeoutSeconds = null): void
     {
         if ($this->failWrites) {
             $this->inner->calls[] = ['write', [$path]];

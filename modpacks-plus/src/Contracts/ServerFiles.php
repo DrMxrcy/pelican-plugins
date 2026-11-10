@@ -55,7 +55,8 @@ interface ServerFiles
     /** Reads a file, refusing more than $maxBytes. Throws FileNotFoundException when missing. */
     public function read(Server $server, string $path, int $maxBytes): string;
 
-    public function write(Server $server, string $path, string $contents): void;
+    /** With $timeoutSeconds the request waits at most that long (and never longer than the running job has left). */
+    public function write(Server $server, string $path, string $contents, ?int $timeoutSeconds = null): void;
 
     public function delete(Server $server, string $path): void;
 

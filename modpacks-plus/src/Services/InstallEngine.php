@@ -403,7 +403,32 @@ class InstallEngine
         if ($ended) {
             File::deleteDirectory($this->workDir($install));
             $this->recoverProperties($install);
+            $this->sweepOverrideArchives($install);
         }
+    }
+
+    /**
+     * Plan 42: an install that ends mid-batch (cancel, step deadline, the queue giving up)
+     * leaves no staged override archive behind. Best effort; a leftover is logged.
+     */
+    private function sweepOverrideArchives(PackInstall $install): void
+    {
+        $server = is_array($install->progressValue('override_batch')) ? Server::query()->find($install->server_id) : null;
+        if ($server === null) {
+            return;
+        }
+
+        $worlds = $install->progressValue('worlds');
+        try {
+            $files = app(ServerFiles::class)->protecting(is_array($worlds) ? array_values(array_filter($worlds, 'is_string')) : []);
+            OverridesStep::removeStaged($install, $server, $files, bestEffort: true);
+            $install->setProgress('override_batch', null);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+
+        // The install has ended: its row is no longer guarded by the chain's seq.
+        $install->save();
     }
 
     /**

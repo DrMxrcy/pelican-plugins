@@ -55,6 +55,12 @@ final class FakeServerFiles implements ServerFiles
     /** Runs before a stat, e.g. to make the node fail before anything moved. */
     public ?\Closure $beforeStat = null;
 
+    /** Runs before a write lands, e.g. to make it time out. */
+    public ?\Closure $beforeWrite = null;
+
+    /** Runs after a write landed, e.g. to tamper with the file. */
+    public ?\Closure $afterWrite = null;
+
     /** Runs before a listing, e.g. to simulate the worker dying mid-way through a scan. */
     public ?\Closure $beforeList = null;
 
@@ -93,6 +99,9 @@ final class FakeServerFiles implements ServerFiles
         $copy->beforeStat = &$this->beforeStat;
         $copy->beforeDecompress = &$this->beforeDecompress;
         $copy->beforeList = &$this->beforeList;
+        $copy->beforeWrite = &$this->beforeWrite;
+        $copy->afterWrite = &$this->afterWrite;
+        $copy->beforeDelete = &$this->beforeDelete;
         $copy->afterDecompress = &$this->afterDecompress;
         $copy->ignored = &$this->ignored;
         $copy->extracted = &$this->extracted;
@@ -370,11 +379,20 @@ final class FakeServerFiles implements ServerFiles
         return $this->files[$path];
     }
 
-    public function write(Server $server, string $path, string $contents): void
+    public function write(Server $server, string $path, string $contents, ?int $timeoutSeconds = null): void
     {
-        $this->calls[] = ['write', [$path]];
+        $this->calls[] = ['write', [$path, $timeoutSeconds]];
         $this->checkTarget($path);
+
+        if ($this->beforeWrite !== null) {
+            ($this->beforeWrite)($path);
+        }
+
         $this->put($path, $contents);
+
+        if ($this->afterWrite !== null) {
+            ($this->afterWrite)($path);
+        }
     }
 
     public function delete(Server $server, string $path): void

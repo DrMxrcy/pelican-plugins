@@ -9,12 +9,15 @@ use DrMxrcy\ModpacksPlus\Jobs\Steps\OverridesStep;
 use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
+use DrMxrcy\ModpacksPlus\Support\JobClock;
+use DrMxrcy\ModpacksPlus\Support\OverrideArchive;
 use DrMxrcy\ModpacksPlus\Tests\Support\FakeServerFiles;
 use DrMxrcy\ModpacksPlus\Tests\Support\InstallScenario;
 use DrMxrcy\ModpacksPlus\Tests\Support\Mrpack;
 use DrMxrcy\ModpacksPlus\Tests\TestCase;
 use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -237,7 +240,9 @@ class OverrideArchiveInstallTest extends TestCase
             $out = [];
             foreach ($map as $path => $value) {
                 $path = (string) $path;
-                if (str_starts_with($path, '.modpacks-plus/staging/'.$install->id)) {
+                // This install's own staging (download folder, override archives; both must be gone anyway).
+                $staging = '.modpacks-plus/staging/';
+                if ($path === $staging.$install->id || str_starts_with($path, $staging.$install->id.'/') || str_starts_with($path, $staging.OverrideArchive::stagingPrefix($install->id))) {
                     continue;
                 }
                 // Each install's server has its own allocation (PropertiesStep writes its port).
@@ -450,5 +455,196 @@ class OverrideArchiveInstallTest extends TestCase
         $this->assertSame([], $this->files->callsOf('decompress'));
         $this->assertSame(self::SEED['ops.json'], $this->files->files['ops.json']);
         $this->assertSame([], $this->stagedArchives());
+    }
+
+    /** @return array<int, string> the staged file names of every archive the node unpacked */
+    private function unpacked(): array
+    {
+        return array_map(fn ($archive) => basename((string) $archive), $this->files->callsOf('decompress'));
+    }
+
+    private function prefix(): string
+    {
+        return OverrideArchive::stagingPrefix($this->latestInstall()->id);
+    }
+
+    public function test_more_than_one_archives_worth_goes_as_several_archives_and_a_kill_between_them_resumes(): void
+    {
+        [, $server] = $this->scenarioServer();
+        // 9 MiB of big files first, then 60 small ones: two archives (CHUNK_BYTES is 8 MiB).
+        $entries = [];
+        for ($i = 0; $i < 3; $i++) {
+            $entries["overrides/config/big/b$i.bin"] = str_repeat(chr(65 + $i), 3 * 1024 * 1024);
+        }
+        $entries += $this->overrides(60);
+        $this->scenarioPack($entries);
+        $this->files->seed(self::SEED);
+
+        // Killed after the first archive was unpacked and recorded, while its file is deleted.
+        $killed = false;
+        $this->files->beforeDelete = function (string $path) use (&$killed) {
+            if (!$killed && str_ends_with($path, '-0-1.zip')) {
+                $killed = true;
+
+                throw new RuntimeException('worker killed');
+            }
+        };
+
+        $this->start($server);
+        try {
+            $this->runAll($server);
+            $this->fail('The simulated crash did not happen');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('worker killed', $exception->getMessage());
+        }
+
+        $install = $this->latestInstall();
+        $this->app->call([new OverridesStep($install->id, $install->seq), 'handle']);
+        $this->runAll($server);
+
+        $this->assertApplied($entries);
+        // Each archive unpacked once: the first is not redone after the kill.
+        $this->assertSame([$this->prefix().'0-1.zip', $this->prefix().'1-1.zip'], $this->unpacked());
+        $this->assertCount(2, $this->files->extracted);
+        $this->assertEqualsCanonicalizing(array_keys(self::expected($entries)), array_merge(...$this->files->extracted));
+    }
+
+    public function test_a_job_with_too_little_time_left_hands_the_archive_to_a_fresh_job_without_using_an_attempt(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $entries = $this->overrides(60, extras: false);
+        $this->scenarioPack($entries);
+
+        // Late in the job that scans: 20 s left, under JobClock's reserve + MIN_APPLY_SECONDS.
+        $starved = false;
+        $writesBefore = 0;
+        $this->files->beforeList = function (string $directory) use (&$starved, &$writesBefore) {
+            if (!$starved && $this->files->extracted === [] && str_starts_with($directory, 'config/pack')) {
+                $starved = true;
+                $writesBefore = count($this->files->callsOf('write'));
+                JobClock::start(20);
+            }
+        };
+        $jobs = 0;
+        $this->start($server);
+        $this->runJobs(between: function ($job) use (&$jobs, $server) {
+            $this->finishBackups($server);
+            if ($job instanceof OverridesStep) {
+                $jobs++;
+            }
+        });
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertTrue($starved);
+        $this->assertGreaterThanOrEqual(2, $jobs);
+        // Nothing was staged by the starved job, and the fresh one used attempt 1.
+        $this->assertSame([$this->prefix().'0-1.zip'], $this->unpacked());
+        $this->assertSame(1, count(array_filter($this->files->callsOf('write'), fn ($path) => str_contains((string) $path, 'staging/overrides-'))));
+        $this->assertNotContains('override_archive_retry', array_column($install->log ?? [], 'key'));
+        $this->assertSame([], $this->stagedArchives());
+    }
+
+    public function test_archive_write_timeouts_hand_over_without_using_up_attempts(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $entries = $this->overrides(60, extras: false);
+        $this->scenarioPack($entries);
+
+        // More timeouts than MAX_APPLY_ATTEMPTS: a slow link, not a node error.
+        $timeouts = 0;
+        $this->files->beforeWrite = function (string $path) use (&$timeouts) {
+            if (str_contains($path, 'staging/overrides-') && $timeouts < OverridesStep::MAX_APPLY_ATTEMPTS + 1) {
+                $timeouts++;
+
+                throw new ConnectionException('timeout');
+            }
+        };
+
+        $this->start($server);
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame(OverridesStep::MAX_APPLY_ATTEMPTS + 1, $timeouts);
+        $this->assertSame([$this->prefix().'0-'.(OverridesStep::MAX_APPLY_ATTEMPTS + 2).'.zip'], $this->unpacked());
+        // The write gets a size-scaled timeout (10-20 s, capped by the job's time left).
+        foreach ($this->files->argsOf('write') as [$path, $timeout]) {
+            if (str_contains((string) $path, 'staging/overrides-')) {
+                $this->assertIsInt($timeout);
+                $this->assertGreaterThanOrEqual(10, $timeout);
+                $this->assertLessThanOrEqual(20, $timeout);
+            }
+        }
+        $this->assertSame([], $this->stagedArchives());
+    }
+
+    public function test_a_staged_archive_of_the_wrong_size_is_never_unpacked(): void
+    {
+        [, $server] = $this->scenarioServer();
+        $entries = $this->overrides(60, extras: false);
+        $this->scenarioPack($entries);
+
+        // Someone swaps the staged file between the write and the unpack (once).
+        $tampered = null;
+        $this->files->afterWrite = function (string $path) use (&$tampered) {
+            if ($tampered === null && str_contains($path, 'staging/overrides-')) {
+                $tampered = $path;
+                $this->files->files[$path] = 'not the archive the panel built';
+            }
+        };
+
+        $this->start($server);
+        $this->runAll($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertNotNull($tampered);
+        $this->assertNotContains($tampered, $this->files->callsOf('decompress'));
+        $this->assertSame([$this->prefix().'0-2.zip'], $this->unpacked());
+        $this->assertContains(['override_archive_retry', 'size'], array_map(fn ($entry) => [$entry['key'], $entry['params']['status'] ?? null], $install->log ?? []));
+        $this->assertSame([], $this->stagedArchives());
+    }
+
+    /** @return array<string, array{string, string}> how the install ends => status */
+    public static function endings(): array
+    {
+        return [
+            'cancelled' => ['cancel', PackInstall::STATUS_CANCELLED],
+            'step deadline' => ['deadline', PackInstall::STATUS_FAILED],
+        ];
+    }
+
+    #[DataProvider('endings')]
+    public function test_an_install_that_ends_mid_batch_leaves_no_staged_archive(string $ending, string $status): void
+    {
+        [, $server] = $this->scenarioServer();
+        $entries = $this->overrides(60, extras: false);
+        $this->scenarioPack($entries);
+        // The first unpack fails: an archive is staged and the step waits for a fresh job.
+        $failed = false;
+        $this->files->beforeDecompress = function () use (&$failed) {
+            if (!$failed) {
+                $failed = true;
+
+                throw new RequestException(new Response(new Psr7Response(500)));
+            }
+        };
+
+        $this->start($server);
+        $this->runJobs(between: function ($job, PackInstall $install) use ($server, $ending) {
+            $this->finishBackups($server);
+            if ($job instanceof OverridesStep && $this->stagedArchives() !== []) {
+                PackInstall::query()->whereKey($install->id)->update($ending === 'cancel'
+                    ? ['cancel_requested_at' => now()]
+                    : ['step_deadline_at' => now()->subMinute()]);
+            }
+        });
+
+        $install = $this->latestInstall();
+        $this->assertSame($status, $install->status, (string) json_encode($install->log));
+        $this->assertTrue($failed);
+        $this->assertSame([], $this->stagedArchives());
+        $this->assertNull($install->progressValue('override_batch'));
     }
 }

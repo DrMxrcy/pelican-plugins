@@ -14,6 +14,7 @@ use DrMxrcy\ModpacksPlus\Models\PackInstall;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Services\PackProviders;
 use DrMxrcy\ModpacksPlus\Support\Caps;
+use DrMxrcy\ModpacksPlus\Support\JobClock;
 use DrMxrcy\ModpacksPlus\Support\OverrideArchive;
 use DrMxrcy\ModpacksPlus\Support\PackArchiveReader;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
@@ -30,11 +31,14 @@ use Illuminate\Http\Client\RequestException;
  * Small sets go one file at a time through the daemon. From `override_archive_min` files on
  * (plan 42) the panel instead builds a zip of exactly those validated entries
  * (OverrideArchive; the pack's own archive never reaches the node), writes it once to
- * `.modpacks-plus/staging/`, has the node unpack it into the server root, removes it and
- * checks every written file's size. That batch runs in phases recorded in progress
- * (`override_batch`): scan (move aside what is in the way), apply (write + unpack per
- * archive; a retry builds and stages a new file, so a re-run after a kill unpacks the same
- * entries again over themselves), cleanup, verify. Each phase resumes where a killed job left it.
+ * `.modpacks-plus/staging/`, checks its size there, has the node unpack it into the server
+ * root, removes it and checks every written file's size. That batch runs in phases recorded
+ * in progress (`override_batch`): scan (move aside what is in the way), apply (write + unpack
+ * per archive; every try builds and stages a new file, so a re-run after a kill unpacks the
+ * same entries again over themselves), cleanup, verify. Each phase resumes where a killed job
+ * left it. An archive only starts with MIN_APPLY_SECONDS left in the job; timeouts hand over
+ * to a fresh job, only node errors count towards MAX_APPLY_ATTEMPTS. An install that ends
+ * mid-batch (cancel, deadline, failure) has its staged archives swept by the engine.
  */
 class OverridesStep extends InstallStep
 {
@@ -43,11 +47,17 @@ class OverridesStep extends InstallStep
     /** Files from which overrides go as one archive (config `override_archive_min`; 0 = never). */
     public const DEFAULT_ARCHIVE_MIN = 50;
 
-    /** Write + unpack attempts per archive before the install fails. */
+    /** Node errors (an HTTP error or a staged file of the wrong size) per archive before the install fails. */
     public const MAX_APPLY_ATTEMPTS = 3;
 
-    /** An archive's write + unpack only starts this early in a job, leaving the unpack the rest. */
-    public const APPLY_START_SECONDS = 10;
+    /**
+     * Seconds a job must have left (after JobClock's reserve) to start an archive's write +
+     * unpack; with less it hands over to a fresh job without using up an attempt.
+     */
+    public const MIN_APPLY_SECONDS = 25;
+
+    /** Staged files per archive at most (timeouts don't count as attempts; the step deadline bounds them too). */
+    public const MAX_STAGED = 999;
 
     private const PHASES = ['scan', 'apply', 'cleanup', 'verify'];
 
@@ -91,7 +101,7 @@ class OverridesStep extends InstallStep
                         $install->addLog('warning', 'override_protected', ['path' => $protectedPath]);
                     }
                     $install->addLog('info', 'overrides_batched', ['count' => count($writes), 'archives' => count(OverrideArchive::chunks($writes))]);
-                    $batch = ['phase' => 'scan', 'dir' => 0, 'chunk' => 0, 'attempt' => 0];
+                    $batch = self::state('scan');
                     $install->setProgress('override_batch', $batch);
                     $engine->persist($install);
                 }
@@ -178,7 +188,7 @@ class OverridesStep extends InstallStep
         return [$writes, $protected];
     }
 
-    /** @return array{phase: string, dir: int, chunk: int, attempt: int}|null */
+    /** @return array{phase: string, dir: int, chunk: int, attempt: int, failures: int}|null */
     private static function batchState(PackInstall $install): ?array
     {
         $batch = $install->progressValue('override_batch');
@@ -191,29 +201,55 @@ class OverridesStep extends InstallStep
             throw new StepFailedException('unexpected', 'override batch');
         }
 
-        return [
-            'phase' => $phase,
-            'dir' => max(0, (int) ($batch['dir'] ?? 0)),
-            'chunk' => max(0, (int) ($batch['chunk'] ?? 0)),
-            'attempt' => max(0, (int) ($batch['attempt'] ?? 0)),
-        ];
+        return self::state(
+            $phase,
+            max(0, (int) ($batch['dir'] ?? 0)),
+            max(0, (int) ($batch['chunk'] ?? 0)),
+            max(0, (int) ($batch['attempt'] ?? 0)),
+            max(0, (int) ($batch['failures'] ?? 0)),
+        );
     }
 
-    /** @param  array{phase: string, dir: int, chunk: int, attempt: int}  $batch */
+    /**
+     * `attempt` numbers the staged files of the current archive (each try a new name);
+     * `failures` counts the node errors among them.
+     *
+     * @return array{phase: string, dir: int, chunk: int, attempt: int, failures: int}
+     */
+    private static function state(string $phase, int $dir = 0, int $chunk = 0, int $attempt = 0, int $failures = 0): array
+    {
+        return ['phase' => $phase, 'dir' => $dir, 'chunk' => $chunk, 'attempt' => $attempt, 'failures' => $failures];
+    }
+
+    /** @param  array{phase: string, dir: int, chunk: int, attempt: int, failures: int}  $batch */
     private function saveBatch(PackInstall $install, InstallEngine $engine, array $batch): void
     {
         $install->setProgress('override_batch', $batch);
         $engine->persist($install);
     }
 
+    /** Whether the job has time for an archive's write and unpack (always outside a job). */
+    private static function hasApplyTime(): bool
+    {
+        $remaining = JobClock::remaining();
+
+        return $remaining === null || $remaining - JobClock::RESERVE_SECONDS >= self::MIN_APPLY_SECONDS;
+    }
+
+    /** Seconds the archive write may take: 10 s plus 1 s per MiB, at most 20 (the unpack gets the rest). */
+    public static function writeTimeout(int $bytes): int
+    {
+        return min(20, 10 + intdiv($bytes, 1024 * 1024));
+    }
+
     /**
-     * The batched path. Every daemon call is bounded: one listing per directory to scan, one
-     * write + one unpack per archive, one listing + one delete per staged file, one listing per
+     * The batched path. Every daemon call is bounded: one listing per directory to scan; per
+     * archive one write, one listing (size check), one unpack, one delete; one listing per
      * directory to verify.
      *
      * @param  array<int, OverrideEntry>  $writes
      * @param  array<string, int>  $downloaded
-     * @param  array{phase: string, dir: int, chunk: int, attempt: int}  $batch
+     * @param  array{phase: string, dir: int, chunk: int, attempt: int, failures: int}  $batch
      *
      * @throws StepFailedException
      * @throws UnsafePlanException
@@ -222,8 +258,6 @@ class OverridesStep extends InstallStep
     private function applyBatch(PackInstall $install, Server $server, InstallEngine $engine, ServerFiles $files, PackArchiveReader $reader, PlanValidator $validator, ?string $root, Caps $caps, array $writes, array $downloaded, array $batch, int $count): StepResult
     {
         $directories = self::byDirectory($writes);
-        // Whether this job already talked to the node for the batch (then a new archive waits for a fresh job).
-        $worked = false;
 
         try {
             if ($batch['phase'] === 'scan') {
@@ -237,7 +271,6 @@ class OverridesStep extends InstallStep
                     }
 
                     [$directory, $entries] = $directories[$batch['dir']];
-                    $worked = true;
                     $listing = $files->list($server, $directory) ?? [];
                     foreach ($entries as $entry) {
                         $stat = $listing[basename($entry->path)] ?? null;
@@ -248,24 +281,25 @@ class OverridesStep extends InstallStep
                             $this->moveExistingAside($install, $server, $entry->path);
                         }
                     }
-                    $this->saveBatch($install, $engine, ['phase' => 'scan', 'dir' => $batch['dir'] + 1, 'chunk' => 0, 'attempt' => 0]);
+                    $this->saveBatch($install, $engine, self::state('scan', $batch['dir'] + 1));
                 }
 
-                $batch = ['phase' => 'apply', 'dir' => 0, 'chunk' => 0, 'attempt' => 0];
+                $batch = self::state('apply');
                 $this->saveBatch($install, $engine, $batch);
             }
 
             if ($batch['phase'] === 'apply') {
                 $chunks = OverrideArchive::chunks($writes);
                 while ($batch['chunk'] < count($chunks)) {
-                    if ($this->outOfTime() || ($worked && $this->elapsedSeconds() > self::APPLY_START_SECONDS)) {
+                    // Too little time left: a fresh job starts it, no attempt used.
+                    if ($this->outOfTime() || !self::hasApplyTime()) {
                         return StepResult::again();
                     }
-                    if ($batch['attempt'] >= self::MAX_APPLY_ATTEMPTS) {
+                    if ($batch['failures'] >= self::MAX_APPLY_ATTEMPTS || $batch['attempt'] >= self::MAX_STAGED) {
                         throw new StepFailedException('override_archive_failed', (string) ($batch['chunk'] + 1));
                     }
 
-                    // Counted before anything is sent: a kill mid-way is an attempt too.
+                    // Recorded before anything is sent: every try stages a file of its own name.
                     $batch['attempt']++;
                     $this->saveBatch($install, $engine, $batch);
 
@@ -274,34 +308,40 @@ class OverridesStep extends InstallStep
 
                     try {
                         $this->ensureDirectory($install, $server, OverrideArchive::STAGING_FOLDER);
-                        $files->write($server, $staged, $built->contents);
+                        $files->write($server, $staged, $built->contents, self::writeTimeout(strlen($built->contents)));
+
+                        // Defence in depth: only a staged file of exactly the built size is unpacked.
+                        $stat = $files->stat($server, $staged);
+                        if ($stat === null || $stat['directory'] || $stat['size'] !== strlen($built->contents)) {
+                            return $this->applyFailed($install, $engine, $batch, 'size');
+                        }
+
                         $files->decompress($server, $staged, $built->paths);
                     } catch (ConnectionException) {
-                        // The node may still be busy; the next attempt stages a fresh file.
+                        // A slow link or a busy node, not a node error: a fresh job tries again.
                         $install->addLog('warning', 'override_archive_retry', ['archive' => $batch['chunk'] + 1, 'status' => 'timeout']);
                         $engine->persist($install);
 
                         return StepResult::again(20);
                     } catch (RequestException $exception) {
-                        $install->addLog('warning', 'override_archive_retry', ['archive' => $batch['chunk'] + 1, 'status' => $exception->response->status()]);
-                        $engine->persist($install);
-
-                        return StepResult::again(10);
+                        return $this->applyFailed($install, $engine, $batch, (string) $exception->response->status());
                     }
 
-                    $worked = true;
-                    $batch = ['phase' => 'apply', 'dir' => 0, 'chunk' => $batch['chunk'] + 1, 'attempt' => 0];
+                    $batch = self::state('apply', 0, $batch['chunk'] + 1);
                     $this->saveBatch($install, $engine, $batch);
+
+                    // Recorded first: a failed delete retries the job, the cleanup phase removes the rest.
+                    $files->delete($server, $staged);
                 }
 
-                $batch = ['phase' => 'cleanup', 'dir' => 0, 'chunk' => 0, 'attempt' => 0];
+                $batch = self::state('cleanup');
                 $this->saveBatch($install, $engine, $batch);
             }
 
             if ($batch['phase'] === 'cleanup') {
                 // Not best effort: a failed delete retries the job, so no archive outlives the step.
-                $this->removeStaged($install, $server, $files, bestEffort: false);
-                $batch = ['phase' => 'verify', 'dir' => 0, 'chunk' => 0, 'attempt' => 0];
+                self::removeStaged($install, $server, $files, bestEffort: false);
+                $batch = self::state('verify');
                 $this->saveBatch($install, $engine, $batch);
             }
 
@@ -322,11 +362,11 @@ class OverridesStep extends InstallStep
                         throw new StepFailedException('override_incomplete', $entry->path);
                     }
                 }
-                $this->saveBatch($install, $engine, ['phase' => 'verify', 'dir' => $batch['dir'] + 1, 'chunk' => 0, 'attempt' => 0]);
+                $this->saveBatch($install, $engine, self::state('verify', $batch['dir'] + 1));
             }
         } catch (StepFailedException|UnsafePlanException|PackUnavailableException $exception) {
             // The install ends: no staged archive stays behind (best effort, a leftover is logged).
-            $this->removeStaged($install, $server, $files, bestEffort: true);
+            self::removeStaged($install, $server, $files, bestEffort: true);
 
             throw $exception;
         }
@@ -336,6 +376,21 @@ class OverridesStep extends InstallStep
         $engine->persist($install);
 
         return $this->finished($install, $count);
+    }
+
+    /**
+     * A node error for the current archive (an HTTP error, or a staged file that is not what
+     * was built): counted, and a fresh job stages a new file.
+     *
+     * @param  array{phase: string, dir: int, chunk: int, attempt: int, failures: int}  $batch
+     */
+    private function applyFailed(PackInstall $install, InstallEngine $engine, array $batch, string $status): StepResult
+    {
+        $batch['failures']++;
+        $install->addLog('warning', 'override_archive_retry', ['archive' => $batch['chunk'] + 1, 'status' => $status]);
+        $this->saveBatch($install, $engine, $batch);
+
+        return StepResult::again(10);
     }
 
     /**
@@ -365,9 +420,9 @@ class OverridesStep extends InstallStep
     /**
      * Deletes every archive staged for this install (found by listing, so archives of attempts
      * a killed job never recorded go too). Best effort: a failure is logged as a leftover
-     * instead of thrown.
+     * instead of thrown. Also used by the engine when an install ends mid-batch.
      */
-    private function removeStaged(PackInstall $install, Server $server, ServerFiles $files, bool $bestEffort): void
+    public static function removeStaged(PackInstall $install, Server $server, ServerFiles $files, bool $bestEffort): void
     {
         try {
             $listing = $files->list($server, OverrideArchive::STAGING_FOLDER) ?? [];

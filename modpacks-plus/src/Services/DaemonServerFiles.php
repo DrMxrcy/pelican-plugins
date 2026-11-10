@@ -256,11 +256,24 @@ class DaemonServerFiles implements ServerFiles
         return $contents;
     }
 
-    public function write(Server $server, string $path, string $contents): void
+    public function write(Server $server, string $path, string $contents, ?int $timeoutSeconds = null): void
     {
         $path = $this->guardTarget($path);
 
-        $this->repository($server)->putContent($path, $contents)->throw();
+        if ($timeoutSeconds === null) {
+            $this->repository($server)->putContent($path, $contents)->throw();
+
+            return;
+        }
+
+        // DaemonFileRepository::putContent()'s request, with a timeout the job can afford (plan 42).
+        $this->repository($server)
+            ->getHttpClient()
+            ->timeout(JobClock::timeout($timeoutSeconds))
+            ->withQueryParameters(['file' => $path])
+            ->withBody($contents)
+            ->post("/api/servers/{$server->uuid}/files/write")
+            ->throw();
     }
 
     public function delete(Server $server, string $path): void
