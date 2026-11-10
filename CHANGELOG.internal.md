@@ -2,6 +2,14 @@
 
 _Full work log — every item, including internal/dev work. The curated public changelog is CHANGELOG.md._
 
+## v0.6.0 — (in progress)
+
+### ✨ New
+- (pending) Minecraft version and loader picker
+- (pending) Modpacks Plus: install a CurseForge pack from its link or project ID
+- (pending) Modpacks Plus: apply big override sets as one archive instead of one write per file
+- (pending) Modpacks Plus: catch a loader reinstall that the node reports as successful but left no server to start
+
 ## v0.5.0 — (in progress)
 
 ### ✨ New
@@ -24,7 +32,7 @@ _Full work log — every item, including internal/dev work. The curated public c
 
 ### 🐛 Fixed
 - Client-only toggle is an unlabeled eye icon and shown client-only mods carry no badge on the All tab
-- (pending) After a failed (re)install the server stays install_failed/reinstall_failed: Install is still offered and the new install waits on the conflict until its step deadline
+- After a failed (re)install the server stays install_failed/reinstall_failed: Install is still offered and the new install waits on the conflict until its step deadline
 
 ## v0.4.0 — 2026-11-10
 
