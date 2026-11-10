@@ -24,6 +24,12 @@ class PackSizes
     {
         $bytes = Cache::get(self::key($provider, $packId, $versionId));
 
+        // The redis and database stores keep numbers unserialized, so an int comes back as a
+        // numeric string ("7516192768"); only plain digit strings count, anything else is junk.
+        if (is_string($bytes) && preg_match('/^\d{1,19}$/D', $bytes) === 1) {
+            $bytes = filter_var($bytes, FILTER_VALIDATE_INT);
+        }
+
         return is_int($bytes) && $bytes >= 0 ? $bytes : null;
     }
 

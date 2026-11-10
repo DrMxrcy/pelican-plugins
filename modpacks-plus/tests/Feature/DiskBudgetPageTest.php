@@ -16,6 +16,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
@@ -159,6 +160,28 @@ class DiskBudgetPageTest extends TestCase
         $this->assertSame(trans('modpacks-plus::strings.install.no_room'), (string) $action->getLabel());
         $this->assertStringContainsString('needs at least 8 GB, 7 GB free of 10 GB', (string) $action->getTooltip());
         $this->assertStringContainsString('needs at least 8 GB, 7 GB free of 10 GB', $this->description($action));
+    }
+
+    /** Live 2026-11-10: the redis cache hands the stored size back as a numeric string. */
+    public function test_a_size_the_cache_returns_as_a_numeric_string_still_disables_install(): void
+    {
+        $this->actingOn(10 * 1024, 3 * self::GIB);
+        $key = (new \ReflectionMethod(PackSizes::class, 'key'))->invoke(null, ModrinthPackProvider::ID, Mrpack::PACK_ID, Mrpack::VERSION_ID);
+        Cache::put($key, (string) (7 * self::GIB), 60);
+
+        $this->assertSame(7 * self::GIB, PackSizes::known(ModrinthPackProvider::ID, Mrpack::PACK_ID, Mrpack::VERSION_ID));
+        $action = $this->installAction();
+        $this->assertTrue($action->isDisabled());
+        $this->assertStringContainsString('needs at least 8 GB, 7 GB free of 10 GB', (string) $action->getTooltip());
+    }
+
+    public function test_a_cached_size_that_is_not_a_plain_number_is_ignored(): void
+    {
+        $key = (new \ReflectionMethod(PackSizes::class, 'key'))->invoke(null, ModrinthPackProvider::ID, Mrpack::PACK_ID, Mrpack::VERSION_ID);
+        foreach (['-5', '7e9', ' 7', '7.5', '', '99999999999999999999', 'abc'] as $junk) {
+            Cache::put($key, $junk, 60);
+            $this->assertNull(PackSizes::known(ModrinthPackProvider::ID, Mrpack::PACK_ID, Mrpack::VERSION_ID), $junk);
+        }
     }
 
     public function test_without_a_known_size_the_download_size_is_shown_and_install_stays_enabled(): void
