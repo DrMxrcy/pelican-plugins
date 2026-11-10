@@ -6,9 +6,11 @@ use DrMxrcy\ModpacksPlus\Exceptions\PackUnavailableException;
 use DrMxrcy\ModpacksPlus\Services\LoaderVersions;
 use DrMxrcy\ModpacksPlus\Tests\Support\LoaderMeta;
 use DrMxrcy\ModpacksPlus\Tests\TestCase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Plan 40 step 1: the version lists of the "Minecraft version" picker. Parsing per host,
@@ -25,6 +27,7 @@ class LoaderVersionsTest extends TestCase
         Http::preventStrayRequests();
     }
 
+    /** @param  array<string, mixed>  $overrides */
     private function fakeAll(array $overrides = []): void
     {
         Http::fake(array_merge(LoaderMeta::stubs(), $overrides));
@@ -143,11 +146,11 @@ class LoaderVersionsTest extends TestCase
             'too large by header' => [fn () => Http::response('{}', 200, ['Content-Length' => (string) (LoaderVersions::MAX_BYTES + 1)])],
             'too large body' => [fn () => Http::response(str_repeat(' ', LoaderVersions::MAX_BYTES + 1))],
             'encoded' => [fn () => Http::response('{}', 200, ['Content-Encoding' => 'gzip'])],
-            'connection error' => [fn () => fn () => throw new \Illuminate\Http\Client\ConnectionException('down')],
+            'connection error' => [fn () => fn () => throw new ConnectionException('down')],
         ];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('brokenAnswers')]
+    #[DataProvider('brokenAnswers')]
     public function test_a_broken_answer_is_unavailable_and_nothing_else_is_requested(\Closure $answer): void
     {
         $this->fakeAll([LoaderVersions::MOJANG_URL => $answer()]);

@@ -11,7 +11,10 @@ use Illuminate\Support\Facades\Http;
  */
 final class LoaderMeta
 {
-    /** @param  array<int, string>  $releases */
+    /**
+     * @param  array<int, string>  $releases
+     * @param  array<int, string>  $snapshots
+     */
     public static function mojang(array $releases = ['26.3', '26.2', '26.1.2', '1.21.1', '1.20.1'], array $snapshots = ['26.4-snapshot-7']): string
     {
         $versions = [];

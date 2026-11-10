@@ -11,6 +11,8 @@ the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft v
   *FTB and ATLauncher* for those sources.
 - Versions for another Minecraft version or loader offer **Switch to &lt;loader&gt; &lt;version&gt; and install**
   (admins, or everyone with the install permissions when the setting allows it; see *Loader switching*).
+- **Minecraft version** changes the server's Minecraft version or loader without a pack, picked from
+  the loaders' own version lists (see *Minecraft version and loader*).
 - An install runs as chained short queue jobs:
   1. **prepare** — download the `.mrpack` on the panel, verify its sha512, read and validate the index;
   2. **backup** — a locked backup through Pelican's backup service (never deletes an old backup).
@@ -299,19 +301,54 @@ only to users with `startup.read`, and values of variables users can't see are n
 Official eggs: Fabric (`LOADER_VERSION`), Forge (`FORGE_VERSION` = `<mc>-<forge>`), NeoForge
 (`NEOFORGE_VERSION`), Quilt (no loader variable: its egg always installs the latest Quilt loader).
 
+## Minecraft version and loader
+
+**Minecraft version** (at the top of the Modpacks page) moves the server to another Minecraft version
+and/or loader without installing a pack: pick the loader, the Minecraft version and the loader version
+(the newest stable build is preselected). Who may: the same as for a loader switch (admins with
+*update server*, or everyone with the install permissions when **Let server users switch loaders** is
+on).
+
+- **Loaders**: Fabric, Quilt, Forge and NeoForge, each only when its official pelican-eggs egg is
+  imported and usable (as for *Loader switching*). Vanilla and Paper are not offered: the plugin has no
+  table of their eggs' variables, so it can't set their versions safely.
+- **Lists** come only from the loaders' own metadata, at fixed URLs: Mojang's version manifest
+  (`piston-meta.mojang.com`, releases only), `meta.fabricmc.net` (stable game versions and loader
+  builds), `meta.quiltmc.org` (stable game versions), `maven.neoforged.net` (NeoForge release builds,
+  no betas) and `maven.minecraftforge.net` (Forge `<mc>-<forge>` builds). They are read only when the
+  picker opens (never for the page), with no redirects, at most 2 MB and 5 s per answer, and cached
+  for an hour. When a host doesn't answer, the picker says so (and doesn't ask again for a minute);
+  the rest of the page works as usual. Snapshots are not offered (the loader eggs take release
+  versions only).
+- **What it does**: the steps of *Loader switching* without the pack: check the server and the
+  versions, record the current setup, a locked backup, worlds and player files set aside, egg (if it
+  changes) and its version variables, the Java image, reinstall and its launch-file check, worlds and
+  player files back. Only the chosen egg's version variables are set, and only to values from the
+  lists, checked again on the server when the choice is submitted.
+- **Mods**: for another version of the **same loader**, `mods/` and `config/` stay as they are (the
+  picker warns that installed mods may not support the new version); for **another loader** the old
+  pack folders are moved into `.modpacks-plus/previous-<date>/`, as for a switch. No mods are
+  installed for the new version.
+- **Worlds**: a world opened in a newer Minecraft version may not load in an older one; the picker
+  warns when the chosen version is older than the server's. The backup keeps the current world.
+- A failed reinstall ends `failed` like a switch; **Restore previous files** puts worlds, player
+  files and moved folders back. After a version change the previously installed pack is no longer
+  shown as installed (its versions were for the old setup), and pack updates aren't offered for it.
+
 ## Permissions
 
 - Viewing the page: `file.read`.
 - Installing, cancelling or restoring previous files: `settings.reinstall` + `file.create` +
   `file.delete` + `backup.create`.
-- Switching the loader (changes the egg): admins with *update server* on the server (Pelican itself only
-  lets admins change eggs). The setting **Let server users switch loaders** extends it to anyone with
-  the install permissions. Without it, owners see "ask an admin to switch loaders".
+- Switching the loader (changes the egg), and the **Minecraft version** picker: admins with *update
+  server* on the server (Pelican itself only lets admins change eggs). The setting **Let server users
+  switch loaders** extends it to anyone with the install permissions. Without it, owners see "ask an
+  admin to switch loaders" and no Minecraft version button.
 
 Updating a pack and *Start a fresh world* need the same install permissions.
 
 Users without these permissions don't see the buttons; the Livewire handlers (`installPack`,
-`switchLoaderAndInstall`, `updatePack`, `cancelInstall`, `restorePreviousFiles`) check every permission
+`switchLoaderAndInstall`, `changeMinecraftVersion`, `updatePack`, `cancelInstall`, `restorePreviousFiles`) check every permission
 again, so direct calls get 403.
 
 ## Requirements

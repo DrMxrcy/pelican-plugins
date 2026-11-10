@@ -21,6 +21,7 @@ use DrMxrcy\ModpacksPlus\Providers\Modrinth\ModrinthPackProvider;
 use DrMxrcy\ModpacksPlus\Services\InstallEngine;
 use DrMxrcy\ModpacksPlus\Services\JavaImagePicker;
 use DrMxrcy\ModpacksPlus\Services\LoaderEggResolver;
+use DrMxrcy\ModpacksPlus\Services\LoaderVersions;
 use DrMxrcy\ModpacksPlus\Services\PackProviders;
 use DrMxrcy\ModpacksPlus\Services\PackSizes;
 use DrMxrcy\ModpacksPlus\Services\ServerDiskUsage;
@@ -32,6 +33,7 @@ use DrMxrcy\ModpacksPlus\Support\ServerTarget;
 use DrMxrcy\ModpacksPlus\Support\VersionMatch;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
@@ -43,6 +45,8 @@ use Filament\Schemas\Components\EmbeddedTable;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Html;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -66,9 +70,11 @@ use Illuminate\Support\Str;
  * Permissions: viewing needs file.read; installing, cancelling and restoring need
  * settings.reinstall + file.create + file.delete + backup.create. Switching the loader
  * (an egg change) additionally needs an admin ("update server" on this server), unless
- * the plugin setting "Let server users switch loaders" is on. The public Livewire
- * methods (installPack, switchLoaderAndInstall, cancelInstall, restorePreviousFiles)
- * check them themselves: they are callable from the browser no matter which buttons are shown.
+ * the plugin setting "Let server users switch loaders" is on; so does the "Minecraft version"
+ * picker (plan 40), which is a switch without a pack. The public Livewire methods
+ * (installPack, switchLoaderAndInstall, changeMinecraftVersion, cancelInstall,
+ * restorePreviousFiles) check them themselves: they are callable from the browser no matter
+ * which buttons are shown.
  *
  * The source (Modrinth, CurseForge, FTB or ATLauncher) is a public property the browser can set to anything:
  * it is only ever used through source(), which falls back to Modrinth for unknown values.
@@ -100,6 +106,11 @@ class ModpacksPage extends Page implements HasTable
     private array $switchTargets = [];
 
     private bool $latestInstallLoaded = false;
+
+    /** @var array<string, string>|null plan 40: loader => label of the loaders whose official egg resolves, this request */
+    private ?array $versionLoaders = null;
+
+    private ?LoaderVersions $loaderVersions = null;
 
     /** Plan 38: the disk budget, read lazily (confirm modal / install button), once per request. */
     private ?DiskBudget $diskBudget = null;
@@ -273,7 +284,235 @@ class ModpacksPage extends Page implements HasTable
                 default => 'tabler-rocket',
             })
             ->color(fn () => $this->source() === $source ? 'primary' : 'gray')
-            ->action(fn () => $this->setSource($source)), PackProviders::IDS), $this->openCurseForgeLinkAction()];
+            ->action(fn () => $this->setSource($source)), PackProviders::IDS), $this->openCurseForgeLinkAction(), $this->minecraftVersionAction()];
+    }
+
+    /**
+     * Plan 40: "Minecraft version" picks the loader (only those whose official egg is imported,
+     * LoaderEggResolver), the Minecraft version and the loader version (default: the latest
+     * stable build) from the loaders' own lists, then switches egg and version variables and
+     * reinstalls (InstallEngine::startVersionChange). The lists are only fetched once the form
+     * is open (the options below), never for the page itself. Who may: as for a loader switch.
+     */
+    private function minecraftVersionAction(): Action
+    {
+        return Action::make('minecraft_version')
+            ->label(trans('modpacks-plus::strings.version.action'))
+            ->icon('tabler-versions')
+            ->color('gray')
+            // Hidden without the switch permission; changeMinecraftVersion() re-checks it anyway.
+            ->visible(fn () => static::canSwitchLoader())
+            ->authorize(fn () => static::canSwitchLoader())
+            // Plan 39: it reinstalls the server, so a failed install doesn't block it.
+            ->disabled(fn () => $this->activeInstall() !== null || $this->serverBlocked(forSwitch: true) !== null)
+            ->tooltip(fn () => $this->serverBlocked(forSwitch: true))
+            ->modalHeading(trans('modpacks-plus::strings.version.heading'))
+            ->modalDescription(trans('modpacks-plus::strings.version.description'))
+            ->modalSubmitActionLabel(trans('modpacks-plus::strings.version.submit'))
+            ->schema([
+                Select::make('loader')
+                    ->label(trans('modpacks-plus::strings.version.loader'))
+                    ->options(fn () => $this->versionLoaders())
+                    ->default(fn () => ($current = ServerTarget::loader($this->server())) !== null && isset($this->versionLoaders()[$current]) ? $current : null)
+                    ->helperText(fn () => $this->versionLoaders() === [] ? trans('modpacks-plus::strings.version.no_loaders') : null)
+                    ->required()
+                    ->live()
+                    ->afterStateUpdated(function (Set $set) {
+                        $set('minecraft', null);
+                        $set('loader_version', null);
+                    }),
+                Select::make('minecraft')
+                    ->label(trans('modpacks-plus::strings.version.minecraft'))
+                    ->options(fn (Get $get) => $this->minecraftOptions($get('loader')))
+                    ->helperText(fn (Get $get) => $this->versionsError($get('loader')) ?? trans('modpacks-plus::strings.version.releases_only'))
+                    ->searchable()
+                    ->required()
+                    ->live()
+                    ->afterStateUpdated(fn (Set $set, Get $get) => $set('loader_version', array_key_first($this->loaderVersionOptions($get('loader'), $get('minecraft'))))),
+                Select::make('loader_version')
+                    ->label(trans('modpacks-plus::strings.version.loader_version'))
+                    ->options(fn (Get $get) => $this->loaderVersionOptions($get('loader'), $get('minecraft')))
+                    ->helperText(trans('modpacks-plus::strings.version.loader_version_help'))
+                    ->visible(fn (Get $get) => is_string($get('loader')) && isset($this->versionLoaders()[$get('loader')]) && EggVariableMap::pinsLoaderVersion($get('loader'))),
+                Html::make(fn (Get $get) => $this->versionChangeNotes($get('loader'), $get('minecraft'))),
+            ])
+            ->action(fn (array $data) => $this->changeMinecraftVersion(
+                is_string($data['loader'] ?? null) ? $data['loader'] : '',
+                is_string($data['minecraft'] ?? null) ? $data['minecraft'] : '',
+                is_string($data['loader_version'] ?? null) ? $data['loader_version'] : null,
+            ));
+    }
+
+    /**
+     * The loaders the picker offers: those whose official egg resolves (no request leaves the panel).
+     *
+     * @return array<string, string>
+     */
+    private function versionLoaders(): array
+    {
+        if ($this->versionLoaders === null) {
+            $resolver = new LoaderEggResolver();
+            $this->versionLoaders = [];
+            foreach (EggVariableMap::loaders() as $loader) {
+                try {
+                    $resolver->resolve($loader);
+                    $this->versionLoaders[$loader] = ServerTarget::loaderName($loader);
+                } catch (InstallRefusedException) {
+                    // No usable egg: not offered (as the switch offer does).
+                }
+            }
+        }
+
+        return $this->versionLoaders;
+    }
+
+    private function loaderVersions(): LoaderVersions
+    {
+        return $this->loaderVersions ??= app(LoaderVersions::class);
+    }
+
+    /**
+     * The lists of an offered loader, or null (not offered, or the lists are unavailable).
+     *
+     * @return array<string, array<int, string>>|null
+     */
+    private function versionLists(mixed $loader): ?array
+    {
+        if (!is_string($loader) || !isset($this->versionLoaders()[$loader])) {
+            return null;
+        }
+
+        try {
+            return $this->loaderVersions()->versions($loader);
+        } catch (PackUnavailableException) {
+            return null;
+        }
+    }
+
+    /** Why the lists of $loader can't be shown (an outage), or null. */
+    private function versionsError(mixed $loader): ?string
+    {
+        if (!is_string($loader) || !isset($this->versionLoaders()[$loader])) {
+            return null;
+        }
+
+        try {
+            $this->loaderVersions()->versions($loader);
+        } catch (PackUnavailableException $exception) {
+            return InstallProgress::reason($exception->reason, $exception->detail);
+        }
+
+        return null;
+    }
+
+    /** @return array<string, string> */
+    private function minecraftOptions(mixed $loader): array
+    {
+        $versions = array_keys($this->versionLists($loader) ?? []);
+
+        return array_combine($versions, $versions);
+    }
+
+    /** @return array<string, string> newest (the default) first */
+    private function loaderVersionOptions(mixed $loader, mixed $minecraft): array
+    {
+        if (!is_string($loader) || !is_string($minecraft) || !EggVariableMap::pinsLoaderVersion($loader)) {
+            return [];
+        }
+
+        $versions = ($this->versionLists($loader) ?? [])[$minecraft] ?? [];
+
+        return array_combine($versions, $versions);
+    }
+
+    /** What the chosen change does: the egg change and its resets, or what stays for the same loader. */
+    private function versionChangeNotes(mixed $loader, mixed $minecraft): ?HtmlString
+    {
+        if (!is_string($loader) || !is_string($minecraft) || !isset($this->minecraftOptions($loader)[$minecraft])) {
+            return null;
+        }
+
+        $server = $this->server();
+        $currentLoader = ServerTarget::loader($server);
+        $currentMinecraft = ServerTarget::minecraftVersion($server);
+
+        $lines = [];
+        if ($currentMinecraft !== null && preg_match('/^\d+(\.\d+)*$/', $currentMinecraft) && version_compare($minecraft, $currentMinecraft, '<')) {
+            $lines[] = '<p><strong>'.e(trans('modpacks-plus::strings.version.downgrade', ['current' => $currentMinecraft])).'</strong></p>';
+        }
+
+        if ($currentLoader !== $loader) {
+            return new HtmlString(implode('', $lines).$this->switchDescription(['loader' => $loader, 'minecraft' => $minecraft])->toHtml());
+        }
+
+        $lines[] = '<p>'.e(trans('modpacks-plus::strings.version.same_loader', [
+            'from' => ServerTarget::loaderName($loader).' '.($currentMinecraft ?? '?'),
+            'to' => ServerTarget::loaderName($loader).' '.$minecraft,
+        ])).'</p>';
+        $lines[] = '<p>'.e(trans('modpacks-plus::strings.install.reset_versions', ['variables' => implode(', ', EggVariableMap::requiredVariables($loader))])).'</p>';
+
+        return new HtmlString(implode('', $lines));
+    }
+
+    /**
+     * Starts a version change (plan 40). Public so the picker can call it; it is equally callable
+     * by anyone holding the page, so it re-checks the switch permission and checks the choice
+     * against the loaders' lists read on the server (never trusting the browser): only the chosen
+     * egg's version variables are ever set, from list values. An empty loader version is the
+     * newest stable one on the list.
+     */
+    public function changeMinecraftVersion(string $loader, string $minecraft, ?string $loaderVersion = null): void
+    {
+        abort_unless(static::canAccess() && static::canInstall() && static::canSwitchLoader(), 403);
+        abort_unless(in_array($loader, EggVariableMap::loaders(), true), 404);
+
+        $server = $this->server();
+        $target = ServerTarget::loaderName($loader).' '.mb_substr($minecraft, 0, 32);
+
+        try {
+            $versions = $this->loaderVersions()->versions($loader);
+            if (!array_key_exists($minecraft, $versions)) {
+                throw new InstallRefusedException('version_not_offered', $target);
+            }
+
+            if (EggVariableMap::pinsLoaderVersion($loader)) {
+                $loaderVersion = $loaderVersion === null || $loaderVersion === '' ? ($versions[$minecraft][0] ?? null) : $loaderVersion;
+                if ($loaderVersion === null || !in_array($loaderVersion, $versions[$minecraft], true)) {
+                    throw new InstallRefusedException('version_not_offered', $target.' '.mb_substr((string) $loaderVersion, 0, 32));
+                }
+            } elseif ($loaderVersion !== null && $loaderVersion !== '') {
+                throw new InstallRefusedException('version_not_offered', $target.' '.mb_substr($loaderVersion, 0, 32));
+            } else {
+                $loaderVersion = null;
+            }
+
+            // The values the egg gets, checked before anything is created.
+            EggVariableMap::variables($loader, $minecraft, $loaderVersion);
+            ['egg' => $egg] = $this->switchEgg(['loader' => $loader, 'minecraft' => $minecraft]);
+
+            $install = app(InstallEngine::class)->startVersionChange($server, user(), [
+                'loader' => $loader,
+                'minecraft' => $minecraft,
+                'loader_version' => $loaderVersion,
+                'egg_id' => $egg->id,
+                'egg_name' => $egg->name,
+            ]);
+        } catch (InstallRefusedException|PackUnavailableException $exception) {
+            Notification::make()
+                ->title(trans('modpacks-plus::strings.install.refused'))
+                ->body(InstallProgress::reason($exception->reason, $exception->detail))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $this->latestInstallLoaded = false;
+
+        Notification::make()
+            ->title(trans('modpacks-plus::strings.version.started', ['target' => $install->name]))
+            ->success()
+            ->send();
     }
 
     /**
@@ -380,9 +619,12 @@ class ModpacksPage extends Page implements HasTable
             ->first(fn (PackInstall $install) => (bool) $install->progressValue('restore_discarded'));
     }
 
+    /** The newest installed pack; none once a version change (plan 40) came after it (its versions no longer apply). */
     private function lastInstalledPack(): ?PackInstall
     {
-        return PackInstall::query()->where('server_id', $this->server()->id)->where('status', PackInstall::STATUS_INSTALLED)->latest('id')->first();
+        $installed = PackInstall::query()->where('server_id', $this->server()->id)->where('status', PackInstall::STATUS_INSTALLED)->latest('id')->first();
+
+        return $installed?->mode === PackInstall::MODE_VERSION ? null : $installed;
     }
 
     /**

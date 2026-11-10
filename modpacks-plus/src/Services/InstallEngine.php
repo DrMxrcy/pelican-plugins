@@ -173,11 +173,11 @@ class InstallEngine
      *
      * @param  array{loader: string, minecraft: string, egg_id: int, egg_name: string, loader_version?: ?string, from?: array{loader: ?string, minecraft: ?string}, keep_mods?: bool}|null  $loaderSwitch
      * @param  array{update?: bool, fresh_world?: bool, overwrite_changes?: bool, version_change?: bool}  $options  plan 36: `update` applies
-     *                                                                                                             the version as a diff of the
-     *                                                                                                             installed same pack (never
-     *                                                                                                             with a loader switch); plan 40:
-     *                                                                                                             `version_change` is a switch
-     *                                                                                                             without a pack (startVersionChange())
+     *                                                                                                              the version as a diff of the
+     *                                                                                                              installed same pack (never
+     *                                                                                                              with a loader switch); plan 40:
+     *                                                                                                              `version_change` is a switch
+     *                                                                                                              without a pack (startVersionChange())
      *
      * @throws InstallRefusedException
      */
@@ -188,7 +188,7 @@ class InstallEngine
             throw new InstallRefusedException('update_needs_switch');
         }
         $versionChange = !empty($options['version_change']);
-        if ($versionChange !== ($provider === PackInstall::VERSION_PROVIDER) || ($versionChange && ($loaderSwitch === null || $update))) {
+        if ($versionChange !== ($provider === PackInstall::VERSION_PROVIDER) || ($versionChange && $loaderSwitch === null)) {
             throw new InstallRefusedException('loader_unsupported', $provider);
         }
 
