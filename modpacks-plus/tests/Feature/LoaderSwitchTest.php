@@ -731,6 +731,78 @@ class LoaderSwitchTest extends TestCase
         $this->assertSame($stops, $this->power->stops);
     }
 
+    /**
+     * Plan 47 (live install #35): a server hanging in `stopping` (a mod crashing on shutdown) is
+     * killed once, STOP_KILL_AFTER seconds after the wait began, instead of waiting out the deadline.
+     */
+    public function test_a_server_hanging_while_stopping_is_killed_once_after_the_kill_delay(): void
+    {
+        $server = $this->fabricServer();
+        $this->power->state = 'running';
+        $this->power->afterStop = 'stopping';
+        $this->power->afterKill = null;
+
+        $this->startSwitch($server);
+        $this->runSwitch($server, 20);
+
+        $install = $this->latestInstall();
+        $this->assertSame(MoveAsideStep::KEY, $install->current_step);
+        $this->assertSame(1, $this->power->stops);
+        $this->assertSame(0, $this->power->kills);
+
+        // Not yet: just before the kill delay.
+        $this->travel(InstallStep::STOP_KILL_AFTER - 5)->seconds();
+        $this->runSwitch($server, 5);
+        $this->assertSame(0, $this->power->kills);
+
+        $this->travel(10)->seconds();
+        $this->runSwitch($server, 20);
+
+        $install = $this->latestInstall();
+        $this->assertSame(1, $this->power->kills);
+        $killed = array_values(array_filter($install->log ?? [], fn (array $line) => ($line['key'] ?? null) === 'killing_server'));
+        $this->assertCount(1, $killed);
+        $this->assertSame('stopping', $killed[0]['params']['state'] ?? null);
+        // Still hanging after the kill: never a second kill, nothing moved while it runs.
+        $this->assertSame(MoveAsideStep::KEY, $install->current_step);
+        $this->assertNull($install->moved_aside_path);
+
+        $this->power->state = 'offline';
+        $this->runSwitch($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame(1, $this->power->kills);
+        $this->assertSame(1, $this->power->stops);
+    }
+
+    public function test_restore_kills_a_server_hanging_while_stopping(): void
+    {
+        $server = $this->fabricServer();
+        $this->reinstallCreates = [];
+        $this->startSwitch($server);
+        $this->runSwitch($server);
+        $install = $this->latestInstall();
+        $this->assertTrue($install->isRestorable(), (string) json_encode($install->log));
+
+        // The user started the half-switched server; it hangs on stop.
+        $this->power->state = 'running';
+        $this->power->afterStop = 'stopping';
+        PackInstall::query()->whereKey($install->id)->update(['restore_requested_at' => now()]);
+        dispatch(new RestorePreviousFilesJob($install->id));
+        $this->runRestoreJobs(5);
+        $this->assertSame(0, $this->power->kills);
+
+        $this->travel(InstallStep::STOP_KILL_AFTER + 1)->seconds();
+        $this->runRestoreJobs();
+
+        $install->refresh();
+        $this->assertSame(1, $this->power->kills);
+        $this->assertCount(1, array_filter($install->log ?? [], fn (array $line) => ($line['key'] ?? null) === 'killing_server'));
+        $this->assertNotNull($install->restored_at, (string) json_encode($install->log));
+        $this->assertSame('old', $this->files->files['mods/old-mod.jar'] ?? null);
+    }
+
     public function test_a_server_started_during_the_reinstall_is_stopped_before_worlds_go_back(): void
     {
         $server = $this->fabricServer();

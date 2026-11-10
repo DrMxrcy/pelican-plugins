@@ -12,6 +12,11 @@ final class FakeServerPower implements ServerPower
 
     public int $stops = 0;
 
+    public int $kills = 0;
+
+    /** State after a kill (null: unchanged until the test changes it). */
+    public ?string $afterKill = 'offline';
+
     /** State after a stop request (null: unchanged until the test changes it). */
     public ?string $afterStop = null;
 
@@ -25,6 +30,14 @@ final class FakeServerPower implements ServerPower
         $this->stops++;
         if ($this->afterStop !== null) {
             $this->state = $this->afterStop;
+        }
+    }
+
+    public function kill(Server $server): void
+    {
+        $this->kills++;
+        if ($this->afterKill !== null) {
+            $this->state = $this->afterKill;
         }
     }
 }

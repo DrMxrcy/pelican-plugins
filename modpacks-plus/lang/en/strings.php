@@ -343,6 +343,7 @@ return [
         'loader_version_unpinned' => 'The :loader egg always installs the latest :loader loader; the pack asks for :version.',
         'stopping_server' => 'Stopping the server (it was :state).',
         'waiting_stop' => 'Waiting for the server to stop (:state).',
+        'killing_server' => 'The server did not stop within :seconds seconds (:state), so it was killed.',
         'preserved' => 'Set :path aside in :to',
         'preserved_all' => ':count worlds and player files are in :path',
         'egg_changed' => 'Egg changed from :from to :to',

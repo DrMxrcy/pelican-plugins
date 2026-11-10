@@ -18,4 +18,7 @@ interface ServerPower
 
     /** Asks the node to stop the server gracefully (the egg's stop command). */
     public function stop(Server $server): void;
+
+    /** Kills the server process (a server hanging in `stopping`, plan 47). */
+    public function kill(Server $server): void;
 }

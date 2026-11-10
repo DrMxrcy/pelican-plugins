@@ -343,6 +343,7 @@ return [
         'loader_version_unpinned' => 'Das :loader-Egg installiert immer den neuesten :loader-Loader; das Pack verlangt :version.',
         'stopping_server' => 'Server wird gestoppt (Zustand: :state).',
         'waiting_stop' => 'Warte, bis der Server gestoppt ist (:state).',
+        'killing_server' => 'Der Server hat nicht innerhalb von :seconds Sekunden gestoppt (:state) und wurde daher beendet (kill).',
         'preserved' => ':path beiseitegelegt in :to',
         'preserved_all' => ':count Welten und Spielerdateien liegen in :path',
         'egg_changed' => 'Egg von :from zu :to gewechselt',

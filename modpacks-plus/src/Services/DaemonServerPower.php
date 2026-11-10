@@ -22,4 +22,9 @@ class DaemonServerPower implements ServerPower
     {
         app(DaemonServerRepository::class)->setServer($server)->power('stop')->throw();
     }
+
+    public function kill(Server $server): void
+    {
+        app(DaemonServerRepository::class)->setServer($server)->power('kill')->throw();
+    }
 }

@@ -157,6 +157,14 @@ class RestorePreviousFilesJob implements ShouldQueue
         $power = app(ServerPower::class);
         $state = $power->state($server);
         if (!in_array($state, ServerPower::STOPPED, true)) {
+            // Plan 47: killed once if it hangs while stopping.
+            if (InstallStep::killIfHung($install, $server, $power, $state, 'restore_stop')) {
+                $install->save();
+                $this->again(self::WAIT_SECONDS);
+
+                return;
+            }
+
             // Sent again every few checks while the server keeps running.
             $polls = (int) $install->progressValue('restore_stop_polls', 0);
             $install->setProgress('restore_stop_polls', $polls + 1);

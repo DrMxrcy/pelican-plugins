@@ -397,7 +397,8 @@ again, so direct calls get 403.
   with the file manager once you no longer need them. After a failed install, `.modpacks-plus/staging/` may keep
   files that were never used.
 - Every install stops the server before it moves anything and doesn't start it again; start it once the
-  install is done. A server started again while files download is not stopped again (only a pack that
+  install is done. A server still not stopped 150 seconds after the stop (e.g. hanging in `stopping`
+  because a mod crashes on shutdown) is killed once; "Restore previous files" does the same. A server started again while files download is not stopped again (only a pack that
   ships `server.properties` stops it once more before merging it; a loader switch stops it again before
   the worlds move back).
 - A node pull that times out is checked and retried, at most 3 attempts per file; a very slow CDN

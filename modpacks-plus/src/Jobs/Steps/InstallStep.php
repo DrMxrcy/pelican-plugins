@@ -54,6 +54,12 @@ abstract class InstallStep implements ShouldQueue
     public const STOP_RESEND_POLLS = 6;
 
     /**
+     * Seconds a server may take to stop before it is killed (plan 47): a server hanging in
+     * `stopping` (e.g. a mod crashing on shutdown) would otherwise wait out the step deadline.
+     */
+    public const STOP_KILL_AFTER = 150;
+
+    /**
      * Whether a cancel request ends the install at this step. A loader switch is not
      * cancellable from the moment worlds start moving aside until they are back: a cancel
      * asked for then waits for the first cancellable step after the restore.
@@ -236,7 +242,18 @@ abstract class InstallStep implements ShouldQueue
         $power = app(ServerPower::class);
         $state = $power->state($server);
         if (in_array($state, ServerPower::STOPPED, true)) {
+            // A later wait in this step (server started again) gets its own kill timer.
+            if ($install->progressValue('stop_'.static::KEY.'_since') !== null) {
+                $install->setProgress('stop_'.static::KEY.'_since', null);
+            }
+
             return true;
+        }
+
+        if (self::killIfHung($install, $server, $power, $state, 'stop_'.static::KEY)) {
+            $engine->persist($install);
+
+            return false;
         }
 
         // The stop is sent again every STOP_RESEND_POLLS checks while the server keeps running
@@ -258,6 +275,33 @@ abstract class InstallStep implements ShouldQueue
         }
 
         return false;
+    }
+
+    /**
+     * Plan 47: a server still not stopped STOP_KILL_AFTER seconds after this wait began (the
+     * first check that found it running, kept in progress.<prefix>_since so it survives job
+     * hops) is killed, once, with one `killing_server` log line. True when the kill was sent
+     * now; the caller keeps waiting for a stopped state either way. An unreachable node
+     * (`missing`) is never killed blindly.
+     */
+    public static function killIfHung(PackInstall $install, Server $server, ServerPower $power, string $state, string $prefix): bool
+    {
+        $since = $install->progressValue($prefix.'_since');
+        if (!is_int($since)) {
+            $install->setProgress($prefix.'_since', now()->getTimestamp());
+
+            return false;
+        }
+
+        if ($install->progressValue($prefix.'_killed') || $state === 'missing' || now()->getTimestamp() - $since < self::STOP_KILL_AFTER) {
+            return false;
+        }
+
+        $install->setProgress($prefix.'_killed', true);
+        $install->addLog('warning', 'killing_server', ['state' => $state, 'seconds' => self::STOP_KILL_AFTER]);
+        $power->kill($server);
+
+        return true;
     }
 
     /** Creates a directory once per install (remembered in progress.dirs). */
