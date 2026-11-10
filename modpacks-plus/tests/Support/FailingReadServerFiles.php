@@ -80,6 +80,17 @@ final class FailingReadServerFiles implements ServerFiles
         $this->inner->write($server, $path, $contents);
     }
 
+    public function writeFile(Server $server, string $path, string $localFile, ?int $timeoutSeconds = null): void
+    {
+        if ($this->failWrites) {
+            $this->inner->calls[] = ['writeFile', [$path]];
+
+            throw new RuntimeException("fake daemon: could not write $path");
+        }
+
+        $this->inner->writeFile($server, $path, $localFile, $timeoutSeconds);
+    }
+
     public function delete(Server $server, string $path): void
     {
         $this->inner->delete($server, $path);

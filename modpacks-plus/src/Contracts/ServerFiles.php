@@ -70,6 +70,13 @@ interface ServerFiles
     /** With $timeoutSeconds the request waits at most that long (and never longer than the running job has left). */
     public function write(Server $server, string $path, string $contents, ?int $timeoutSeconds = null): void;
 
+    /**
+     * write() with the contents streamed from $localFile on the panel (plan 31 fix: a server
+     * pack's mod jars, up to `max_file_bytes`, never held in the worker's memory). Guarded like
+     * write(); the request carries the file's length (Wings refuses a body of unknown length).
+     */
+    public function writeFile(Server $server, string $path, string $localFile, ?int $timeoutSeconds = null): void;
+
     public function delete(Server $server, string $path): void;
 
     /**

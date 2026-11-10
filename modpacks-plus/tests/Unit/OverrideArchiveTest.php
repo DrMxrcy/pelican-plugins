@@ -223,6 +223,23 @@ class OverrideArchiveTest extends TestCase
         $this->assertCount(1, OverrideArchive::chunks(array_fill(0, 936, new OverrideEntry('overrides/x', 'x', 2000))));
     }
 
+    public function test_an_entry_over_the_single_limit_is_a_chunk_of_its_own_whatever_the_byte_limit(): void
+    {
+        $entries = [
+            new OverrideEntry('a', 'config/a', 10),
+            new OverrideEntry('b', 'mods/big.jar', 60),
+            new OverrideEntry('c', 'config/c', 10),
+            new OverrideEntry('d', 'config/d', 10),
+        ];
+
+        $paths = fn (array $chunks) => array_map(fn (array $chunk) => array_map(fn (OverrideEntry $entry) => $entry->path, $chunk), $chunks);
+
+        // Plan 31 fix: a server-pack jar over the override cap is never zipped with others,
+        // even when it would fit the archive's byte limit (a cap set below CHUNK_BYTES).
+        $this->assertSame([['config/a'], ['mods/big.jar'], ['config/c', 'config/d']], $paths(OverrideArchive::chunks($entries, 100, 10, 50)));
+        $this->assertSame([['config/a', 'mods/big.jar', 'config/c', 'config/d']], $paths(OverrideArchive::chunks($entries, 100, 10)));
+    }
+
     /** @return array<string, array{string, bool}> */
     public static function stagingPaths(): array
     {

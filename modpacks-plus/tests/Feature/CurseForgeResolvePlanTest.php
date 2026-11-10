@@ -388,15 +388,54 @@ class CurseForgeResolvePlanTest extends TestCase
 
     public function test_a_server_pack_over_the_caps_falls_back_to_the_manifest(): void
     {
-        $zip = self::serverZip(['Test CF Pack-Server/mods/huge.jar' => str_repeat('x', 4096)]);
+        $zip = self::serverZip(['Test CF Pack-Server/config/huge.dat' => str_repeat('x', 4096)]);
         $this->fakeServerPack($zip);
 
         $plan = $this->resolve(new Caps(maxOverrideBytes: 1024));
 
         $this->assertNull($plan->serverPack);
-        $this->assertSame(['reason' => 'override_too_large', 'detail' => 'mods/huge.jar'], $plan->serverPackFallback);
+        $this->assertSame(['reason' => 'override_too_large', 'detail' => 'config/huge.dat'], $plan->serverPackFallback);
         $this->assertContains('mods/a-mod-1.0.jar', array_map(fn (PlanFile $file) => $file->path, $plan->files));
         $this->assertFileDoesNotExist($this->workDir.'/server-pack.zip');
+    }
+
+    /**
+     * Plan 31 fix (live: Just Create SMP, Create's ~16 MB jar over the 16 MB override cap): mod
+     * jars in a server pack's mods/ are capped like downloaded files, so the server pack is used.
+     */
+    public function test_a_server_pack_with_a_mod_jar_over_the_override_cap_is_used(): void
+    {
+        $zip = self::serverZip(['Test CF Pack-Server/mods/create.jar' => str_repeat('x', 4096)]);
+        $this->fakeServerPack($zip);
+
+        $plan = $this->resolve(new Caps(maxOverrideBytes: 1024));
+
+        $this->assertNotNull($plan->serverPack);
+        $this->assertNull($plan->serverPackFallback);
+        $this->assertContains('mods/create.jar', array_map(fn (OverrideEntry $entry) => $entry->path, $plan->overrides));
+        $this->assertSame([], $plan->files);
+    }
+
+    /** @return array<string, array{array<string, string>, string, string}> */
+    public static function serverPacksStillOverTheCaps(): array
+    {
+        return [
+            'jar in a mods subfolder' => [['Test CF Pack-Server/mods/extra/big.jar' => str_repeat('x', 4096)], 'override_too_large', 'mods/extra/big.jar'],
+            'jar outside mods' => [['Test CF Pack-Server/config/big.jar' => str_repeat('x', 4096)], 'override_too_large', 'config/big.jar'],
+            'mod jar over the per-file cap' => [['Test CF Pack-Server/mods/huge.jar' => str_repeat('x', 8193)], 'file_too_large', 'mods/huge.jar'],
+        ];
+    }
+
+    /** @param  array<string, string>  $extra */
+    #[DataProvider('serverPacksStillOverTheCaps')]
+    public function test_a_server_pack_still_over_the_caps_falls_back(array $extra, string $reason, string $detail): void
+    {
+        $this->fakeServerPack(self::serverZip($extra));
+
+        $plan = $this->resolve(new Caps(maxFileBytes: 8192, maxOverrideBytes: 1024));
+
+        $this->assertNull($plan->serverPack);
+        $this->assertSame(['reason' => $reason, 'detail' => $detail], $plan->serverPackFallback);
     }
 
     public function test_a_server_pack_too_large_to_download_is_never_fetched(): void

@@ -12,12 +12,17 @@ use DrMxrcy\ModpacksPlus\Tests\Support\CurseForge;
 use DrMxrcy\ModpacksPlus\Tests\Support\InstallScenario;
 use DrMxrcy\ModpacksPlus\Tests\Support\Mrpack;
 use DrMxrcy\ModpacksPlus\Tests\TestCase;
+use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Plan 31 step 3: a CurseForge pack installs through the item-30 engine, built from its
@@ -216,6 +221,125 @@ class CurseForgeInstallTest extends TestCase
         // The manifest's files were not resolved or downloaded: the server pack carries them.
         Http::assertNotSent(fn (Request $request) => str_ends_with($request->url(), '/mods/files') || $request->url() === CurseForge::url(5000001, 'a-mod.jar'));
         $this->assertKeyNeverStored($install);
+    }
+
+    /** @return array<string, array{int}> override_archive_min: per-file writes, and the plan-42 batch */
+    public static function overridePaths(): array
+    {
+        return ['one write per file' => [50], 'batched into archives' => [1]];
+    }
+
+    /**
+     * Plan 31 fix (live 2026-11-10, Just Create SMP 0.5): a server-pack mod jar over the override
+     * cap (Create, ~16 MB) made the install fall back to the manifest, which put client-only
+     * mods on the server. It now installs from the server pack; the big jar goes to its target
+     * in a write of its own, streamed from a file on the panel (never zipped with other files).
+     */
+    #[DataProvider('overridePaths')]
+    public function test_a_server_pack_with_a_mod_jar_over_the_override_cap_installs_from_the_server_pack(int $archiveMin): void
+    {
+        config()->set('modpacks-plus.caps.max_override_bytes', 1024);
+        config()->set('modpacks-plus.override_archive_min', $archiveMin);
+        $server = $this->forgeServer();
+        $create = random_bytes(5000);
+        $serverZip = Mrpack::zip([
+            'Test CF Pack-Server/mods/create.jar' => $create,
+            'Test CF Pack-Server/mods/a-mod.jar' => 'a-bytes',
+            'Test CF Pack-Server/config/a.toml' => 'server a=2',
+            'Test CF Pack-Server/config/b.toml' => 'server b=2',
+            'Test CF Pack-Server/startserver.sh' => '#!/bin/sh',
+        ]);
+        $serverFile = CurseForge::file(CurseForge::SERVER_FILE_ID, CurseForge::PACK_ID, 'Server.zip', $serverZip, ['isServerPack' => true]);
+        $this->fakePack(['serverPackFileId' => CurseForge::SERVER_FILE_ID], [
+            CurseForge::API.'mods/'.CurseForge::PACK_ID.'/files/'.CurseForge::SERVER_FILE_ID => Http::response(CurseForge::data($serverFile)),
+            CurseForge::url(CurseForge::SERVER_FILE_ID, 'Server.zip') => Http::response($serverZip),
+        ]);
+
+        $install = $this->install($server);
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertTrue($install->summary['server_pack'] ?? false);
+        $this->assertNull($install->summary['server_pack_fallback'] ?? null);
+        $this->assertSame($create, $this->files->files['mods/create.jar'] ?? null);
+        $this->assertSame('a-bytes', $this->files->files['mods/a-mod.jar'] ?? null);
+        $this->assertSame('server a=2', $this->files->files['config/a.toml'] ?? null);
+        $this->assertArrayNotHasKey('startserver.sh', $this->files->files);
+        $this->assertSame([], $this->files->violations);
+
+        // The big jar: one streamed write to its own target, never inside an override archive.
+        $writes = array_values(array_filter($this->files->calls, fn ($call) => $call[0] === 'writeFile'));
+        $this->assertSame(['mods/create.jar'], array_map(fn ($call) => $call[1][0], $writes));
+        $this->assertNotNull($writes[0][1][1]);
+        foreach ($this->files->extracted as $paths) {
+            $this->assertNotContains('mods/create.jar', $paths);
+        }
+        if ($archiveMin === 1) {
+            $this->assertNotSame([], $this->files->extracted);
+        }
+
+        // The installed manifest (plan 36) has it too, hashed without reading it into memory.
+        $manifest = collect($install->manifest ?? [])->keyBy('path');
+        $this->assertSame(['size' => 5000, 'hash' => 'sha512:'.hash('sha512', $create)], array_intersect_key($manifest['mods/create.jar'] ?? [], ['size' => 0, 'hash' => 0]));
+        // No extracted copy is left on the panel.
+        $this->assertSame([], glob(app(InstallEngine::class)->workDir($install).'/*.jar') ?: []);
+    }
+
+    /** A server pack (5 KB Create jar, override cap 1 KB) whose CurseForge stubs are faked. */
+    private function fakeBigJarServerPack(string $create): void
+    {
+        config()->set('modpacks-plus.caps.max_override_bytes', 1024);
+        $serverZip = Mrpack::zip([
+            'Test CF Pack-Server/mods/create.jar' => $create,
+            'Test CF Pack-Server/config/a.toml' => 'server a=2',
+        ]);
+        $serverFile = CurseForge::file(CurseForge::SERVER_FILE_ID, CurseForge::PACK_ID, 'Server.zip', $serverZip, ['isServerPack' => true]);
+        $this->fakePack(['serverPackFileId' => CurseForge::SERVER_FILE_ID], [
+            CurseForge::API.'mods/'.CurseForge::PACK_ID.'/files/'.CurseForge::SERVER_FILE_ID => Http::response(CurseForge::data($serverFile)),
+            CurseForge::url(CurseForge::SERVER_FILE_ID, 'Server.zip') => Http::response($serverZip),
+        ]);
+    }
+
+    #[DataProvider('overridePaths')]
+    public function test_a_timed_out_big_jar_write_is_retried_in_a_fresh_job(int $archiveMin): void
+    {
+        config()->set('modpacks-plus.override_archive_min', $archiveMin);
+        $server = $this->forgeServer();
+        $create = random_bytes(5000);
+        $this->fakeBigJarServerPack($create);
+        $timeouts = 1;
+        $this->files->beforeWrite = function (string $path) use (&$timeouts) {
+            if ($path === 'mods/create.jar' && $timeouts-- > 0) {
+                throw new ConnectionException('timed out');
+            }
+        };
+
+        $install = $this->install($server);
+
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, (string) json_encode($install->log));
+        $this->assertSame($create, $this->files->files['mods/create.jar'] ?? null);
+        $this->assertContains(['override_write_retry', 'timeout'], array_map(fn ($entry) => [$entry['key'], $entry['params']['status'] ?? null], $install->log ?? []));
+        $this->assertCount(2, array_filter($this->files->calls, fn ($call) => $call[0] === 'writeFile'));
+        $this->assertSame([], $this->files->violations);
+    }
+
+    public function test_a_big_jar_write_the_node_keeps_refusing_fails_the_install_after_three_tries(): void
+    {
+        config()->set('modpacks-plus.override_archive_min', 1);
+        $server = $this->forgeServer();
+        $this->fakeBigJarServerPack(random_bytes(5000));
+        $this->files->beforeWrite = function (string $path) {
+            if ($path === 'mods/create.jar') {
+                throw new RequestException(new Response(new Psr7Response(507)));
+            }
+        };
+
+        $install = $this->install($server);
+
+        $this->assertSame(PackInstall::STATUS_FAILED, $install->status, (string) json_encode($install->log));
+        $this->assertSame('override_write_failed', $install->error);
+        $this->assertCount(3, array_filter($this->files->calls, fn ($call) => $call[0] === 'writeFile'));
+        $this->assertArrayNotHasKey('mods/create.jar', $this->files->files);
+        $this->assertContains(['override_write_retry', '507'], array_map(fn ($entry) => [$entry['key'], $entry['params']['status'] ?? null], $install->log ?? []));
     }
 
     public function test_a_pack_for_another_loader_is_refused_before_any_change(): void

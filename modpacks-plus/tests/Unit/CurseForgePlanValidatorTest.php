@@ -167,15 +167,87 @@ class CurseForgePlanValidatorTest extends TestCase
         $this->assertUnsafe(fn () => $this->validator()->validate($plan), 'unsafe_path');
     }
 
-    public function test_a_server_pack_override_still_obeys_the_override_cap(): void
+    /** @return array<string, array{string, int}> paths in a server pack that keep the override cap */
+    public static function cappedServerPackOverrides(): array
+    {
+        return [
+            'config file' => ['config/big.toml', 2048],
+            'zip in mods' => ['mods/big.zip', 2048],
+            'jar in a mods subfolder' => ['mods/extra/big.jar', 2048],
+            'jar elsewhere' => ['config/big.jar', 2048],
+            'jar in kubejs' => ['kubejs/big.jar', 2048],
+            'capitalised mods folder' => ['Mods/big.jar', 2048],
+        ];
+    }
+
+    #[DataProvider('cappedServerPackOverrides')]
+    public function test_a_server_pack_override_still_obeys_the_override_cap(string $path, int $size): void
     {
         $plan = $this->plan([
             'serverPack' => $this->serverPack(),
             'serverPackRoot' => '',
-            'overrides' => [new OverrideEntry('mods/big.jar', 'mods/big.jar', 2048)],
+            'overrides' => [new OverrideEntry($path, $path, $size)],
         ]);
 
         $this->assertUnsafe(fn () => $this->validator('curseforge', new Caps(maxOverrideBytes: 1024))->validate($plan), 'override_too_large');
+    }
+
+    public function test_a_server_pack_mod_jar_is_capped_like_a_downloaded_file(): void
+    {
+        $caps = new Caps(maxFileBytes: 4096, maxOverrideBytes: 1024);
+        $plan = $this->plan([
+            'serverPack' => $this->serverPack(),
+            'serverPackRoot' => '',
+            'overrides' => [new OverrideEntry('mods/create.jar', 'mods/create.jar', 4096), new OverrideEntry('config/a.toml', 'config/a.toml', 10)],
+        ]);
+
+        $validated = $this->validator('curseforge', $caps)->validate($plan);
+
+        $this->assertSame(['mods/create.jar', 'config/a.toml'], array_map(fn (OverrideEntry $entry) => $entry->path, $validated->overrides));
+        $this->assertSame(4096, $this->validator('curseforge', $caps)->overrideCap('mods/create.jar', $plan));
+        $this->assertSame(1024, $this->validator('curseforge', $caps)->overrideCap('config/a.toml', $plan));
+
+        // Over the per-file cap a jar is still refused (the server pack is then not used).
+        $over = $plan->with(['overrides' => [new OverrideEntry('mods/create.jar', 'mods/create.jar', 4097)]]);
+        $this->assertUnsafe(fn () => $this->validator('curseforge', $caps)->validate($over), 'file_too_large');
+    }
+
+    public function test_only_a_server_pack_gets_the_mod_jar_cap(): void
+    {
+        $caps = new Caps(maxFileBytes: 4096, maxOverrideBytes: 1024);
+
+        // A client pack's overrides/ (CurseForge manifest build, a .mrpack) keep the override cap.
+        $client = $this->plan(['archive' => $this->serverPack(), 'overrides' => [new OverrideEntry('overrides/mods/big.jar', 'mods/big.jar', 2048)]]);
+        $this->assertUnsafe(fn () => $this->validator('curseforge', $caps)->validate($client), 'override_too_large');
+        $mrpack = $this->plan(['archive' => $this->serverPack(), 'overrides' => [new OverrideEntry('overrides/mods/big.jar', 'mods/big.jar', 2048)]], 'modrinth');
+        $this->assertUnsafe(fn () => $this->validator('curseforge', $caps)->validate($mrpack), 'override_too_large');
+
+        // ATLauncher's Configs.zip is applied from its root, but it is not a server pack.
+        $configs = $this->plan(['archive' => $this->serverPack(), 'serverPackRoot' => '', 'overrides' => [new OverrideEntry('mods/big.jar', 'mods/big.jar', 2048)]], 'atlauncher');
+        $this->assertUnsafe(fn () => $this->validator('curseforge', $caps)->validate($configs), 'override_too_large');
+    }
+
+    /** @return array<string, array{string, bool}> */
+    public static function serverPackModJars(): array
+    {
+        return [
+            'mod jar' => ['mods/create-1.21.1-6.0.4.jar', true],
+            'upper-case extension' => ['mods/a.JAR', true],
+            'subfolder' => ['mods/1.21.1/a.jar', false],
+            'dot jar' => ['mods/.hidden.jar', false],
+            'not a jar' => ['mods/a.zip', false],
+            'mods folder itself' => ['mods', false],
+            'capitalised folder' => ['Mods/a.jar', false],
+            'libraries' => ['libraries/a.jar', false],
+            'root jar' => ['server.jar', false],
+            'config' => ['config/a.jar', false],
+        ];
+    }
+
+    #[DataProvider('serverPackModJars')]
+    public function test_server_pack_mod_jars(string $path, bool $expected): void
+    {
+        $this->assertSame($expected, PlanValidator::isServerPackModJar($path));
     }
 
     /** @return array<string, array{array<string, mixed>, array{name: string, url: ?string, reason: string}|null}> */

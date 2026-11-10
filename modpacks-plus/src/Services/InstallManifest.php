@@ -93,8 +93,10 @@ final class InstallManifest
                     continue;
                 }
 
-                $contents = $reader->read($override->entry, $caps->maxOverrideBytes);
-                $hashes[$override->path] = ['size' => strlen($contents), 'hash' => 'sha512:'.hash('sha512', $contents)];
+                // Streamed (plan 31 fix: a server pack's mod jars may be up to max_file_bytes);
+                // the reader enforces the entry's declared size.
+                $digest = $reader->hash($override->entry, $validator->overrideCap($override->path, $plan), 'sha512');
+                $hashes[$override->path] = ['size' => (int) $reader->size($override->entry), 'hash' => 'sha512:'.$digest];
             }
         } finally {
             $reader->close();

@@ -252,6 +252,33 @@ final class PlanValidator
         return $root === '' || (str_ends_with($root, '/') && !str_contains(substr($root, 0, -1), '/') && self::isSafeRelativePath(substr($root, 0, -1)));
     }
 
+    /**
+     * Plan 31 fix: a mod jar a server pack puts straight into `mods/` (`mods/<name>.jar`, no
+     * subfolder, no dotfile, the folder in lower case: exactly what the loader loads). In a
+     * server pack these are the pack's mods, capped by `max_file_bytes` like a downloaded mod
+     * instead of `max_override_bytes`: the server pack is one hash-verified CurseForge file, and
+     * the alternative (its manifest) installs client-only mods. `libraries/` is never written
+     * (SERVER_PACK_LAUNCHER_FOLDERS), so it needs no larger cap.
+     */
+    public static function isServerPackModJar(string $path): bool
+    {
+        return preg_match('#^mods/[^/.][^/]*\.[jJ][aA][rR]$#', $path) === 1;
+    }
+
+    /**
+     * The byte cap of one override of $plan: `max_file_bytes` for a server pack's mod jars
+     * (isServerPackModJar), `max_override_bytes` for everything else (client packs' overrides/,
+     * ATLauncher's Configs.zip, a server pack's other files). Overrides up to
+     * `max_override_bytes` are read into memory; larger ones are only ever streamed through a
+     * file on the panel (OverridesStep, InstallManifest).
+     */
+    public function overrideCap(string $path, InstallPlan $plan): int
+    {
+        return $plan->serverPack !== null && self::isServerPackModJar($path)
+            ? $this->caps->maxFileBytes
+            : $this->caps->maxOverrideBytes;
+    }
+
     /** Whether a server-pack target starts a server or installs a loader (never written). */
     public static function isServerPackLauncherFile(string $path): bool
     {
@@ -578,8 +605,9 @@ final class PlanValidator
                 throw new UnsafePlanException('file_too_large', $path);
             }
 
-            // Overrides are read into the worker's memory before they are written.
-            if ($override->size > $this->caps->maxOverrideBytes) {
+            // Overrides are read into the worker's memory before they are written; a server
+            // pack's mod jars are streamed instead and capped like downloads (plan 31 fix).
+            if ($override->size > $this->overrideCap($path, $plan)) {
                 throw new UnsafePlanException('override_too_large', $path);
             }
 

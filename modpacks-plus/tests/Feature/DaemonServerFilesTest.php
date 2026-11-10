@@ -311,6 +311,29 @@ class DaemonServerFilesTest extends TestCase
             && $request->body() === 'zip bytes');
     }
 
+    public function test_a_streamed_file_write_is_guarded_and_sent_with_its_length(): void
+    {
+        $server = $this->server;
+        $local = (string) tempnam(sys_get_temp_dir(), 'mpp-jar');
+        file_put_contents($local, 'jar bytes');
+
+        try {
+            $this->assertRefused(fn () => $this->files()->writeFile($server, 'ops.json', $local, 15), 'protected_path');
+            $this->assertRefused(fn () => $this->files()->writeFile($server, '../escape.jar', $local, 15), 'unsafe_path');
+            $this->assertRefused(fn () => $this->files()->protecting(['saves/survival'])->writeFile($server, 'saves/survival/level.dat', $local), 'protected_path');
+
+            $this->files()->writeFile($server, 'mods/create.jar', $local, 30);
+            // Wings needs the length up front: the body is a seekable file stream, never chunked.
+            Http::assertSent(fn (Request $request) => str_contains($request->url(), "/api/servers/{$server->uuid}/files/write")
+                && str_contains(urldecode($request->url()), 'file=mods/create.jar')
+                && $request->body() === 'jar bytes'
+                && $request->header('Content-Length') === ['9']
+                && $request->header('Transfer-Encoding') === []);
+        } finally {
+            @unlink($local);
+        }
+    }
+
     public function test_decompress_unpacks_the_staged_archive_into_the_server_root(): void
     {
         $this->files()->decompress($this->server, '.modpacks-plus/staging/overrides-7-0-1.zip', ['config/a.toml', 'kubejs/server_scripts/x.js', '123']);

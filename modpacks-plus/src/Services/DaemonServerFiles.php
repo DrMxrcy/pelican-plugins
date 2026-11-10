@@ -12,6 +12,7 @@ use DrMxrcy\ModpacksPlus\Support\Caps;
 use DrMxrcy\ModpacksPlus\Support\JobClock;
 use DrMxrcy\ModpacksPlus\Support\OverrideArchive;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Http\Client\RequestException;
 use RuntimeException;
 
@@ -304,6 +305,30 @@ class DaemonServerFiles implements ServerFiles
             ->timeout(JobClock::timeout($timeoutSeconds))
             ->withQueryParameters(['file' => $path])
             ->withBody($contents)
+            ->post("/api/servers/{$server->uuid}/files/write")
+            ->throw();
+    }
+
+    public function writeFile(Server $server, string $path, string $localFile, ?int $timeoutSeconds = null): void
+    {
+        $path = $this->guardTarget($path);
+
+        $handle = @fopen($localFile, 'rb');
+        if ($handle === false) {
+            throw new RuntimeException('Could not open the file to write.');
+        }
+
+        // A seekable file stream: Guzzle sends its Content-Length, nothing is buffered in memory.
+        // The stream owns the handle and closes it when it is released.
+        $body = Utils::streamFor($handle);
+
+        $request = $this->repository($server)->getHttpClient();
+        if ($timeoutSeconds !== null) {
+            $request = $request->timeout(JobClock::timeout($timeoutSeconds));
+        }
+        $request
+            ->withQueryParameters(['file' => $path])
+            ->withBody($body, 'application/octet-stream')
             ->post("/api/servers/{$server->uuid}/files/write")
             ->throw();
     }

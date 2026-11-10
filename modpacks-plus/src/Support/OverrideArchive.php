@@ -64,12 +64,14 @@ final class OverrideArchive
 
     /**
      * Splits entries, in order, into archives of at most $maxBytes uncompressed and
-     * $maxEntries files; an entry larger than $maxBytes gets an archive of its own.
+     * $maxEntries files; an entry larger than $maxBytes gets an archive of its own. An entry
+     * larger than $singleAbove (plan 31 fix: a server pack's mod jar over the override cap) is
+     * always alone in its chunk; OverridesStep writes such a chunk directly, never as a zip.
      *
      * @param  array<int, OverrideEntry>  $entries
      * @return array<int, array<int, OverrideEntry>>
      */
-    public static function chunks(array $entries, int $maxBytes = self::CHUNK_BYTES, int $maxEntries = self::CHUNK_ENTRIES): array
+    public static function chunks(array $entries, int $maxBytes = self::CHUNK_BYTES, int $maxEntries = self::CHUNK_ENTRIES, ?int $singleAbove = null): array
     {
         $chunks = [];
         $current = [];
@@ -77,6 +79,16 @@ final class OverrideArchive
 
         foreach (array_values($entries) as $entry) {
             $size = max(0, $entry->size);
+            if ($singleAbove !== null && $size > $singleAbove) {
+                if ($current !== []) {
+                    $chunks[] = $current;
+                    $current = [];
+                    $bytes = 0;
+                }
+                $chunks[] = [$entry];
+
+                continue;
+            }
             if ($current !== [] && ($bytes + $size > $maxBytes || count($current) >= $maxEntries)) {
                 $chunks[] = $current;
                 $current = [];

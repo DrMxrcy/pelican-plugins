@@ -4,6 +4,7 @@ namespace DrMxrcy\ModpacksPlus\Jobs\Steps;
 
 use App\Models\Server;
 use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
+use DrMxrcy\ModpacksPlus\Data\InstallPlan;
 use DrMxrcy\ModpacksPlus\Data\OverrideEntry;
 use DrMxrcy\ModpacksPlus\Data\PackArchive;
 use DrMxrcy\ModpacksPlus\Data\PlanFile;
@@ -39,6 +40,12 @@ use Illuminate\Http\Client\RequestException;
  * left it. An archive only starts with MIN_APPLY_SECONDS left in the job; timeouts hand over
  * to a fresh job, only node errors count towards MAX_APPLY_ATTEMPTS. An install that ends
  * mid-batch (cancel, deadline, failure) has its staged archives swept by the engine.
+ *
+ * Plan 31 fix: a server pack's mod jar over `max_override_bytes` (allowed up to
+ * `max_file_bytes`, PlanValidator::overrideCap()) is never read into memory nor zipped: it is
+ * extracted to a file on the panel (capped, declared size enforced) and streamed to its target
+ * in a write of its own (a chunk of its own in the batch, its size checked on the server),
+ * started only with LARGE_WRITE_MIN_SECONDS left; a timeout hands it to a fresh job.
  */
 class OverridesStep extends InstallStep
 {
@@ -55,6 +62,12 @@ class OverridesStep extends InstallStep
      * unpack; with less it hands over to a fresh job without using up an attempt.
      */
     public const MIN_APPLY_SECONDS = 25;
+
+    /**
+     * Seconds a job must have left (after JobClock's reserve) to start streaming one large
+     * override (plan 31 fix); a fresh job has about 45.
+     */
+    public const LARGE_WRITE_MIN_SECONDS = 40;
 
     /** Staged files per archive at most (timeouts don't count as attempts; the step deadline bounds them too). */
     public const MAX_STAGED = 999;
@@ -100,7 +113,7 @@ class OverridesStep extends InstallStep
                     foreach ($protected as $protectedPath) {
                         $install->addLog('warning', 'override_protected', ['path' => $protectedPath]);
                     }
-                    $install->addLog('info', 'overrides_batched', ['count' => count($writes), 'archives' => count(OverrideArchive::chunks($writes))]);
+                    $install->addLog('info', 'overrides_batched', ['count' => count($writes), 'archives' => count(OverrideArchive::chunks($writes, singleAbove: $caps->maxOverrideBytes))]);
                     $batch = self::state('scan');
                     $install->setProgress('override_batch', $batch);
                     $engine->persist($install);
@@ -110,7 +123,7 @@ class OverridesStep extends InstallStep
             if ($batch !== null) {
                 [$writes] = $this->toWrite($plan->overrides, $validator, $root, $skip);
 
-                return $this->applyBatch($install, $server, $engine, $files, $reader, $validator, $root, $caps, $writes, $downloaded, $batch, count($plan->overrides));
+                return $this->applyBatch($install, $server, $engine, $files, $reader, $validator, $plan, $caps, $writes, $downloaded, $batch);
             }
 
             while ($index < count($plan->overrides)) {
@@ -124,9 +137,16 @@ class OverridesStep extends InstallStep
                     throw new UnsafePlanException('unsafe_path', $entry->entry);
                 }
 
+                $large = $entry->size > $caps->maxOverrideBytes;
+
                 if ($validator->isProtected($entry->path)) {
                     $install->addLog('warning', 'override_protected', ['path' => $entry->path]);
                 } elseif (!isset($skip[$entry->path])) {
+                    // A large one starts only with a fresh job's time (nothing moved yet).
+                    if ($large && !self::hasLargeWriteTime()) {
+                        return StepResult::again();
+                    }
+
                     $pending = $install->progressValue('pending_override');
                     $stat = $files->stat($server, $entry->path);
 
@@ -137,14 +157,39 @@ class OverridesStep extends InstallStep
                         $this->moveExistingAside($install, $server, $entry->path);
                     }
 
-                    $contents = $reader->read($entry->entry, $caps->maxOverrideBytes);
+                    $local = null;
+                    $contents = '';
+                    if ($large) {
+                        $local = $this->extractLarge($install, $engine, $reader, $validator, $plan, $entry);
+                    } else {
+                        $contents = $reader->read($entry->entry, $caps->maxOverrideBytes);
+                    }
 
-                    $install->setProgress('pending_override', $index);
-                    $engine->persist($install);
+                    try {
+                        $install->setProgress('pending_override', $index);
+                        $engine->persist($install);
 
-                    $directory = dirname($entry->path);
-                    $this->ensureDirectory($install, $server, $directory === '.' ? '' : $directory);
-                    $files->write($server, $entry->path, $contents);
+                        $directory = dirname($entry->path);
+                        $this->ensureDirectory($install, $server, $directory === '.' ? '' : $directory);
+                        if ($local !== null) {
+                            $files->writeFile($server, $entry->path, $local, self::largeWriteTimeout($entry->size));
+                        } else {
+                            $files->write($server, $entry->path, $contents);
+                        }
+                    } catch (ConnectionException $exception) {
+                        if ($local === null) {
+                            throw $exception;
+                        }
+                        // A slow link: a fresh job writes it again (pending, so it is not moved aside).
+                        $install->addLog('warning', 'override_write_retry', ['path' => $entry->path, 'status' => 'timeout']);
+                        $engine->persist($install);
+
+                        return StepResult::again(20);
+                    } finally {
+                        if ($local !== null) {
+                            @unlink($local);
+                        }
+                    }
                 }
 
                 $index++;
@@ -236,6 +281,35 @@ class OverridesStep extends InstallStep
         return $remaining === null || $remaining - JobClock::RESERVE_SECONDS >= self::MIN_APPLY_SECONDS;
     }
 
+    /** Whether the job has time to stream one large override (always outside a job). */
+    private static function hasLargeWriteTime(): bool
+    {
+        $remaining = JobClock::remaining();
+
+        return $remaining === null || $remaining - JobClock::RESERVE_SECONDS >= self::LARGE_WRITE_MIN_SECONDS;
+    }
+
+    /** Seconds a large override's streamed write may take: 10 s plus 1 s per MiB (JobClock caps it at the job's time left). */
+    public static function largeWriteTimeout(int $bytes): int
+    {
+        return 10 + intdiv(max(0, $bytes), 1024 * 1024);
+    }
+
+    /**
+     * Extracts a large override (a server pack's mod jar) to a fresh file in the install's work
+     * folder, capped by PlanValidator::overrideCap(); the caller removes it.
+     *
+     * @throws UnsafePlanException
+     * @throws PackUnavailableException
+     */
+    private function extractLarge(PackInstall $install, InstallEngine $engine, PackArchiveReader $reader, PlanValidator $validator, InstallPlan $plan, OverrideEntry $entry): string
+    {
+        $local = $engine->workDir($install).'/override-'.bin2hex(random_bytes(8)).'.part';
+        $reader->extract($entry->entry, $validator->overrideCap($entry->path, $plan), $local);
+
+        return $local;
+    }
+
     /** Seconds the archive write may take: 10 s plus 1 s per MiB, at most 20 (the unpack gets the rest). */
     public static function writeTimeout(int $bytes): int
     {
@@ -255,8 +329,10 @@ class OverridesStep extends InstallStep
      * @throws UnsafePlanException
      * @throws PackUnavailableException
      */
-    private function applyBatch(PackInstall $install, Server $server, InstallEngine $engine, ServerFiles $files, PackArchiveReader $reader, PlanValidator $validator, ?string $root, Caps $caps, array $writes, array $downloaded, array $batch, int $count): StepResult
+    private function applyBatch(PackInstall $install, Server $server, InstallEngine $engine, ServerFiles $files, PackArchiveReader $reader, PlanValidator $validator, InstallPlan $plan, Caps $caps, array $writes, array $downloaded, array $batch): StepResult
     {
+        $root = $plan->overrideRoot();
+        $count = count($plan->overrides);
         $directories = self::byDirectory($writes);
 
         try {
@@ -289,21 +365,58 @@ class OverridesStep extends InstallStep
             }
 
             if ($batch['phase'] === 'apply') {
-                $chunks = OverrideArchive::chunks($writes);
+                $chunks = OverrideArchive::chunks($writes, singleAbove: $caps->maxOverrideBytes);
                 while ($batch['chunk'] < count($chunks)) {
+                    $chunk = $chunks[$batch['chunk']];
+                    // Plan 31 fix: a large server-pack jar, alone in its chunk, is streamed to its target.
+                    $direct = count($chunk) === 1 && $chunk[0]->size > $caps->maxOverrideBytes;
+
                     // Too little time left: a fresh job starts it, no attempt used.
-                    if ($this->outOfTime() || !self::hasApplyTime()) {
+                    if ($this->outOfTime() || !($direct ? self::hasLargeWriteTime() : self::hasApplyTime())) {
                         return StepResult::again();
                     }
                     if ($batch['failures'] >= self::MAX_APPLY_ATTEMPTS || $batch['attempt'] >= self::MAX_STAGED) {
-                        throw new StepFailedException('override_archive_failed', (string) ($batch['chunk'] + 1));
+                        throw $direct
+                            ? new StepFailedException('override_write_failed', $chunk[0]->path)
+                            : new StepFailedException('override_archive_failed', (string) ($batch['chunk'] + 1));
                     }
 
                     // Recorded before anything is sent: every try stages a file of its own name.
                     $batch['attempt']++;
                     $this->saveBatch($install, $engine, $batch);
 
-                    $built = OverrideArchive::build($chunks[$batch['chunk']], $reader, $validator, $root, $caps, $engine->workDir($install).'/overrides-'.$batch['chunk'].'.zip');
+                    if ($direct) {
+                        $entry = $chunk[0];
+                        $local = $this->extractLarge($install, $engine, $reader, $validator, $plan, $entry);
+
+                        try {
+                            $directory = dirname($entry->path);
+                            $this->ensureDirectory($install, $server, $directory === '.' ? '' : $directory);
+                            $files->writeFile($server, $entry->path, $local, self::largeWriteTimeout($entry->size));
+
+                            $stat = $files->stat($server, $entry->path);
+                            if ($stat === null || $stat['directory'] || $stat['size'] !== $entry->size) {
+                                return $this->applyFailed($install, $engine, $batch, 'size', $entry->path);
+                            }
+                        } catch (ConnectionException) {
+                            // A slow link or a busy node: a fresh job writes it again, no attempt used.
+                            $install->addLog('warning', 'override_write_retry', ['path' => $entry->path, 'status' => 'timeout']);
+                            $engine->persist($install);
+
+                            return StepResult::again(20);
+                        } catch (RequestException $exception) {
+                            return $this->applyFailed($install, $engine, $batch, (string) $exception->response->status(), $entry->path);
+                        } finally {
+                            @unlink($local);
+                        }
+
+                        $batch = self::state('apply', 0, $batch['chunk'] + 1);
+                        $this->saveBatch($install, $engine, $batch);
+
+                        continue;
+                    }
+
+                    $built = OverrideArchive::build($chunk, $reader, $validator, $root, $caps, $engine->workDir($install).'/overrides-'.$batch['chunk'].'.zip');
                     $staged = OverrideArchive::stagingPath($install->id, $batch['chunk'], $batch['attempt']);
 
                     try {
@@ -380,14 +493,19 @@ class OverridesStep extends InstallStep
 
     /**
      * A node error for the current archive (an HTTP error, or a staged file that is not what
-     * was built): counted, and a fresh job stages a new file.
+     * was built) or for a large override written directly ($path): counted, and a fresh job
+     * tries again.
      *
      * @param  array{phase: string, dir: int, chunk: int, attempt: int, failures: int}  $batch
      */
-    private function applyFailed(PackInstall $install, InstallEngine $engine, array $batch, string $status): StepResult
+    private function applyFailed(PackInstall $install, InstallEngine $engine, array $batch, string $status, ?string $path = null): StepResult
     {
         $batch['failures']++;
-        $install->addLog('warning', 'override_archive_retry', ['archive' => $batch['chunk'] + 1, 'status' => $status]);
+        if ($path !== null) {
+            $install->addLog('warning', 'override_write_retry', ['path' => $path, 'status' => $status]);
+        } else {
+            $install->addLog('warning', 'override_archive_retry', ['archive' => $batch['chunk'] + 1, 'status' => $status]);
+        }
         $this->saveBatch($install, $engine, $batch);
 
         return StepResult::again(10);

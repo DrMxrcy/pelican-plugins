@@ -66,7 +66,9 @@ return [
         // Files not vouched for by Modrinth (other hosts, lookup misses) are fetched and hashed by
         // the panel, held in memory and written through the daemon: each may not be larger than this.
         'max_panel_fetch_bytes' => (int) env('MODPACKS_PLUS_MAX_PANEL_FETCH_BYTES', 32 * 1024 * 1024),
-        // A single override file (read into memory from the archive before it is written).
+        // A single override file (read into memory from the archive before it is written). A
+        // CurseForge server pack's mod jars in mods/ are capped by max_file_bytes instead and
+        // streamed through a file on the panel.
         'max_override_bytes' => (int) env('MODPACKS_PLUS_MAX_OVERRIDE_BYTES', 16 * 1024 * 1024),
     ],
 ];

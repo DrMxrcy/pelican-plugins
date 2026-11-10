@@ -102,6 +102,80 @@ final class PackArchiveReader
      */
     public function read(string $name, int $maxBytes): string
     {
+        $contents = '';
+        $this->stream($name, $maxBytes, function (string $chunk) use (&$contents): void {
+            $contents .= $chunk;
+        });
+
+        return $contents;
+    }
+
+    /**
+     * Plan 31 fix: copies one entry to $destination (a new file, mode 0600; an existing one is
+     * refused) without holding it in memory, with read()'s checks. On any failure the partial
+     * file is removed.
+     *
+     * @throws UnsafePlanException
+     * @throws PackUnavailableException
+     */
+    public function extract(string $name, int $maxBytes, string $destination): void
+    {
+        $sink = @fopen($destination, 'xb');
+        if ($sink === false) {
+            throw new PackUnavailableException('bad_archive', $name);
+        }
+        @chmod($destination, 0600);
+
+        try {
+            $this->stream($name, $maxBytes, function (string $chunk) use ($sink, $name): void {
+                if (fwrite($sink, $chunk) !== strlen($chunk)) {
+                    throw new PackUnavailableException('bad_archive', $name);
+                }
+            });
+            if (!fclose($sink)) {
+                $sink = null;
+
+                throw new PackUnavailableException('bad_archive', $name);
+            }
+            $sink = null;
+        } catch (\Throwable $exception) {
+            if (is_resource($sink)) {
+                fclose($sink);
+            }
+            @unlink($destination);
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * Plan 31 fix: the digest of one entry ($algorithm, e.g. sha512) without holding it in
+     * memory, with read()'s checks.
+     *
+     * @throws UnsafePlanException
+     * @throws PackUnavailableException
+     */
+    public function hash(string $name, int $maxBytes, string $algorithm): string
+    {
+        $context = hash_init($algorithm);
+        $this->stream($name, $maxBytes, function (string $chunk) use ($context): void {
+            hash_update($context, $chunk);
+        });
+
+        return hash_final($context);
+    }
+
+    /**
+     * Feeds one entry to $sink in pieces, refusing more than $maxBytes or more/less than the
+     * declared size (zip-bomb guard: a lying header is caught while reading, not after).
+     *
+     * @param  callable(string): void  $sink
+     *
+     * @throws UnsafePlanException
+     * @throws PackUnavailableException
+     */
+    private function stream(string $name, int $maxBytes, callable $sink): void
+    {
         $entry = $this->entries[$name] ?? null;
         if ($entry === null) {
             throw new PackUnavailableException('bad_archive', $name.' missing');
@@ -116,28 +190,29 @@ final class PackArchiveReader
             throw new PackUnavailableException('bad_archive', $name);
         }
 
-        $contents = '';
+        $read = 0;
         try {
             while (!feof($stream)) {
                 $chunk = fread($stream, 65536);
                 if ($chunk === false) {
                     throw new PackUnavailableException('bad_archive', $name);
                 }
-                $contents .= $chunk;
+                $read += strlen($chunk);
 
-                if (strlen($contents) > $entry['size'] || strlen($contents) > $maxBytes) {
+                if ($read > $entry['size'] || $read > $maxBytes) {
                     throw new UnsafePlanException('file_too_large', $name);
+                }
+                if ($chunk !== '') {
+                    $sink($chunk);
                 }
             }
         } finally {
             fclose($stream);
         }
 
-        if (strlen($contents) !== $entry['size']) {
+        if ($read !== $entry['size']) {
             throw new PackUnavailableException('bad_archive', $name.' size');
         }
-
-        return $contents;
     }
 
     /**

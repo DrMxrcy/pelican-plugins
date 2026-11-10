@@ -117,7 +117,8 @@ Checked before anything is written to the server; archive entries are checked ag
   panel download is also enforced on the file being written, not only by progress callbacks.
 - Caps (config / env): 1000 files, 256 MB per file, 100 MB archive, 20 GB total (`max_total_bytes`), 20 000
   archive entries, 32 MB per panel-fetched file (`max_panel_fetch_bytes`; such files are held in the worker's
-  memory), 16 MB per override file (`max_override_bytes`). A pack over a cap is refused before anything is written.
+  memory), 16 MB per override file (`max_override_bytes`; except a CurseForge server pack's mod jars in `mods/`,
+  see *Server pack first*). A pack over a cap is refused before anything is written.
   The per-file caps protect the panel's memory and don't grow with the server's disk.
 - **Disk space.** The whole-pack limit follows the server's disk. On a server with a disk limit the pack
   must fit the free space under it minus headroom (10 % of the limit, at least 512 MB:
@@ -178,6 +179,14 @@ Checked before anything is written to the server; archive entries are checked ag
   are skipped, as are top-level dotfiles and scripts (`.py`, `.js`, `.pl`, `.rb`, `.php`, …); the summary
   lists them by top-level folder (the egg installs the loader version from the pack's `manifest.json`,
   see *Loader switching*).
+  The server pack's mod jars directly in `mods/` (`mods/<name>.jar`) are the pack's mods, so they are capped
+  at 256 MB per file (`max_file_bytes`) like downloaded mods, not at the 16 MB override cap: a big mod such as
+  Create no longer sends the install to the manifest build, which can put client-only mods on the server. Such
+  a jar is never held in the worker's memory or zipped with other files: the panel extracts it from the
+  hash-checked server pack to a file of its own and streams it to the server in one write, which needs the
+  link from the panel to the node to carry it within one install job (~45 s; a timeout retries in a fresh
+  job). Everything else in a server pack (jars in subfolders or other folders included) keeps the 16 MB cap;
+  `.mrpack` and client-pack `overrides/` keep it too (mods there are meant to be listed as downloads).
   A server pack over the caps or unusable falls back to the manifest build; the summary says why.
 - **Manifest build.** Otherwise `manifest.json` is read, its files resolved in batches and placed by kind
   (`mods/`; resource and shader packs are client-only and skipped), optional files left out, `overrides/`

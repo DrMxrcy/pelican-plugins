@@ -218,7 +218,7 @@ final class FakeServerFiles implements ServerFiles
     /** Calls that change the server. */
     public function writeCalls(): int
     {
-        return count(array_filter($this->calls, fn ($call) => in_array($call[0], ['createDirectory', 'rename', 'renameMany', 'movePreserved', 'pull', 'write', 'delete', 'decompress'], true)));
+        return count(array_filter($this->calls, fn ($call) => in_array($call[0], ['createDirectory', 'rename', 'renameMany', 'movePreserved', 'pull', 'write', 'writeFile', 'delete', 'decompress'], true)));
     }
 
     public function list(Server $server, string $directory): ?array
@@ -438,6 +438,26 @@ final class FakeServerFiles implements ServerFiles
             ($this->beforeWrite)($path);
         }
 
+        $this->put($path, $contents);
+
+        if ($this->afterWrite !== null) {
+            ($this->afterWrite)($path);
+        }
+    }
+
+    public function writeFile(Server $server, string $path, string $localFile, ?int $timeoutSeconds = null): void
+    {
+        $this->calls[] = ['writeFile', [$path, $timeoutSeconds]];
+        $this->checkTarget($path);
+
+        if ($this->beforeWrite !== null) {
+            ($this->beforeWrite)($path);
+        }
+
+        $contents = file_get_contents($localFile);
+        if (!is_string($contents)) {
+            throw new RuntimeException("fake daemon: $localFile unreadable");
+        }
         $this->put($path, $contents);
 
         if ($this->afterWrite !== null) {
