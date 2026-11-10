@@ -1,0 +1,51 @@
+modpacks-plus/src/Contracts/ServerFiles.php
+  s_1d8485e49bfacb::t_dea1d61e572743 58-59
+modpacks-plus/src/Jobs/Steps/OverridesStep.php
+  s_82b08b950e8930::t_c47c7a67720783 17,34-41,50,53-60,104,191,204-210,213-224,231-244,246-247,252,284,287,294-295,298,302,311-318,321,327,330,332-334,337,343-344,365,369,381-395,423,425
+modpacks-plus/src/Services/DaemonServerFiles.php
+  s_1d8485e49bfacb::t_d66ec326955115 259,263-276
+modpacks-plus/src/Services/InstallEngine.php
+  s_1d8485e49bfacb::t_8e38801946b969 406,410-433
+modpacks-plus/src/Support/OverrideArchive.php
+  s_1d8485e49bfacb::t_9f0b77b0ab9ef4 30
+modpacks-plus/tests/Feature/DaemonServerFilesTest.php
+  s_1d8485e49bfacb::t_8d3f78b26c7a90 301-313
+modpacks-plus/tests/Feature/OverrideArchiveInstallTest.php
+  s_6a99f84a9513ab::t_0fe7fedc6b9b29 12-13,20,243-245,459-649
+modpacks-plus/tests/Support/FailingReadServerFiles.php
+  s_1d8485e49bfacb::t_e0e696abbf51d4 67
+modpacks-plus/tests/Support/FakeServerFiles.php
+  s_1d8485e49bfacb::t_0992884e8eebad 58-63,102-104,382,384,386-390,392-395
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "870895275a83d3088d3d87331d8a1749453c4d4d",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    },
+    "s_6a99f84a9513ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e8e29f44-bcd6-44cc-86f6-09a02b877062",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    },
+    "s_82b08b950e8930": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed2ac545-2c02-4fdc-87eb-0b5b6dd5c17b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}

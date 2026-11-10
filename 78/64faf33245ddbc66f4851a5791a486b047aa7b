@@ -1,0 +1,47 @@
+modpacks-plus/src/Jobs/Steps/OverridesStep.php
+  s_1d8485e49bfacb::t_624a797d5ff5d0 6-7,10,17,19-21,25-37,43-53,85-105,152-383,386,390
+  s_1d8485e49bfacb::t_bfca0047b887fd 384-385,387-389,391-399
+modpacks-plus/tests/Feature/OverrideArchiveInstallTest.php
+  s_1d8485e49bfacb::t_336e1d1e48230f 1-443
+  s_1d8485e49bfacb::t_9e7c6373240dcd 444-454
+modpacks-plus/tests/Unit/OverrideArchiveTest.php
+  s_1d8485e49bfacb::t_983d5e09b4eee6 1-242
+  s_1d8485e49bfacb::t_d3ba4fd2dcd25c 243-247
+modpacks-plus/src/Support/OverrideArchive.php
+  s_1d8485e49bfacb::t_2af1aeea3547b2 1-249
+  s_1d8485e49bfacb::t_db0b7ee217bef8 250-252
+modpacks-plus/README.md
+  s_1d8485e49bfacb::t_0045ab2326ed47 24-29
+modpacks-plus/config/modpacks-plus.php
+  s_1d8485e49bfacb::t_4bd284413d4d74 44-47
+modpacks-plus/lang/de/strings.php
+  s_1d8485e49bfacb::t_43a09a8051d64c 210-211,300-301
+modpacks-plus/lang/en/strings.php
+  s_1d8485e49bfacb::t_8e45a373dcca45 210-211,300-301
+modpacks-plus/src/Contracts/ServerFiles.php
+  s_1d8485e49bfacb::t_add11770312f42 17,61-71
+modpacks-plus/src/Services/DaemonServerFiles.php
+  s_1d8485e49bfacb::t_4bdd9056360f1b 12-13,28-30,272-328
+modpacks-plus/tests/Feature/DaemonServerFilesTest.php
+  s_1d8485e49bfacb::t_ea000fc76c0e76 260-310
+modpacks-plus/tests/Support/FailingReadServerFiles.php
+  s_1d8485e49bfacb::t_6c144f711d9590 82-86
+modpacks-plus/tests/Support/FakeServerFiles.php
+  s_1d8485e49bfacb::t_42e01bf2f4abbf 58-72,94-98,204,212-215,401-490
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7864faf33245ddbc66f4851a5791a486b047aa7b",
+  "prompts": {},
+  "sessions": {
+    "s_1d8485e49bfacb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e542c235-d4ed-4f8b-895b-34d623a9fbdb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "DrMxrcy <drmxrcy@gmail.com>"
+    }
+  }
+}
