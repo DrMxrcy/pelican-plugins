@@ -328,15 +328,21 @@ on).
   lists, checked again on the server when the choice is submitted.
 - **Mods**: for another version of the **same loader**, `mods/` and `config/` stay as they are (the
   picker warns that installed mods may not support the new version); for **another loader** the old
-  pack folders are moved into `.modpacks-plus/previous-<date>/`, as for a switch. No mods are
-  installed for the new version.
+  pack folders are moved into `.modpacks-plus/previous-<date>/`, as for a switch; the pack's other
+  files (server icon, menus) stay where they are. No mods are installed for the new version. On a
+  custom egg tagged with the same loader, the official egg comes in, and the picker lists what that
+  resets (startup command, image, variables, mounts).
+- A choice the server already runs (same egg, same Minecraft and loader version) is refused: it
+  would only back up and reinstall. Quilt has no loader version to pick, so the same Quilt version can
+  be rerun to get the newest loader.
 - **Worlds**: a world opened in a newer Minecraft version may not load in an older one; the picker
   warns when the chosen version is older than the server's. The backup keeps the current world.
 - A failed reinstall ends `failed` like a switch; **Restore previous files** puts worlds, player
   files and moved folders back. A version change never replaces the installed pack: the
   page still shows the pack, says the server has been changed since, and update checks then only offer
-  pack versions for the server's new loader and Minecraft version. A later pack install still moves the
-  old pack's recorded files aside.
+  pack versions for the server's new loader and Minecraft version (a finished change clears the pack's
+  update notice until the next check). A later pack install still moves the old pack's recorded files
+  aside.
 
 ## Permissions
 

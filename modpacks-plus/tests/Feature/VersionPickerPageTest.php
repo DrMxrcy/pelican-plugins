@@ -5,6 +5,7 @@ namespace DrMxrcy\ModpacksPlus\Tests\Feature;
 use App\Models\Egg;
 use App\Models\Role;
 use App\Models\Server;
+use App\Models\ServerVariable;
 use App\Models\User;
 use App\Tests\Traits\Integration\CreatesTestModels;
 use DrMxrcy\ModpacksPlus\Filament\Server\Components\InstallProgress;
@@ -260,5 +261,43 @@ class VersionPickerPageTest extends TestCase
             ->assertSee($banner)
             ->assertSee($since)
             ->assertSee(trans('modpacks-plus::strings.page.progress', ['name' => 'NeoForge 1.21.1', 'status' => trans('modpacks-plus::strings.status.installed')]));
+    }
+
+    /** Review fix: the same egg with the same values would only back up and reinstall for nothing. */
+    public function test_a_change_to_what_the_server_already_runs_is_refused(): void
+    {
+        $server = $this->ownerOnFabricServer();
+        ServerVariable::query()->where('server_id', $server->id)->delete();
+        $server->forceFill(['egg_id' => $this->fabric->id])->save();
+        foreach (['MC_VERSION' => '26.3', 'LOADER_VERSION' => '0.20.1', 'SERVER_JARFILE' => 'server.jar'] as $env => $value) {
+            ServerVariable::query()->create(['server_id' => $server->id, 'variable_id' => $this->fabric->variables()->where('env_variable', $env)->value('id'), 'variable_value' => $value]);
+        }
+        $this->actingAsRootAdminOn($server);
+        $this->fakeMeta();
+
+        Livewire::test(ModpacksPage::class)
+            ->call('changeMinecraftVersion', 'fabric', '26.3', '0.20.1')
+            ->assertNotified(trans('modpacks-plus::strings.install.refused'));
+        $this->assertSame(0, PackInstall::query()->count());
+
+        // Another loader build of the same Minecraft version is a change.
+        Livewire::test(ModpacksPage::class)->call('changeMinecraftVersion', 'fabric', '26.3', '0.19.5')->assertOk();
+        $this->assertSame('0.19.5', PackInstall::query()->firstOrFail()->loader_switch['loader_version'] ?? null);
+    }
+
+    /** Review fix: same loader on a custom egg tagged with it still swaps in the official egg; the notes say so. */
+    public function test_the_same_loader_on_a_custom_egg_lists_the_egg_change(): void
+    {
+        $server = $this->ownerOnFabricServer();
+        $this->actingAsRootAdminOn($server);
+        $this->fakeMeta();
+        $server->loadMissing('egg');
+
+        $page = Livewire::test(ModpacksPage::class)->instance();
+        $notes = (string) (new \ReflectionMethod($page, 'versionChangeNotes'))->invoke($page, 'fabric', '26.2');
+
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.version.same_loader', ['from' => 'Fabric 1.20.1', 'to' => 'Fabric 26.2'])), $notes);
+        $this->assertStringContainsString(e(trans('modpacks-plus::strings.install.switch_intro', ['from' => $server->egg->name, 'to' => $this->fabric->name, 'target' => 'Fabric 26.2'])), $notes);
+        $this->assertStringNotContainsString(e(trans('modpacks-plus::strings.install.switch_kept')), $notes);
     }
 }

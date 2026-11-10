@@ -270,6 +270,7 @@ return [
         'update_needs_switch' => 'This version needs another loader or Minecraft version, so it can\'t be an update. Use "Switch to … and install" (admins).',
         'versions_unavailable' => 'The version list could not be loaded (:detail did not answer). Try again in a minute.',
         'version_not_offered' => 'This version is not on the current list for the loader (:detail). Open the picker again and choose from the list.',
+        'version_unchanged' => 'The server is already on :detail with this loader version, so nothing would change.',
     ],
     'steps' => [
         'prepare' => 'Check the pack',

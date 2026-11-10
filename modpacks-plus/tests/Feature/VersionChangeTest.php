@@ -406,4 +406,52 @@ class VersionChangeTest extends TestCase
         $this->expectException(InstallRefusedException::class);
         app(InstallEngine::class)->start($server, null, PackInstall::VERSION_PROVIDER, 'fabric', '26.2', 'x');
     }
+
+    /** Review fix: a loader change moves only the pack folders; the pack's other files stay put. */
+    public function test_a_loader_change_leaves_the_installed_packs_other_files_in_place_and_clears_its_update_flags(): void
+    {
+        $server = $this->fabricServerOnTaggedEgg();
+        $this->files->seed(['server-icon.png' => 'icon']);
+        $pack = PackInstall::query()->create([
+            'server_id' => $server->id, 'provider' => 'modrinth', 'pack_id' => 'AABBCCDD', 'version_id' => 'VERSID01',
+            'name' => 'Test Pack', 'version_number' => '1.0.0', 'status' => PackInstall::STATUS_INSTALLED, 'seq' => 2,
+            'manifest' => [
+                ['path' => 'server-icon.png', 'size' => 4, 'hash' => 'sha1:'.sha1('icon'), 'kept' => false],
+                ['path' => 'mods/old-mod.jar', 'size' => 3, 'hash' => 'sha1:'.sha1('old'), 'kept' => false],
+            ],
+            'update_available' => true, 'latest_version_id' => 'VERSID02', 'latest_version_number' => '2.0.0', 'notified_version' => 'VERSID02', 'finished_at' => now(),
+        ]);
+        $this->reinstallCreates = LoaderSwitchTest::NEOFORGE_LAUNCH_FILES;
+
+        $this->start($server, 'neoforge', '1.21.1', '21.1.77', $this->neoforge);
+        $this->runChange($server);
+
+        $install = $this->latestInstall();
+        $this->assertSame(PackInstall::STATUS_INSTALLED, $install->status, $this->failure($install));
+        $this->assertSame($pack->id, $install->previous_install_id);
+        $this->assertSame('icon', $this->files->files['server-icon.png'] ?? null);
+        $this->assertArrayNotHasKey('mods/old-mod.jar', $this->files->files);
+
+        $pack->refresh();
+        $this->assertFalse($pack->update_available);
+        $this->assertNull($pack->latest_version_id);
+        $this->assertNull($pack->notified_version);
+        $this->assertSame($pack->id, PackInstall::installedPack($server->id)?->id);
+    }
+
+    public function test_a_failed_version_change_keeps_the_packs_update_flags(): void
+    {
+        $server = $this->fabricServerOnOfficialEgg();
+        $pack = PackInstall::query()->create([
+            'server_id' => $server->id, 'provider' => 'modrinth', 'pack_id' => 'AABBCCDD', 'version_id' => 'VERSID01',
+            'name' => 'Test Pack', 'status' => PackInstall::STATUS_INSTALLED, 'seq' => 2, 'update_available' => true, 'latest_version_id' => 'VERSID02',
+        ]);
+        $this->reinstallOutcome = ServerState::ReinstallFailed;
+
+        $this->start($server, 'fabric', '26.2', '0.20.1', $this->fabric);
+        $this->runChange($server);
+
+        $this->assertSame(PackInstall::STATUS_FAILED, $this->latestInstall()->status);
+        $this->assertTrue($pack->fresh()?->update_available);
+    }
 }

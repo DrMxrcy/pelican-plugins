@@ -101,7 +101,9 @@ class MoveAsideStep extends InstallStep
      */
     private function moveRecordedFiles(PackInstall $install, Server $server, InstallEngine $engine, string $aside): ?StepResult
     {
-        if ($install->progressValue('recorded_moved') || $install->previous_install_id === null) {
+        // A version change (plan 40) moves only the pack folders: the pack stays the installed
+        // one, so its other files (server icon, menus) stay where its record says they are.
+        if ($install->progressValue('recorded_moved') || $install->previous_install_id === null || $install->mode === PackInstall::MODE_VERSION) {
             return null;
         }
 

@@ -452,6 +452,14 @@ class InstallEngine
     {
         $this->finish($install, $expectedSeq, PackInstall::STATUS_INSTALLED, PackInstall::STEP_DONE, function (PackInstall $install) {
             $install->addLog('info', 'installed', ['name' => $install->name]);
+
+            // Plan 40: the pack's update flags were for the old loader/Minecraft version; the next
+            // check recomputes them for the new one.
+            if ($install->mode === PackInstall::MODE_VERSION) {
+                PackInstall::query()->where('server_id', $install->server_id)->where('id', '<', $install->id)
+                    ->where('update_available', true)
+                    ->update(['update_available' => false, 'latest_version_id' => null, 'latest_version_number' => null, 'notified_version' => null]);
+            }
         });
     }
 

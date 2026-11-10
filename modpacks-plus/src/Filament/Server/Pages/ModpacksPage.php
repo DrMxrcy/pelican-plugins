@@ -450,6 +450,19 @@ class ModpacksPage extends Page implements HasTable
             'from' => ServerTarget::loaderName($loader).' '.($currentMinecraft ?? '?'),
             'to' => ServerTarget::loaderName($loader).' '.$minecraft,
         ])).'</p>';
+
+        // Same loader on another egg (a custom one tagged with the loader): the official egg comes
+        // in, so its resets are listed too (mods/ and config/ still stay).
+        $server->loadMissing('egg');
+        try {
+            $sameEgg = $server->egg_id === $this->switchEgg(['loader' => $loader, 'minecraft' => $minecraft])['egg']->id;
+        } catch (InstallRefusedException) {
+            $sameEgg = true;
+        }
+        if (!$sameEgg) {
+            return new HtmlString(implode('', $lines).$this->switchDescription(['loader' => $loader, 'minecraft' => $minecraft], withKept: false)->toHtml());
+        }
+
         $lines[] = '<p>'.e(trans('modpacks-plus::strings.install.reset_versions', ['variables' => implode(', ', EggVariableMap::requiredVariables($loader))])).'</p>';
 
         return new HtmlString(implode('', $lines));
@@ -488,8 +501,14 @@ class ModpacksPage extends Page implements HasTable
             }
 
             // The values the egg gets, checked before anything is created.
-            EggVariableMap::variables($loader, $minecraft, $loaderVersion);
+            $variables = EggVariableMap::variables($loader, $minecraft, $loaderVersion);
             ['egg' => $egg] = $this->switchEgg(['loader' => $loader, 'minecraft' => $minecraft]);
+
+            // Nothing would change (same egg, same values): no backup and reinstall for that. Quilt
+            // pins no loader version (its script installs the newest), so a rerun may still update it.
+            if (EggVariableMap::pinsLoaderVersion($loader) && $server->egg_id === $egg->id && $this->hasVariableValues($server, $variables)) {
+                throw new InstallRefusedException('version_unchanged', $target);
+            }
 
             $install = app(InstallEngine::class)->startVersionChange($server, user(), [
                 'loader' => $loader,
@@ -514,6 +533,22 @@ class ModpacksPage extends Page implements HasTable
             ->title(trans('modpacks-plus::strings.version.started', ['target' => $install->name]))
             ->success()
             ->send();
+    }
+
+    /** @param  array<string, string>  $values  env variable => value */
+    private function hasVariableValues(Server $server, array $values): bool
+    {
+        $current = $server->variables()->whereIn('env_variable', array_keys($values))->get()
+            ->mapWithKeys(fn ($variable) => [$variable->env_variable => trim((string) ($variable->server_value ?? $variable->default_value))])
+            ->all();
+
+        foreach ($values as $env => $value) {
+            if (($current[$env] ?? null) !== $value) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -887,7 +922,7 @@ class ModpacksPage extends Page implements HasTable
      *
      * @param  array{loader: string, minecraft: string}  $target
      */
-    private function switchDescription(array $target): HtmlString
+    private function switchDescription(array $target, bool $withKept = true): HtmlString
     {
         try {
             ['egg' => $egg, 'image' => $image] = $this->switchEgg($target);
@@ -950,7 +985,7 @@ class ModpacksPage extends Page implements HasTable
         return new HtmlString(
             '<p>'.e($intro).'</p>'
             .'<ul style="list-style: disc; padding-left: 1.25rem; margin: 0.5rem 0">'.implode('', array_map(fn (string $line) => '<li>'.e($line).'</li>', $resets)).'</ul>'
-            .'<p>'.e(trans('modpacks-plus::strings.install.switch_kept')).'</p>'
+            .($withKept ? '<p>'.e(trans('modpacks-plus::strings.install.switch_kept')).'</p>' : '')
         );
     }
 
