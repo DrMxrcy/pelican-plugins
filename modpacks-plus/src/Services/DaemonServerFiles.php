@@ -9,6 +9,8 @@ use App\Repositories\Daemon\DaemonFileRepository;
 use DrMxrcy\ModpacksPlus\Contracts\ServerFiles;
 use DrMxrcy\ModpacksPlus\Exceptions\UnsafePlanException;
 use DrMxrcy\ModpacksPlus\Support\Caps;
+use DrMxrcy\ModpacksPlus\Support\JobClock;
+use DrMxrcy\ModpacksPlus\Support\OverrideArchive;
 use DrMxrcy\ModpacksPlus\Support\PlanValidator;
 use Illuminate\Http\Client\RequestException;
 use RuntimeException;
@@ -22,6 +24,9 @@ class DaemonServerFiles implements ServerFiles
 {
     /** The only host the node is ever asked to pull from. */
     public const PULL_HOST = 'cdn.modrinth.com';
+
+    /** Seconds the panel waits for the node to unpack an override archive (capped by the job's time left). */
+    public const DECOMPRESS_TIMEOUT = 45;
 
     /** @param  array<int, string>  $worlds */
     final public function __construct(private readonly array $worlds = ['world']) {}
@@ -263,5 +268,62 @@ class DaemonServerFiles implements ServerFiles
         $path = $this->guardTarget($path);
 
         $this->repository($server)->deleteFiles('/', [$path])->throw();
+    }
+
+    /**
+     * Plan 42. The node's unpack writes every entry without asking the panel, so this guard is
+     * what a per-file write's guardTarget() is: the archive must be a staged override archive
+     * and each entry a safe path that is not protected (worlds, player lists, server.properties)
+     * and, unlike a single write, not inside the plugin's own folder either.
+     *
+     * @param  array<int, mixed>  $paths  checked as untrusted input (a non-string is refused, never coerced)
+     * @param  array<int, string>  $worlds
+     *
+     * @throws UnsafePlanException
+     */
+    public static function guardDecompress(string $archive, array $paths, array $worlds = ['world']): void
+    {
+        self::guard($archive);
+        if (!OverrideArchive::isStagingPath($archive)) {
+            throw new UnsafePlanException('unsafe_path', $archive);
+        }
+
+        if ($paths === [] || count($paths) > OverrideArchive::CHUNK_ENTRIES) {
+            throw new UnsafePlanException('too_many_entries', (string) count($paths));
+        }
+
+        $validator = new PlanValidator(new Caps(), $worlds);
+        $seen = [];
+        foreach ($paths as $path) {
+            if (!is_string($path)) {
+                throw new UnsafePlanException('unsafe_path', $archive);
+            }
+            self::guard($path);
+
+            // isProtected() covers `.modpacks-plus/` itself (no own-folder exception here).
+            if ($validator->isProtected($path) || PlanValidator::isModrinthMetadata($path)) {
+                throw new UnsafePlanException('protected_path', $path);
+            }
+
+            if (isset($seen[strtolower($path)])) {
+                throw new UnsafePlanException('duplicate_path', $path);
+            }
+            $seen[strtolower($path)] = true;
+        }
+    }
+
+    public function decompress(Server $server, string $archive, array $paths): void
+    {
+        self::guardDecompress($archive, $paths, $this->worlds);
+
+        // Not DaemonFileRepository::decompressFile(): its fixed 15-minute timeout would outlive the job.
+        $this->repository($server)
+            ->getHttpClient()
+            ->timeout(JobClock::timeout(self::DECOMPRESS_TIMEOUT))
+            ->post("/api/servers/{$server->uuid}/files/decompress", [
+                'root' => '/',
+                'file' => $archive,
+            ])
+            ->throw();
     }
 }

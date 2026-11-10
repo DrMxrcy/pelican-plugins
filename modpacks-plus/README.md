@@ -21,7 +21,12 @@ the server to the pack's loader (Fabric, Forge, NeoForge, Quilt) and Minecraft v
      `.modpacks-plus/previous-<date>/` (nothing is deleted);
   4. **download** — server-side files land in `.modpacks-plus/staging/<install>/`, are verified there
      and only then renamed into place (see "Downloads" below);
-  5. **overrides** — `overrides/` then `server-overrides/` from the archive;
+  5. **overrides** — `overrides/` then `server-overrides/` from the archive. Fewer than 50 files are
+     written one by one; from 50 on (`MODPACKS_PLUS_OVERRIDE_ARCHIVE_MIN`, 0 = never) the panel builds
+     one zip from the checked override files only (same paths, protected-path and size rules; the pack's
+     own archive never reaches the node), stages it in `.modpacks-plus/staging/`, has the node unpack it
+     into the server root, deletes it and checks every written file's size. A worker killed mid-way
+     resumes the same phase; a failed unpack is retried up to 3 times with a freshly built zip;
   6. **finalize**.
 - A live step list and log, a cancel button (stops between steps / download batches) and a final summary.
   The last installed pack shows as a banner on the page.

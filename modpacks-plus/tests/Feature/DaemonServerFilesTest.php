@@ -257,6 +257,57 @@ class DaemonServerFilesTest extends TestCase
         ], $this->files()->list($this->server, ''));
     }
 
+    /** @return array<string, array{string, array<int, mixed>, string}> archive, paths, reason */
+    public static function refusedDecompressions(): array
+    {
+        $staged = '.modpacks-plus/staging/overrides-7-0-1.zip';
+
+        return [
+            'archive outside staging' => ['mods/pack.zip', ['config/a.toml'], 'unsafe_path'],
+            'download staging folder' => ['.modpacks-plus/staging/7/overrides-7-0-1.zip', ['config/a.toml'], 'unsafe_path'],
+            'archive traversal' => ['.modpacks-plus/staging/../../overrides-7-0-1.zip', ['config/a.toml'], 'unsafe_path'],
+            'not a zip name' => ['.modpacks-plus/staging/overrides-7-0-1.tar.gz', ['config/a.toml'], 'unsafe_path'],
+            'no entries' => [$staged, [], 'too_many_entries'],
+            'entry outside the root' => [$staged, ['config/a.toml', '../escape'], 'unsafe_path'],
+            'absolute entry' => [$staged, ['/etc/cron.d/x'], 'unsafe_path'],
+            'non-string entry' => [$staged, [42], 'unsafe_path'],
+            'player list' => [$staged, ['config/a.toml', 'ops.json'], 'protected_path'],
+            'server.properties' => [$staged, ['server.properties'], 'protected_path'],
+            'world' => [$staged, ['world/level.dat'], 'protected_path'],
+            'nether' => [$staged, ['world_nether/DIM-1/x'], 'protected_path'],
+            'own folder' => [$staged, ['.modpacks-plus/previous-x/mods/a.jar'], 'protected_path'],
+            'own staging' => [$staged, ['.modpacks-plus/staging/overrides-7-0-2.zip'], 'protected_path'],
+            'modrinth metadata' => [$staged, ['mods/.modrinth-metadata.json'], 'protected_path'],
+            'duplicate in another case' => [$staged, ['config/a.toml', 'Config/A.toml'], 'duplicate_path'],
+        ];
+    }
+
+    /** @param  array<int, string>  $paths */
+    #[DataProvider('refusedDecompressions')]
+    public function test_the_node_only_unpacks_staged_override_archives_of_safe_paths(string $archive, array $paths, string $reason): void
+    {
+        $server = $this->server;
+
+        $this->assertRefused(fn () => $this->files()->decompress($server, $archive, $paths), $reason);
+    }
+
+    public function test_decompress_protects_the_installs_own_worlds(): void
+    {
+        $server = $this->server;
+
+        $this->assertRefused(fn () => $this->files()->protecting(['saves/survival'])->decompress($server, '.modpacks-plus/staging/overrides-7-0-1.zip', ['saves/survival/level.dat']), 'protected_path');
+    }
+
+    public function test_decompress_unpacks_the_staged_archive_into_the_server_root(): void
+    {
+        $this->files()->decompress($this->server, '.modpacks-plus/staging/overrides-7-0-1.zip', ['config/a.toml', 'kubejs/server_scripts/x.js', '123']);
+
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), "/api/servers/{$this->server->uuid}/files/decompress")
+            && $request->method() === 'POST'
+            && $request['root'] === '/'
+            && $request['file'] === '.modpacks-plus/staging/overrides-7-0-1.zip');
+    }
+
     public function test_server_power_reads_the_state_and_sends_stop(): void
     {
         $node = $this->server->node;

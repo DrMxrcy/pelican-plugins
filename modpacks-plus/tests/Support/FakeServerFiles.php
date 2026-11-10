@@ -55,8 +55,20 @@ final class FakeServerFiles implements ServerFiles
     /** Runs before a stat, e.g. to make the node fail before anything moved. */
     public ?\Closure $beforeStat = null;
 
-    /** Runs before a listing, e.g. to make the daemon error. */
+    /** Runs before a listing, e.g. to simulate the worker dying mid-way through a scan. */
     public ?\Closure $beforeList = null;
+
+    /** Runs before an archive is unpacked, e.g. to simulate the worker dying after the archive write. */
+    public ?\Closure $beforeDecompress = null;
+
+    /** Runs after an archive was unpacked, e.g. to simulate the worker dying before that is recorded. */
+    public ?\Closure $afterDecompress = null;
+
+    /** @var array<int, string> paths an unpack silently skips (as Wings does for its file denylist) */
+    public array $ignored = [];
+
+    /** @var array<int, array<int, string>> the file names each unpack wrote */
+    public array $extracted = [];
 
     /** @var array<int, string> worlds protected by the copy the engine got */
     private array $worlds = ['world'];
@@ -79,7 +91,11 @@ final class FakeServerFiles implements ServerFiles
         $copy->failMoves = &$this->failMoves;
         $copy->afterMove = &$this->afterMove;
         $copy->beforeStat = &$this->beforeStat;
+        $copy->beforeDecompress = &$this->beforeDecompress;
         $copy->beforeList = &$this->beforeList;
+        $copy->afterDecompress = &$this->afterDecompress;
+        $copy->ignored = &$this->ignored;
+        $copy->extracted = &$this->extracted;
 
         return $copy;
     }
@@ -185,7 +201,7 @@ final class FakeServerFiles implements ServerFiles
     /** Calls that change the server. */
     public function writeCalls(): int
     {
-        return count(array_filter($this->calls, fn ($call) => in_array($call[0], ['createDirectory', 'rename', 'movePreserved', 'pull', 'write', 'delete'], true)));
+        return count(array_filter($this->calls, fn ($call) => in_array($call[0], ['createDirectory', 'rename', 'movePreserved', 'pull', 'write', 'delete', 'decompress'], true)));
     }
 
     public function list(Server $server, string $directory): ?array
@@ -380,6 +396,96 @@ final class FakeServerFiles implements ServerFiles
             if ($directory === $path || str_starts_with($directory, "$path/")) {
                 unset($this->dirs[$directory]);
             }
+        }
+    }
+
+    /**
+     * Unpacks a staged archive like Wings: every entry is written (replacing what is there),
+     * parents created, ignored paths skipped. The real adapter's guard runs first; then each
+     * entry actually in the zip is checked again here, so a hostile entry is recorded as a
+     * violation even if the declared paths lied.
+     */
+    public function decompress(Server $server, string $archive, array $paths): void
+    {
+        $this->calls[] = ['decompress', [$archive]];
+        $this->check($archive);
+
+        try {
+            DaemonServerFiles::guardDecompress($archive, $paths, $this->worlds);
+        } catch (UnsafePlanException $exception) {
+            $this->violations[] = "decompress refused: $archive";
+
+            throw $exception;
+        }
+
+        if ($this->beforeDecompress !== null) {
+            ($this->beforeDecompress)($archive);
+        }
+
+        if (!isset($this->files[$archive])) {
+            throw new RuntimeException("fake daemon: $archive missing");
+        }
+
+        $temp = (string) tempnam(sys_get_temp_dir(), 'fake-unpack');
+        file_put_contents($temp, $this->files[$archive]);
+        $zip = new \ZipArchive();
+
+        try {
+            if ($zip->open($temp, \ZipArchive::RDONLY) !== true) {
+                throw new RuntimeException("fake daemon: $archive is no zip");
+            }
+
+            $written = [];
+            $validator = new PlanValidator(new Caps(), $this->worlds);
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $name = (string) $zip->getNameIndex($i, \ZipArchive::FL_ENC_RAW);
+                $target = rtrim($name, '/');
+
+                if (!PlanValidator::isSafeRelativePath($target)) {
+                    $this->violations[] = "unpacked unsafe path: $name";
+
+                    continue;
+                }
+                if ($validator->isProtected($target) || PlanValidator::isModrinthMetadata($target)) {
+                    $this->violations[] = "unpacked protected path: $name";
+
+                    continue;
+                }
+                if (!in_array($name, $paths, true)) {
+                    $this->violations[] = "unpacked undeclared entry: $name";
+                }
+
+                $opsys = 0;
+                $attributes = 0;
+                $zip->getExternalAttributesIndex($i, $opsys, $attributes);
+                if ($opsys === \ZipArchive::OPSYS_UNIX && (($attributes >> 16) & 0170000) !== 0100000 && !str_ends_with($name, '/')) {
+                    $this->violations[] = "unpacked non-regular file: $name";
+                }
+
+                if (str_ends_with($name, '/')) {
+                    $this->mkdirs($target);
+
+                    continue;
+                }
+                if (in_array($name, $this->ignored, true)) {
+                    continue;
+                }
+                if (isset($this->dirs[$name])) {
+                    throw new RuntimeException("fake daemon: $name is a directory");
+                }
+
+                $this->put($name, (string) $zip->getFromIndex($i));
+                $written[] = $name;
+            }
+            $zip->close();
+        } finally {
+            @unlink($temp);
+        }
+
+        $this->extracted[] = $written;
+
+        if ($this->afterDecompress !== null) {
+            ($this->afterDecompress)($archive);
         }
     }
 }

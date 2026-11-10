@@ -79,4 +79,9 @@ final class FailingReadServerFiles implements ServerFiles
     {
         $this->inner->delete($server, $path);
     }
+
+    public function decompress(Server $server, string $archive, array $paths): void
+    {
+        $this->inner->decompress($server, $archive, $paths);
+    }
 }

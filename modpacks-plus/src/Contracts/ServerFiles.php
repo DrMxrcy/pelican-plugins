@@ -14,6 +14,7 @@ use App\Models\Server;
  *   redirects on its own, so it only gets URLs Modrinth vouched for).
  * The one way a protected path moves at all is movePreserved(): into this plugin's own
  * folder and back, never replacing anything (loader switches and restores).
+ * The one archive the node ever unpacks is a panel-built override archive (decompress()).
  */
 interface ServerFiles
 {
@@ -57,4 +58,15 @@ interface ServerFiles
     public function write(Server $server, string $path, string $contents): void;
 
     public function delete(Server $server, string $path): void;
+
+    /**
+     * Has the node unpack a staged override archive (plan 42) into the server root and waits
+     * for it. Only `.modpacks-plus/staging/overrides-<install>-<chunk>-<attempt>.zip`
+     * (OverrideArchive::isStagingPath()) is accepted, and $paths, the entries the panel put
+     * in it (OverrideArchive::$paths), are each refused like a write would be, and further:
+     * nothing inside `.modpacks-plus/`, no Modrinth metadata file, no duplicates.
+     *
+     * @param  array<int, string>  $paths
+     */
+    public function decompress(Server $server, string $archive, array $paths): void;
 }

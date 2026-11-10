@@ -41,6 +41,10 @@ return [
     // Files pulled per download job; cancel takes effect between batches.
     'download_batch' => (int) env('MODPACKS_PLUS_DOWNLOAD_BATCH', 10),
 
+    // From this many override files on, the panel writes them as one zip it builds itself and the
+    // node unpacks it (plan 42) instead of one daemon write per file. 0 turns that off.
+    'override_archive_min' => (int) env('MODPACKS_PLUS_OVERRIDE_ARCHIVE_MIN', 50),
+
     // Hard limits checked before anything is written to the server.
     'caps' => [
         // Files listed in the pack index (after dropping client-only ones).
