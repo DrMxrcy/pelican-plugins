@@ -2,7 +2,12 @@
 
 ## v0.6.0 — 2026-11-10
 
-_Plus behind-the-scenes performance and reliability work._
+Modpacks Plus gets faster and more dependable. Highlights:
+- Pick a new Minecraft version or mod loader for your server, with a backup first and a way back.
+- Install CurseForge packs straight from a link, and find packs for any Minecraft version.
+- Big modpacks install and switch much faster, and client-only mods stay off your server.
+- Installs wait for backups and stop the server safely instead of failing halfway.
+Thanks for playing!
 
 ## v0.5.0 — 2026-11-10
 

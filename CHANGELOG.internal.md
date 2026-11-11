@@ -5,14 +5,17 @@ _Full work log — every item, including internal/dev work. The curated public c
 ## v0.6.0 — 2026-11-10
 
 ### ✨ New
-- Minecraft version and loader picker
-- Modpacks Plus: install a CurseForge pack from its link or project ID
+- Change your server's Minecraft version or mod loader from a picker, with a backup first and an easy way back.
+- Paste a CurseForge modpack link or project ID to install it directly.
 - Modpacks Plus: apply big override sets as one archive instead of one write per file
 - Modpacks Plus: catch a loader reinstall that the node reports as successful but left no server to start
 
 ### 🐛 Fixed
-- Switching away from a big pack times out in move-aside: thousands of old pack files are renamed one request each (~5 s per file)
-- CurseForge manifest installs keep files the author tags Client-only (gameVersions has Client, not Server), so packs without a usable server pack crash at boot
+- Switching away from a very large modpack no longer stalls or times out.
+- Modpack search can show packs for other Minecraft versions and loaders, and offers to switch your server to match.
+- Installing a modpack right after another change now waits its turn instead of failing.
+- A running server is stopped safely before a modpack is installed or switched.
+- CurseForge modpacks leave out mods their authors mark as client-only, so more packs start on the first try.
 
 ## v0.5.0 — 2026-11-10
 
@@ -48,9 +51,6 @@ _Full work log — every item, including internal/dev work. The curated public c
 ### 🐛 Fixed
 - Installing a mod never overwrites a file you added yourself with the same name.
 - Documented how to update the plugin and recover if the panel marks it Crashed.
-- Modpacks search only lists packs for the server's current Minecraft version and loader, so packs that need a loader/version switch can't be found
-- An install right after another (e.g. version picker then a pack) fails backup_impossible on the panel's backup throttle instead of waiting for the window
-- A plain install or pack switch (same loader) never stops a running server before moving mods/config aside and writing the pack, so the old pack keeps running and mods saving config on shutdown can overwrite the pack's files
 
 ## v0.3.0 — 2026-11-08
 
